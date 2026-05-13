@@ -1,0 +1,7 @@
+services:
+  word_length_checker:
+    image: "covehub/cove-demo-hello-world-word-length-checker@sha256:6cdc22c80f9e102ab2b0da4edbeb96964179cda981a3c3d8f2786a710130e730"
+    environment:
+      INPUT_PATH: /workspace/input/bob_secret_word.txt
+      RESULT_PATH: /workspace/output/bob_word_length_result.json
+      OUTPUT_PATH: /workspace/output/bob_secret_word_transformed.txt

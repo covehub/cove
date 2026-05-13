@@ -1,0 +1,16 @@
+{
+  "containers": [
+    {
+      "image_name": "cove-demo-hello-world-word-length-checker",
+      "canonical_ref": "covehub/cove-demo-hello-world-word-length-checker@sha256:6cdc22c80f9e102ab2b0da4edbeb96964179cda981a3c3d8f2786a710130e730"
+    },
+    {
+      "image_name": "cove-demo-hello-world-character-set-checker",
+      "canonical_ref": "covehub/cove-demo-hello-world-character-set-checker@sha256:01c164b1308f09dc62bdf4ccdf156e2b3d4ae82af4e6f1027c0716d4bfec20d5"
+    },
+    {
+      "image_name": "cove-demo-hello-world-final-server",
+      "canonical_ref": "covehub/cove-demo-hello-world-final-server@sha256:ce5eda2897906bd0306de7d0fdd22bc5cc7efaa94e9944085e8c55fbd463a8fc"
+    }
+  ]
+}

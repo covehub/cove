@@ -1,0 +1,111 @@
+cove_version: 1
+
+workflow:
+  id: hello_world
+
+platform:
+  provider: phala
+  runtime: dstack
+
+owners:
+  alice: https://cove-demo-hello-world-alice-provisioning.covehub.io
+  bob: https://cove-demo-hello-world-bob-provisioning.covehub.io
+
+ephemeral_keypairs:
+  session_key:
+    algorithm: ed25519
+
+artifacts:
+  alice_secret_word:
+    type: static
+    owner: alice
+    hub_path: v1/artifacts/alice/alice_secret_word/latest
+    plaintext_hash: "sha256:5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03"
+  bob_secret_word:
+    type: static
+    owner: bob
+    hub_path: v1/artifacts/bob/bob_secret_word/latest
+    plaintext_hash: "sha256:e258d248fda94c63753607f7c4494ee0fcbe92f1a76bfdac795c9d84101eb317"
+  alice_secret_word_transformed:
+    type: dynamic
+    owner: alice
+    hub_path: runtime/hello_world/artifacts/alice_secret_word_transformed/latest
+  bob_secret_word_transformed:
+    type: dynamic
+    owner: bob
+    hub_path: runtime/hello_world/artifacts/bob_secret_word_transformed/latest
+
+nodes:
+  alice_word_length_checker:
+    compose: nodes/alice_word_length_checker.compose.yaml
+    services:
+      word_length_checker:
+        inputs:
+          /workspace/input/alice_secret_word.txt: alice_secret_word
+        outputs:
+          /workspace/output/alice_secret_word_transformed.txt: alice_secret_word_transformed
+        custom_certificate_field:
+          schema: schemas/check_result.v1.json
+          path: /workspace/output/alice_word_length_result.json
+        preconditions:
+          "==":
+            - { "var": "inputs.alice_secret_word.plaintext_hash" }
+            - "sha256:5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03"
+
+  bob_word_length_checker:
+    compose: nodes/bob_word_length_checker.compose.yaml
+    services:
+      word_length_checker:
+        inputs:
+          /workspace/input/bob_secret_word.txt: bob_secret_word
+        outputs:
+          /workspace/output/bob_secret_word_transformed.txt: bob_secret_word_transformed
+        custom_certificate_field:
+          schema: schemas/check_result.v1.json
+          path: /workspace/output/bob_word_length_result.json
+        preconditions:
+          "==":
+            - { "var": "inputs.bob_secret_word.plaintext_hash" }
+            - "sha256:e258d248fda94c63753607f7c4494ee0fcbe92f1a76bfdac795c9d84101eb317"
+
+  character_set_checker:
+    compose: nodes/character_set_checker.compose.yaml
+    dependencies:
+      - alice_word_length_checker
+      - bob_word_length_checker
+    services:
+      character_set_checker:
+        inputs:
+          /workspace/input/alice_secret_word_transformed.txt: alice_secret_word_transformed
+          /workspace/input/bob_secret_word_transformed.txt: bob_secret_word_transformed
+        custom_certificate_field:
+          schema: schemas/check_result.v1.json
+          path: /workspace/output/character_set_result.json
+        preconditions:
+          and:
+            - "==":
+                - { "var": "certificates.alice_word_length_checker.certificate_body.results.word_length_checker.pass" }
+                - true
+            - "==":
+                - { "var": "certificates.bob_word_length_checker.certificate_body.results.word_length_checker.pass" }
+                - true
+
+  final_server:
+    compose: nodes/final_server.compose.yaml
+    dependencies:
+      - alice_word_length_checker
+      - bob_word_length_checker
+      - character_set_checker
+    services:
+      final_server:
+        should_terminate: False
+        inputs:
+          /workspace/input/alice_secret_word_transformed.txt: alice_secret_word_transformed
+          /workspace/input/bob_secret_word_transformed.txt: bob_secret_word_transformed
+        ephemeral_keypairs:
+          - session_key
+        preconditions:
+          and:
+            - "==":
+                - { "var": "certificates.character_set_checker.certificate_body.results.character_set_checker.pass" }
+                - true

@@ -1,0 +1,807 @@
+from __future__ import annotations
+
+import shutil
+from pathlib import Path
+
+import pytest
+import yaml
+
+from cove_cli.config import config_path_for_home
+from cove_cli.compile import reviewed_compose_hash
+from cove_cli.deploy import DeployCommandError, PhalaDeployOptions, deploy_workflow
+from cove_cli.publish import MaterializedNode, MaterializedWorkflowBundle, push_workflow
+from cove_cli.provisioning_identity import build_owner_identity_document
+
+from .support import MockCovehubServer, build_test_owner_identity, write_test_certificate
+
+
+ALICE_DOMAIN = "cove-demo-hello-world-alice-provisioning.covehub.io"
+ALICE_OWNER_URL = f"https://{ALICE_DOMAIN}"
+
+
+@pytest.fixture(autouse=True)
+def _stub_owner_identity_resolution(monkeypatch):
+    def fake_fetch_owner_identity_document(
+        *,
+        owner_url: str | None = None,
+        expected_owner_domain: str | None = None,
+        timeout: float = 5.0,
+        **_legacy_kwargs,
+    ):
+        assert owner_url is not None
+        owner_domain = expected_owner_domain or "owner.example.test"
+        return build_test_owner_identity(owner_domain, owner_url)
+
+    monkeypatch.setattr(
+        "cove_cli.compile.fetch_owner_identity_document",
+        fake_fetch_owner_identity_document,
+    )
+
+    def fake_fetch_owner_identity_for_write(
+        *,
+        owner_url: str,
+        owner_private_key_path: Path,
+        expected_owner_domain: str | None = None,
+        timeout: float = 5.0,
+    ):
+        assert expected_owner_domain is not None
+        return build_owner_identity_document(
+            owner_url=owner_url,
+            owner_private_key_path=owner_private_key_path,
+            owner_public_key_path=owner_private_key_path.parent / "owner-signing-public.pem",
+        )
+
+    monkeypatch.setattr(
+        "cove_cli.publish.fetch_owner_identity_for_write",
+        fake_fetch_owner_identity_for_write,
+    )
+
+
+def test_deploy_pulls_bundle_before_submitting_and_orders_nodes_topologically(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workflow_dir = _copy_hello_world_workflow(tmp_path)
+    cove_home = tmp_path / ".alice_cove"
+    events: list[str] = []
+
+    class FakePhalaClient:
+        def __init__(self) -> None:
+            self.provision_calls: list[dict[str, object]] = []
+
+        def provision_cvm(self, payload: dict[str, object]):
+            name = payload["name"]
+            assert isinstance(name, str)
+            assert payload["instance_type"] == "tdx.small"
+            compose_file = payload["compose_file"]
+            assert isinstance(compose_file, dict)
+            assert compose_file["runner"] == "docker-compose"
+            assert compose_file["name"] == name
+            events.append(f"provision:{name}")
+            self.provision_calls.append(payload)
+            suffix = len(self.provision_calls)
+            return {"app_id": f"app-{suffix}", "compose_hash": f"compose-{suffix}"}
+
+        def commit_cvm_provision(self, payload: dict[str, object]):
+            app_id = payload["app_id"]
+            return {"id": f"cvm-{app_id}", "status": "pending"}
+
+        def close(self) -> None:
+            return None
+
+    fake_client = FakePhalaClient()
+
+    with MockCovehubServer() as server:
+        _write_config(
+            cove_home,
+            {
+                "covehub_server_url": server.url,
+                "owner_server_url": ALICE_OWNER_URL,
+                "phala_cloud_api_key": "phala-api-key",
+            },
+        )
+        push_workflow(workflow_dir / "workflow.cove.yaml", cove_home=cove_home)
+
+        original_pull = __import__("cove_cli.deploy", fromlist=["pull_workflow_bundle"]).pull_workflow_bundle
+
+        def wrapped_pull_workflow_bundle(**kwargs):
+            events.append("pull")
+            return original_pull(**kwargs)
+
+        monkeypatch.setattr("cove_cli.deploy.pull_workflow_bundle", wrapped_pull_workflow_bundle)
+        monkeypatch.setattr(
+            "cove_cli.deploy._create_phala_client",
+            lambda api_key: _assert_api_key(api_key, fake_client),
+        )
+
+        summary = deploy_workflow(
+            f"{ALICE_DOMAIN}/hello_world",
+            cove_home=cove_home,
+            phala_options=PhalaDeployOptions(instance_type="tdx.small"),
+        )
+
+    assert events[0] == "pull"
+    expected_prefix = "cove-cove-demo-hello-world-alice-provisioning-covehu"
+    assert [event for event in events[1:]] == [
+        f"provision:{expected_prefix}-3a65956cab",
+        f"provision:{expected_prefix}-7d5354c59e",
+        f"provision:{expected_prefix}-b4b07c35e6",
+        f"provision:{expected_prefix}-cdb32f354e",
+    ]
+    assert f"Deployed workflow '{ALICE_DOMAIN}/hello_world' to Phala" in summary
+    assert "cvm_id=cvm-app-4" in summary
+
+    final_payload = fake_client.provision_calls[-1]
+    assert final_payload["name"] == f"{expected_prefix}-cdb32f354e"
+    assert final_payload["instance_type"] == "tdx.small"
+    compose_file = final_payload["compose_file"]
+    assert isinstance(compose_file, dict)
+    assert compose_file["runner"] == "docker-compose"
+    assert compose_file["name"] == final_payload["name"]
+    translated_compose = compose_file["docker_compose_file"]
+    assert isinstance(translated_compose, str)
+    translated_payload = yaml.safe_load(translated_compose)
+    assert translated_payload["volumes"]["cove_runtime"] == {}
+    assert "cove_generated" not in translated_payload["volumes"]
+    assert "cove_seed_generated" not in translated_payload["services"]
+    assert all(
+        "cove_seed_generated" not in service.get("depends_on", {})
+        for service in translated_payload["services"].values()
+        if isinstance(service, dict)
+    )
+    final_service_env = translated_payload["services"]["cove_node_certificate_writer"]["environment"]
+    assert "COVE_COMPOSE_HASH" in final_service_env
+    assert "COVE_COMPOSE_PATH" not in final_service_env
+    assert any(
+        service_name.startswith("cove_copy_")
+        for service_name in translated_payload["services"]
+    )
+    for service_name, service in translated_payload["services"].items():
+        if not service_name.startswith("cove_copy_"):
+            continue
+        source_path = service["environment"]["COVE_INPUT_SOURCE"]
+        assert source_path.startswith("/cove/inputs/")
+        assert not source_path.startswith("/runtime/cove/")
+    assert _has_bind_mount(
+        translated_payload["services"]["cove_node_certificate_writer"],
+        "/var/run/dstack.sock",
+    )
+    assert not _has_bind_mount(
+        translated_payload["services"]["cove_dependency_certificate_fetcher"],
+        "/var/run/dstack.sock",
+    )
+
+
+def test_deploy_requires_phala_cloud_api_key_in_local_config(tmp_path) -> None:
+    cove_home = tmp_path / ".cove"
+    _write_config(cove_home, {"covehub_server_url": "http://127.0.0.1:8000"})
+
+    with pytest.raises(DeployCommandError, match="phala_cloud_api_key"):
+        deploy_workflow("alice/demo", cove_home=cove_home)
+
+
+def test_deploy_requires_explicit_phala_instance_type(tmp_path) -> None:
+    cove_home = tmp_path / ".cove"
+    _write_config(
+        cove_home,
+        {
+            "covehub_server_url": "http://127.0.0.1:8000",
+            "phala_cloud_api_key": "phala-api-key",
+        },
+    )
+
+    with pytest.raises(DeployCommandError, match="--phala-instance-type"):
+        deploy_workflow("alice/demo", cove_home=cove_home)
+
+
+def test_deploy_passes_common_phala_options_to_provision_payload(tmp_path, monkeypatch) -> None:
+    cove_home = tmp_path / ".cove"
+    _write_config(
+        cove_home,
+        {
+            "covehub_server_url": "http://127.0.0.1:8000",
+            "phala_cloud_api_key": "phala-api-key",
+        },
+    )
+    bundle = _write_bundle_root(
+        tmp_path / "bundle",
+        workflow_text="""
+cove_version: 1
+workflow:
+  id: demo
+platform:
+  provider: phala
+  runtime: dstack
+owners: {}
+artifacts: {}
+nodes:
+  node_one:
+    compose: nodes/node_one/compose.generated.yaml
+    services:
+      worker:
+        custom_certificate_field:
+          schema: schemas/result.json
+""".strip()
+        + "\n",
+        compose_text="""
+services:
+  worker:
+    image: example/worker@sha256:1111111111111111111111111111111111111111111111111111111111111111
+""".strip()
+        + "\n",
+    )
+    captured_payloads: list[dict[str, object]] = []
+
+    class FakePhalaClient:
+        def provision_cvm(self, payload: dict[str, object]):
+            captured_payloads.append(payload)
+            return {"app_id": "app-1", "compose_hash": "compose-1"}
+
+        def commit_cvm_provision(self, payload: dict[str, object]):
+            return {"id": "cvm-app-1", "status": "pending"}
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr("cove_cli.deploy.pull_workflow_bundle", lambda **_kwargs: bundle)
+    monkeypatch.setattr(
+        "cove_cli.deploy._create_phala_client",
+        lambda api_key: _assert_api_key(api_key, FakePhalaClient()),
+    )
+
+    deploy_workflow(
+        f"{ALICE_DOMAIN}/demo",
+        cove_home=cove_home,
+        phala_options=PhalaDeployOptions(
+            instance_type="h200.small",
+            region="us-west",
+            os_image="dstack-0.5.9",
+            node_id=18,
+            disk_size_gb=200,
+            public_logs=False,
+            public_sysinfo=True,
+            listed=False,
+        ),
+    )
+
+    assert len(captured_payloads) == 1
+    payload = captured_payloads[0]
+    assert payload["name"] == "cove-cove-demo-hello-world-alice-provisioning-covehu-8399dd9dde"
+    assert payload["instance_type"] == "h200.small"
+    assert payload["region"] == "us-west"
+    assert payload["image"] == "dstack-0.5.9"
+    assert payload["node_id"] == 18
+    assert payload["disk_size"] == 200
+    assert payload["listed"] is False
+    compose_file = payload["compose_file"]
+    assert isinstance(compose_file, dict)
+    assert compose_file["runner"] == "docker-compose"
+    assert compose_file["name"] == payload["name"]
+    assert compose_file["public_logs"] is False
+    assert compose_file["public_sysinfo"] is True
+
+
+def test_deploy_encrypts_configured_docker_hub_credentials_for_phala(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    cove_home = tmp_path / ".cove"
+    _write_config(
+        cove_home,
+        {
+            "covehub_server_url": "http://127.0.0.1:8000",
+            "phala_cloud_api_key": "phala-api-key",
+            "phala_docker_username": "alice-docker",
+            "phala_docker_access_token": "docker-read-token",
+        },
+    )
+    bundle = _write_minimal_bundle(tmp_path / "bundle")
+    client = _CapturingPhalaClient()
+    encrypted_inputs: list[tuple[list[tuple[str, str]], str]] = []
+
+    def fake_encrypt(env_vars: list[tuple[str, str]], public_key_hex: str) -> str:
+        encrypted_inputs.append((env_vars, public_key_hex))
+        return "encrypted-env"
+
+    monkeypatch.setattr("cove_cli.deploy.pull_workflow_bundle", lambda **_kwargs: bundle)
+    monkeypatch.setattr(
+        "cove_cli.deploy._create_phala_client",
+        lambda api_key: _assert_api_key(api_key, client),
+    )
+    monkeypatch.setattr("cove_cli.deploy._encrypt_phala_env_vars", fake_encrypt)
+
+    summary = deploy_workflow(
+        "alice/demo",
+        cove_home=cove_home,
+        phala_options=PhalaDeployOptions(instance_type="tdx.medium"),
+    )
+
+    assert client.provision_payloads[0]["env_keys"] == [
+        "DSTACK_DOCKER_USERNAME",
+        "DSTACK_DOCKER_PASSWORD",
+    ]
+    compose_file = client.provision_payloads[0]["compose_file"]
+    assert isinstance(compose_file, dict)
+    assert compose_file["allowed_envs"] == [
+        "DSTACK_DOCKER_USERNAME",
+        "DSTACK_DOCKER_PASSWORD",
+    ]
+    assert encrypted_inputs == [
+        (
+            [
+                ("DSTACK_DOCKER_USERNAME", "alice-docker"),
+                ("DSTACK_DOCKER_PASSWORD", "docker-read-token"),
+            ],
+            "app-env-pubkey-1",
+        )
+    ]
+    assert client.commit_payloads[0]["encrypted_env"] == "encrypted-env"
+    assert client.commit_payloads[0]["env_keys"] == [
+        "DSTACK_DOCKER_USERNAME",
+        "DSTACK_DOCKER_PASSWORD",
+    ]
+    translated_compose = compose_file["docker_compose_file"]
+    assert isinstance(translated_compose, str)
+    assert "docker-read-token" not in str(client.provision_payloads)
+    assert "docker-read-token" not in str(client.commit_payloads)
+    assert "docker-read-token" not in translated_compose
+    assert "docker-read-token" not in summary
+
+
+def test_deploy_adds_custom_registry_to_encrypted_phala_env(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    cove_home = tmp_path / ".cove"
+    _write_config(
+        cove_home,
+        {
+            "covehub_server_url": "http://127.0.0.1:8000",
+            "phala_cloud_api_key": "phala-api-key",
+            "phala_docker_username": "alice-docker",
+            "phala_docker_access_token": "docker-read-token",
+            "phala_docker_registry": "ghcr.io",
+        },
+    )
+    bundle = _write_minimal_bundle(tmp_path / "bundle")
+    client = _CapturingPhalaClient()
+    encrypted_inputs: list[list[tuple[str, str]]] = []
+
+    monkeypatch.setattr("cove_cli.deploy.pull_workflow_bundle", lambda **_kwargs: bundle)
+    monkeypatch.setattr(
+        "cove_cli.deploy._create_phala_client",
+        lambda api_key: _assert_api_key(api_key, client),
+    )
+    monkeypatch.setattr(
+        "cove_cli.deploy._encrypt_phala_env_vars",
+        lambda env_vars, _public_key: encrypted_inputs.append(env_vars) or "encrypted-env",
+    )
+
+    deploy_workflow(
+        "alice/demo",
+        cove_home=cove_home,
+        phala_options=PhalaDeployOptions(instance_type="tdx.medium"),
+    )
+
+    assert client.provision_payloads[0]["env_keys"] == [
+        "DSTACK_DOCKER_USERNAME",
+        "DSTACK_DOCKER_PASSWORD",
+        "DSTACK_DOCKER_REGISTRY",
+    ]
+    compose_file = client.provision_payloads[0]["compose_file"]
+    assert isinstance(compose_file, dict)
+    assert compose_file["allowed_envs"] == [
+        "DSTACK_DOCKER_USERNAME",
+        "DSTACK_DOCKER_PASSWORD",
+        "DSTACK_DOCKER_REGISTRY",
+    ]
+    assert encrypted_inputs == [
+        [
+            ("DSTACK_DOCKER_USERNAME", "alice-docker"),
+            ("DSTACK_DOCKER_PASSWORD", "docker-read-token"),
+            ("DSTACK_DOCKER_REGISTRY", "ghcr.io"),
+        ]
+    ]
+
+
+def test_deploy_docker_registry_flags_override_config(tmp_path, monkeypatch) -> None:
+    cove_home = tmp_path / ".cove"
+    _write_config(
+        cove_home,
+        {
+            "covehub_server_url": "http://127.0.0.1:8000",
+            "phala_cloud_api_key": "phala-api-key",
+            "phala_docker_username": "config-user",
+            "phala_docker_access_token": "config-token",
+            "phala_docker_registry": "ghcr.io",
+        },
+    )
+    bundle = _write_minimal_bundle(tmp_path / "bundle")
+    client = _CapturingPhalaClient()
+    encrypted_inputs: list[list[tuple[str, str]]] = []
+
+    monkeypatch.setattr("cove_cli.deploy.pull_workflow_bundle", lambda **_kwargs: bundle)
+    monkeypatch.setattr(
+        "cove_cli.deploy._create_phala_client",
+        lambda api_key: _assert_api_key(api_key, client),
+    )
+    monkeypatch.setattr(
+        "cove_cli.deploy._encrypt_phala_env_vars",
+        lambda env_vars, _public_key: encrypted_inputs.append(env_vars) or "encrypted-env",
+    )
+
+    deploy_workflow(
+        "alice/demo",
+        cove_home=cove_home,
+        phala_options=PhalaDeployOptions(
+            instance_type="tdx.medium",
+            docker_username="flag-user",
+            docker_access_token="flag-token",
+            docker_registry="registry.example.com",
+        ),
+    )
+
+    assert encrypted_inputs == [
+        [
+            ("DSTACK_DOCKER_USERNAME", "flag-user"),
+            ("DSTACK_DOCKER_PASSWORD", "flag-token"),
+            ("DSTACK_DOCKER_REGISTRY", "registry.example.com"),
+        ]
+    ]
+
+
+def test_deploy_rejects_partial_docker_registry_credentials_before_phala(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    cove_home = tmp_path / ".cove"
+    _write_config(
+        cove_home,
+        {
+            "covehub_server_url": "http://127.0.0.1:8000",
+            "phala_cloud_api_key": "phala-api-key",
+            "phala_docker_username": "alice-docker",
+        },
+    )
+
+    monkeypatch.setattr("cove_cli.deploy.pull_workflow_bundle", lambda **_kwargs: pytest.fail("unexpected pull"))
+    monkeypatch.setattr("cove_cli.deploy._create_phala_client", _unused_fake_client)
+
+    with pytest.raises(DeployCommandError, match="username and access token"):
+        deploy_workflow(
+            "alice/demo",
+            cove_home=cove_home,
+            phala_options=PhalaDeployOptions(instance_type="tdx.medium"),
+        )
+
+
+def test_deploy_without_registry_credentials_preserves_payload_shape(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    cove_home = tmp_path / ".cove"
+    _write_config(
+        cove_home,
+        {
+            "covehub_server_url": "http://127.0.0.1:8000",
+            "phala_cloud_api_key": "phala-api-key",
+        },
+    )
+    bundle = _write_minimal_bundle(tmp_path / "bundle")
+    client = _CapturingPhalaClient()
+
+    monkeypatch.setattr("cove_cli.deploy.pull_workflow_bundle", lambda **_kwargs: bundle)
+    monkeypatch.setattr(
+        "cove_cli.deploy._create_phala_client",
+        lambda api_key: _assert_api_key(api_key, client),
+    )
+
+    deploy_workflow(
+        "alice/demo",
+        cove_home=cove_home,
+        phala_options=PhalaDeployOptions(instance_type="tdx.medium"),
+    )
+
+    assert "env_keys" not in client.provision_payloads[0]
+    compose_file = client.provision_payloads[0]["compose_file"]
+    assert isinstance(compose_file, dict)
+    assert "allowed_envs" not in compose_file
+    assert "env_keys" not in client.commit_payloads[0]
+    assert "encrypted_env" not in client.commit_payloads[0]
+
+
+def test_deploy_rejects_non_phala_platform(tmp_path, monkeypatch) -> None:
+    cove_home = tmp_path / ".cove"
+    _write_config(
+        cove_home,
+        {
+            "covehub_server_url": "http://127.0.0.1:8000",
+            "phala_cloud_api_key": "phala-api-key",
+        },
+    )
+    bundle = _write_bundle_root(
+        tmp_path / "bundle",
+        workflow_text="""
+cove_version: 1
+workflow:
+  id: demo
+platform:
+  provider: local
+  runtime: docker
+owners: {}
+artifacts: {}
+nodes:
+  node_one:
+    compose: nodes/node_one/compose.generated.yaml
+    services:
+      worker:
+        custom_certificate_field:
+          schema: schemas/result.json
+""".strip()
+        + "\n",
+        compose_text="""
+services:
+  worker:
+    image: example/worker@sha256:1111111111111111111111111111111111111111111111111111111111111111
+""".strip()
+        + "\n",
+    )
+
+    monkeypatch.setattr("cove_cli.deploy.pull_workflow_bundle", lambda **_kwargs: bundle)
+    monkeypatch.setattr("cove_cli.deploy._create_phala_client", _unused_fake_client)
+
+    with pytest.raises(DeployCommandError, match="workflow.platform.provider='phala'"):
+        deploy_workflow(
+            "alice/demo",
+            cove_home=cove_home,
+            phala_options=PhalaDeployOptions(instance_type="tdx.small"),
+        )
+
+
+def test_deploy_rejects_unsupported_compose_features(tmp_path, monkeypatch) -> None:
+    cove_home = tmp_path / ".cove"
+    _write_config(
+        cove_home,
+        {
+            "covehub_server_url": "http://127.0.0.1:8000",
+            "phala_cloud_api_key": "phala-api-key",
+        },
+    )
+    bundle = _write_bundle_root(
+        tmp_path / "bundle",
+        workflow_text="""
+cove_version: 1
+workflow:
+  id: demo
+platform:
+  provider: phala
+  runtime: dstack
+owners: {}
+artifacts: {}
+nodes:
+  node_one:
+    compose: nodes/node_one/compose.generated.yaml
+    services:
+      worker:
+        custom_certificate_field:
+          schema: schemas/result.json
+""".strip()
+        + "\n",
+        compose_text="""
+services:
+  worker:
+    image: example/worker@sha256:1111111111111111111111111111111111111111111111111111111111111111
+    build:
+      context: .
+""".strip()
+        + "\n",
+    )
+
+    monkeypatch.setattr("cove_cli.deploy.pull_workflow_bundle", lambda **_kwargs: bundle)
+    monkeypatch.setattr("cove_cli.deploy._create_phala_client", _unused_fake_client)
+
+    with pytest.raises(DeployCommandError, match="unsupported keys: build"):
+        deploy_workflow(
+            "alice/demo",
+            cove_home=cove_home,
+            phala_options=PhalaDeployOptions(instance_type="tdx.small"),
+        )
+
+
+def test_deploy_rejects_relative_bind_sources(tmp_path, monkeypatch) -> None:
+    cove_home = tmp_path / ".cove"
+    _write_config(
+        cove_home,
+        {
+            "covehub_server_url": "http://127.0.0.1:8000",
+            "phala_cloud_api_key": "phala-api-key",
+        },
+    )
+    bundle = _write_bundle_root(
+        tmp_path / "bundle",
+        workflow_text="""
+cove_version: 1
+workflow:
+  id: demo
+platform:
+  provider: phala
+  runtime: dstack
+owners: {}
+artifacts: {}
+nodes:
+  node_one:
+    compose: nodes/node_one/compose.generated.yaml
+    services:
+      worker:
+        custom_certificate_field:
+          schema: schemas/result.json
+""".strip()
+        + "\n",
+        compose_text="""
+services:
+  worker:
+    image: example/worker@sha256:1111111111111111111111111111111111111111111111111111111111111111
+    volumes:
+    - type: bind
+      source: ./runtime/cove
+      target: /cove
+      read_only: true
+""".strip()
+        + "\n",
+    )
+
+    monkeypatch.setattr("cove_cli.deploy.pull_workflow_bundle", lambda **_kwargs: bundle)
+    monkeypatch.setattr("cove_cli.deploy._create_phala_client", _unused_fake_client)
+
+    with pytest.raises(DeployCommandError, match="unsupported relative bind source"):
+        deploy_workflow(
+            "alice/demo",
+            cove_home=cove_home,
+            phala_options=PhalaDeployOptions(instance_type="tdx.small"),
+        )
+
+
+def _write_minimal_bundle(bundle_root: Path) -> MaterializedWorkflowBundle:
+    return _write_bundle_root(
+        bundle_root,
+        workflow_text="""
+cove_version: 1
+workflow:
+  id: demo
+platform:
+  provider: phala
+  runtime: dstack
+owners: {}
+artifacts: {}
+nodes:
+  node_one:
+    compose: nodes/node_one/compose.generated.yaml
+    services:
+      worker:
+        custom_certificate_field:
+          schema: schemas/result.json
+""".strip()
+        + "\n",
+        compose_text="""
+services:
+  worker:
+    image: example/worker@sha256:1111111111111111111111111111111111111111111111111111111111111111
+""".strip()
+        + "\n",
+    )
+
+
+class _CapturingPhalaClient:
+    def __init__(self) -> None:
+        self.provision_payloads: list[dict[str, object]] = []
+        self.commit_payloads: list[dict[str, object]] = []
+
+    def provision_cvm(self, payload: dict[str, object]):
+        self.provision_payloads.append(payload)
+        suffix = len(self.provision_payloads)
+        return {
+            "app_id": f"app-{suffix}",
+            "compose_hash": f"compose-{suffix}",
+            "app_env_encrypt_pubkey": f"app-env-pubkey-{suffix}",
+        }
+
+    def commit_cvm_provision(self, payload: dict[str, object]):
+        self.commit_payloads.append(payload)
+        app_id = payload["app_id"]
+        return {"id": f"cvm-{app_id}", "status": "pending"}
+
+    def close(self) -> None:
+        return None
+
+
+def _copy_hello_world_workflow(tmp_path: Path) -> Path:
+    source = Path(__file__).resolve().parents[2] / "demos" / "hello_world" / "workflow"
+    target = tmp_path / "workflow"
+    shutil.copytree(source, target)
+    certs_dir = target / "certs"
+    certs_dir.mkdir(parents=True, exist_ok=True)
+    write_test_certificate(
+        certs_dir / "alice.pem",
+        dns_names=["localhost"],
+        ip_addresses=["127.0.0.1"],
+    )
+    write_test_certificate(
+        certs_dir / "bob.pem",
+        dns_names=["localhost"],
+        ip_addresses=["127.0.0.1"],
+    )
+    return target
+
+
+def _write_config(cove_home: Path, payload: dict[str, object]) -> None:
+    config_path = config_path_for_home(cove_home)
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+
+
+def _write_bundle_root(
+    bundle_root: Path,
+    *,
+    workflow_text: str,
+    compose_text: str,
+) -> MaterializedWorkflowBundle:
+    compose_path = bundle_root / "nodes" / "node_one" / "compose.generated.yaml"
+    compose_path.parent.mkdir(parents=True, exist_ok=True)
+    compose_path.write_text(compose_text, encoding="utf-8")
+    (bundle_root / "workflow.normalized.cove.yaml").write_text(workflow_text, encoding="utf-8")
+    return MaterializedWorkflowBundle(
+        publisher=ALICE_DOMAIN,
+        workflow_id="demo",
+        manifest_hash="sha256:" + ("0" * 64),
+        root_path=bundle_root,
+        owners={"alice": ALICE_OWNER_URL},
+        files=[],
+        nodes=[
+            MaterializedNode(
+                node_id="node_one",
+                compose_path="nodes/node_one/compose.generated.yaml",
+                compose_hash=reviewed_compose_hash(yaml.safe_load(compose_text)),
+                artifact_provisioner_image=None,
+                artifact_provisioner_digest=None,
+                artifacts=[],
+                runtime_skeleton=[],
+            )
+        ],
+    )
+
+
+def _has_bind_mount(service: dict[str, object], target: str) -> bool:
+    volumes = service.get("volumes")
+    if not isinstance(volumes, list):
+        return False
+    return any(
+        isinstance(volume, dict)
+        and volume.get("type") == "bind"
+        and volume.get("target") == target
+        for volume in volumes
+    )
+
+
+def _sha256_literal(payload: bytes) -> str:
+    import hashlib
+
+    return f"sha256:{hashlib.sha256(payload).hexdigest()}"
+
+
+def _unused_fake_client(_api_key: str):
+    class Client:
+        def provision_cvm(self, payload):
+            raise AssertionError(f"unexpected provision_cvm call: {payload}")
+
+        def commit_cvm_provision(self, payload):
+            raise AssertionError(f"unexpected commit_cvm_provision call: {payload}")
+
+        def close(self) -> None:
+            return None
+
+    return Client()
+
+
+def _assert_api_key(api_key: str, client):
+    assert api_key == "phala-api-key"
+    return client

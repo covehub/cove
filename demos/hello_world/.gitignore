@@ -1,0 +1,5 @@
+# Generated compile output
+workflow/build/
+
+# Local mirrored provisioner certificates
+workflow/certs/*.pem

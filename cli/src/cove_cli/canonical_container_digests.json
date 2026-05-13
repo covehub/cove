@@ -1,0 +1,32 @@
+{
+  "containers": [
+    {
+      "image_name": "cove-base",
+      "canonical_ref": "covehub/cove-base@sha256:0f1fef8526cc1d804ed9c2b9388aa8cc03d1239c731228a3125aaa479c25ebc7"
+    },
+    {
+      "image_name": "cove-artifact-provisioner",
+      "canonical_ref": "covehub/cove-artifact-provisioner@sha256:e137cd9fb164c4b9c3cb5c154839e88a0fad211aad440289981958267bf9bcff"
+    },
+    {
+      "image_name": "cove-precondition-checker",
+      "canonical_ref": "covehub/cove-precondition-checker@sha256:2f0d2bc34aea0a3104e955d0a5114774ae1f04d9fd07ba281859a9c915c672a8"
+    },
+    {
+      "image_name": "cove-dependency-certificate-fetcher",
+      "canonical_ref": "covehub/cove-dependency-certificate-fetcher@sha256:bd42f2377cfee3dd5ef8219fe72b0714b9b39810f10dbc9228b8ad2b97c39fbc"
+    },
+    {
+      "image_name": "cove-service-certificate-writer",
+      "canonical_ref": "covehub/cove-service-certificate-writer@sha256:b6e69ace2f26c58c4918b053906d8930f7d5db0fc9c6c07dfa8725c3a042d5bf"
+    },
+    {
+      "image_name": "cove-key-manager",
+      "canonical_ref": "covehub/cove-key-manager@sha256:308eaa6b2bd846d1114f6136f5d360f27267166162beda16d2e68db15459da61"
+    },
+    {
+      "image_name": "cove-node-certificate-writer",
+      "canonical_ref": "covehub/cove-node-certificate-writer@sha256:3efa625215eddbe90eb282fae224eb5f41ba754e7dc4165e7c240b31f71085f2"
+    }
+  ]
+}
