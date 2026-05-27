@@ -2,19 +2,29 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import dagre from '@dagrejs/dagre';
 import {
+  ArrowRight,
   BookOpen,
   Boxes,
   Cable,
   ChevronDown,
   ChevronRight,
+  CircleCheck,
   Copy,
+  Cpu,
   Database,
+  FileCheck2,
+  Fingerprint,
+  GitBranch,
   KeyRound,
+  Layers3,
+  LockKeyhole,
   Network,
   RefreshCw,
   Search,
+  ShieldCheck,
   Terminal,
 } from 'lucide-react';
+import heroImage from './assets/cove-workflow-hero.webp';
 import './styles.css';
 
 const KIND_LABELS = {
@@ -37,6 +47,37 @@ const WORKFLOW_TABS = [
   ['diagram', 'Diagram'],
   ['raw-workflow', 'Raw workflow'],
   ['raw-compose', 'Raw compose'],
+];
+
+const LANDING_PILLARS = [
+  {
+    icon: LockKeyhole,
+    title: 'Private inputs stay private',
+    body: 'Owners provision encrypted artifacts and release keys only to attested nodes they have explicitly approved.',
+  },
+  {
+    icon: GitBranch,
+    title: 'Audits compose as a workflow',
+    body: 'Each node can depend on upstream certificates, so later stages can require that earlier checks passed before new artifacts are admitted.',
+  },
+  {
+    icon: FileCheck2,
+    title: 'Evidence travels with the result',
+    body: 'Node certificates bind measured runtime configuration, authenticated inputs, dependencies, outputs, and schema-validated service results.',
+  },
+];
+
+const LANDING_STEPS = [
+  ['Author', 'Parties describe a DAG of TEE nodes, private artifacts, workload services, and preconditions.'],
+  ['Provision', 'Owners encrypt static artifacts locally and keep key-release policy under their own control.'],
+  ['Execute', 'Canonical sidecars verify dependencies, admit inputs, run preconditions, and collect service results inside the enclave.'],
+  ['Verify', 'Anyone can recursively check the terminal certificate against the workflow bytes, node manifests, and TEE attestation roots.'],
+];
+
+const LANDING_APPLICATIONS = [
+  ['Attested model audits', 'Publish a verifiable claim that a private model achieved a benchmark result on private evaluator code and data.'],
+  ['Bilateral capability evaluations', 'Let mutually distrusting parties evaluate each other while neither side reveals weights, code, or datasets.'],
+  ['Training-code verification', 'Connect code-review checks, build steps, and downstream claims into one public certificate chain.'],
 ];
 
 function App() {
@@ -155,6 +196,10 @@ function App() {
     window.location.hash = `object/${hubPath}`;
   }, []);
 
+  if (screen === 'home') {
+    return <LandingPage summary={summary} />;
+  }
+
   return (
     <main className="atlas-shell">
       <aside className="rail" aria-label="Primary navigation">
@@ -224,6 +269,143 @@ function App() {
         ) : (
           <EmptyDetail screen={screen} />
         )}
+      </section>
+    </main>
+  );
+}
+
+
+function LandingPage({ summary }) {
+  const workflowCount = summary?.kind_counts?.workflow ?? 0;
+  const certificateCount = summary?.kind_counts?.runtime_certificate ?? 0;
+  const artifactCount = (summary?.kind_counts?.static_artifact ?? 0) + (summary?.kind_counts?.runtime_artifact ?? 0);
+  const publisherCount = summary?.publishers?.length ?? 0;
+  return (
+    <main className="landing-page">
+      <nav className="landing-nav" aria-label="Cove introduction navigation">
+        <a className="landing-brand" href="#home">
+          <Database size={21} strokeWidth={1.8} aria-hidden="true" />
+          <span>CoveHub</span>
+        </a>
+        <div className="landing-nav-links">
+          <a href="#why">Why Cove</a>
+          <a href="#workflow">Workflow</a>
+          <a href="#applications">Applications</a>
+          <a className="nav-atlas-link" href="#workflows">Atlas</a>
+        </div>
+      </nav>
+
+      <section className="landing-hero" id="home">
+        <img className="landing-hero-image" src={heroImage} alt="" aria-hidden="true" />
+        <div className="landing-hero-overlay" />
+        <div className="landing-hero-content">
+          <p className="landing-eyebrow">Open-source confidential workflow framework</p>
+          <h1>Cove</h1>
+          <p className="landing-lede">
+            Cove lets mutually distrusting parties run multi-stage audits over private models, code, and data inside
+            trusted execution environments, then publish certificates that anyone can verify.
+          </p>
+          <div className="landing-actions">
+            <a className="landing-action primary" href="#workflows">
+              <Network size={18} aria-hidden="true" />
+              <span>Explore CoveHub</span>
+              <ArrowRight size={17} aria-hidden="true" />
+            </a>
+            <a className="landing-action secondary" href="/docs/internal/architecture.md">
+              <BookOpen size={18} aria-hidden="true" />
+              <span>Read architecture</span>
+            </a>
+          </div>
+          <div className="landing-proof-strip" aria-label="Cove guarantees">
+            <span><ShieldCheck size={16} aria-hidden="true" />TEE-attested nodes</span>
+            <span><Fingerprint size={16} aria-hidden="true" />Hash-addressed objects</span>
+            <span><CircleCheck size={16} aria-hidden="true" />Certificate chains</span>
+          </div>
+        </div>
+      </section>
+
+      <section className="landing-band intro-band" id="why">
+        <div className="landing-section-heading">
+          <p className="landing-eyebrow">The problem Cove solves</p>
+          <h2>AI audits need privacy and public evidence at the same time.</h2>
+          <p>
+            Real audits involve model owners, evaluators, deployers, and verifiers who need to cooperate without exposing
+            their private artifacts. Cove turns that trust problem into a composable workflow of attested computations.
+          </p>
+        </div>
+        <div className="pillar-grid">
+          {LANDING_PILLARS.map((pillar) => (
+            <article className="pillar-card" key={pillar.title}>
+              <pillar.icon size={23} strokeWidth={1.8} aria-hidden="true" />
+              <h3>{pillar.title}</h3>
+              <p>{pillar.body}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="landing-band workflow-band" id="workflow">
+        <div className="landing-section-heading compact">
+          <p className="landing-eyebrow">How Cove runs</p>
+          <h2>A certificate-producing workflow graph.</h2>
+        </div>
+        <div className="workflow-explainer">
+          <div className="workflow-visual" aria-hidden="true">
+            <div className="workflow-node owner"><LockKeyhole size={20} />Owner artifacts</div>
+            <div className="workflow-link" />
+            <div className="workflow-node tee"><Cpu size={20} />TEE node</div>
+            <div className="workflow-link certificate" />
+            <div className="workflow-node cert"><FileCheck2 size={20} />Certificate</div>
+            <div className="workflow-link" />
+            <div className="workflow-node verifier"><Fingerprint size={20} />Verifier</div>
+          </div>
+          <ol className="step-list">
+            {LANDING_STEPS.map(([title, body]) => (
+              <li key={title}>
+                <span>{title}</span>
+                <p>{body}</p>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </section>
+
+      <section className="landing-band applications-band" id="applications">
+        <div className="landing-section-heading compact">
+          <p className="landing-eyebrow">Governance patterns</p>
+          <h2>Reusable primitives for changing audit shapes.</h2>
+        </div>
+        <div className="application-grid">
+          {LANDING_APPLICATIONS.map(([title, body]) => (
+            <article className="application-card" key={title}>
+              <Layers3 size={21} strokeWidth={1.8} aria-hidden="true" />
+              <h3>{title}</h3>
+              <p>{body}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="landing-band atlas-band">
+        <div className="atlas-copy">
+          <p className="landing-eyebrow">CoveHub</p>
+          <h2>Browse public workflows, artifacts, and certificates.</h2>
+          <p>
+            CoveHub is a convenience index, not a trust root. It helps people discover objects while the Cove CLI performs
+            local verification against hashes, signatures, certificate bodies, and TEE quotes.
+          </p>
+          <a className="landing-action primary" href="#workflows">
+            <Network size={18} aria-hidden="true" />
+            <span>Open the atlas</span>
+            <ArrowRight size={17} aria-hidden="true" />
+          </a>
+        </div>
+        <div className="atlas-stat-grid" aria-label="Current CoveHub index">
+          <div><strong>{workflowCount}</strong><span>workflows</span></div>
+          <div><strong>{artifactCount}</strong><span>artifacts</span></div>
+          <div><strong>{certificateCount}</strong><span>certificates</span></div>
+          <div><strong>{publisherCount}</strong><span>publishers</span></div>
+        </div>
       </section>
     </main>
   );
@@ -1537,6 +1719,9 @@ function LoadingRows() {
 
 function readRoute() {
   const rawHash = window.location.hash.replace(/^#/, '');
+  if (!rawHash || rawHash === 'home') {
+    return { screen: 'home', objectPath: '', termId: '' };
+  }
   if (rawHash.startsWith('object/')) {
     const objectPath = decodeURIComponent(rawHash.slice('object/'.length));
     return {
