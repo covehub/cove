@@ -1,0 +1,11 @@
+services:
+  vllm_compiler:
+    image: "covehub/cove-demo-attested-audit-v1-vllm-compiler@sha256:3333333333333333333333333333333333333333333333333333333333333333"
+    environment:
+      PRISTINE_SOURCE: /workspace/input/pristine_serving_source.tar.gz
+      SERVING_PATCH: /workspace/input/serving_patch.diff
+      COMPILED_RUNTIME_BUNDLE: /workspace/output/compiled_serving_runtime_bundle.tar.gz
+      RESULT_PATH: /workspace/output/compile_result.json
+      BUILD_DIR: /workspace/output/build
+      WHEELHOUSE: /workspace/output/wheelhouse
+      LOG_PATH: /workspace/output/compile_vllm.log

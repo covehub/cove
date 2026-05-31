@@ -1,0 +1,44 @@
+services:
+  audit-model-server:
+    image: ${VLLM_SERVER_IMAGE:?set VLLM_SERVER_IMAGE}
+    volumes:
+      - /workspace:/workspace
+    environment:
+      SERVING_RUNTIME_BUNDLE: ${SERVING_RUNTIME_BUNDLE:-/workspace/inputs/audit_serving_runtime_bundle.tar.gz}
+      MODEL_BUNDLE: ${AUDIT_MODEL_BUNDLE:-/workspace/inputs/audit_model_weights.tar}
+      MODEL_PATH: /tmp/audit_model
+      VLLM_HOST: 0.0.0.0
+      VLLM_PORT: "8000"
+      VLLM_GPU_MEMORY_UTILIZATION: ${VLLM_GPU_MEMORY_UTILIZATION:-0.8}
+      VLLM_SERVED_MODEL_NAME: ${AUDIT_MODEL_ID:-audit-model}
+      OUTPUT_DIR: /workspace/runs/${RUN_ID:?set RUN_ID}/audit_serving_code
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 120
+      start_period: 120s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  audit-agent-runner:
+    image: ${AUDIT_AGENT_RUNNER_IMAGE:?set AUDIT_AGENT_RUNNER_IMAGE}
+    depends_on:
+      audit-model-server:
+        condition: service_healthy
+    volumes:
+      - /workspace:/workspace
+    environment:
+      OPENAI_BASE_URL: http://audit-model-server:8000/v1
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-vllm}
+      AUDIT_MODEL_ID: ${AUDIT_MODEL_ID:-audit-model}
+      SERVING_PATCH: ${SERVING_PATCH:-/workspace/inputs/serving_patch.diff}
+      PRISTINE_SOURCE: ${PRISTINE_SOURCE:-/workspace/inputs/pristine_serving_source.tar.gz}
+      AUDIT_POLICY: ${AUDIT_POLICY:-/workspace/inputs/audit_policy.json}
+      RESULT_PATH: /workspace/runs/${RUN_ID:?set RUN_ID}/audit_serving_code/audit_result.json
+      RAW_MODEL_RESPONSE_PATH: /workspace/runs/${RUN_ID:?set RUN_ID}/audit_serving_code/audit_model_response.txt

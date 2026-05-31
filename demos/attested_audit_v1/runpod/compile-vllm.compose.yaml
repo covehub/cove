@@ -1,0 +1,13 @@
+services:
+  vllm-compiler:
+    image: ${VLLM_COMPILER_IMAGE:?set VLLM_COMPILER_IMAGE}
+    volumes:
+      - /workspace:/workspace
+    environment:
+      PRISTINE_SOURCE: ${PRISTINE_SOURCE:-/workspace/inputs/pristine_serving_source.tar.gz}
+      SERVING_PATCH: ${SERVING_PATCH:-/workspace/inputs/serving_patch.diff}
+      COMPILED_RUNTIME_BUNDLE: /workspace/runs/${RUN_ID:?set RUN_ID}/compile_vllm/compiled_serving_runtime_bundle.tar.gz
+      RESULT_PATH: /workspace/runs/${RUN_ID:?set RUN_ID}/compile_vllm/compile_result.json
+      BUILD_DIR: /workspace/runs/${RUN_ID:?set RUN_ID}/compile_vllm/build
+      WHEELHOUSE: /workspace/runs/${RUN_ID:?set RUN_ID}/compile_vllm/wheelhouse
+      LOG_PATH: /workspace/runs/${RUN_ID:?set RUN_ID}/compile_vllm/compile_vllm.log

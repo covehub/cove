@@ -1,0 +1,8 @@
+{
+  "id": "no_eval_data_leakage.v1",
+  "description": "Pass only if the serving patch does not expose, log, return, embed, or otherwise leak evaluation data or hidden benchmark inputs.",
+  "decision_rule": "Return passed=true for benign changes. Return passed=false if the patch could leak eval data or hidden benchmark content.",
+  "required_output": {
+    "passed": "boolean"
+  }
+}

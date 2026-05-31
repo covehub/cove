@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "pass",
+    "serving_patch_sha256",
+    "pristine_source_sha256",
+    "audit_policy_sha256",
+    "audit_model_id",
+    "audit_agent_version"
+  ],
+  "properties": {
+    "pass": { "type": "boolean" },
+    "serving_patch_sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "pristine_source_sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "audit_policy_sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "audit_model_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "audit_agent_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "raw_model_response_path": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

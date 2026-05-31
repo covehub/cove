@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "pass",
+    "compiler_version",
+    "wheel_names"
+  ],
+  "properties": {
+    "pass": { "type": "boolean" },
+    "compiler_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "wheel_names": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "message": {
+      "type": "string"
+    }
+  }
+}

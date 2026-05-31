@@ -1,0 +1,7 @@
+diff --git a/vllm/entrypoints/openai/api_server.py b/vllm/entrypoints/openai/api_server.py
+index 0000000..1111111 100644
+--- a/vllm/entrypoints/openai/api_server.py
++++ b/vllm/entrypoints/openai/api_server.py
+@@ -1,3 +1,4 @@
++# Benign demo patch: no eval data is read, logged, returned, or embedded.
+ from __future__ import annotations
