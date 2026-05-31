@@ -57,6 +57,35 @@ def http_post_json(
     return response_payload
 
 
+def http_get_json(
+    *,
+    url: str,
+    timeout: float = 5.0,
+) -> dict[str, Any]:
+    request = urllib_request.Request(
+        url,
+        headers={
+            "Accept": "application/json",
+            "User-Agent": COVEHUB_USER_AGENT,
+        },
+        method="GET",
+    )
+    try:
+        with urllib_request.urlopen(request, timeout=timeout) as response:
+            body = response.read()
+    except urllib_error.HTTPError as exc:
+        raise RuntimeErrorBase(f"HTTP {exc.code} for {url}: {_extract_http_detail(exc)}") from exc
+    except urllib_error.URLError as exc:
+        raise RuntimeErrorBase(f"failed to reach {url}: {exc.reason}") from exc
+    try:
+        response_payload = json.loads(body.decode("utf-8"))
+    except json.JSONDecodeError as exc:
+        raise RuntimeErrorBase(f"server returned invalid JSON for {url}") from exc
+    if not isinstance(response_payload, dict):
+        raise RuntimeErrorBase(f"server returned a non-object JSON payload for {url}")
+    return response_payload
+
+
 def _extract_http_detail(exc: urllib_error.HTTPError) -> str:
     try:
         body = exc.read().decode("utf-8")

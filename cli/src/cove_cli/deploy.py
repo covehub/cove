@@ -6,12 +6,14 @@ import hashlib
 import inspect
 import json
 import re
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import yaml
 
+from .common import RuntimeErrorBase, http_get_json
 from .compile import reviewed_compose_hash
 from .config import LocalConfig, ensure_local_config
 from .publish import MaterializedNode, MaterializedWorkflowBundle, parse_published_ref, pull_workflow_bundle
@@ -20,6 +22,8 @@ from .yaml_support import dump_yaml
 
 _SUPPORTED_DSTACK_SOCKET = "/var/run/dstack.sock"
 _GENERATED_COMPOSE_FILENAME = "compose.generated.yaml"
+_DEFAULT_DEPLOY_DEPENDENCY_TIMEOUT_SECONDS = 600.0
+_DEFAULT_DEPLOY_DEPENDENCY_POLL_INTERVAL_SECONDS = 0.5
 _SUPPORTED_TOP_LEVEL_COMPOSE_KEYS = {"services", "volumes"}
 _SUPPORTED_SERVICE_KEYS = {
     "command",
@@ -71,6 +75,10 @@ class PhalaDeployOptions:
     docker_username: str | None = None
     docker_access_token: str | None = None
     docker_registry: str | None = None
+    staged_launch: bool | None = None
+    workflow_node_id: str | None = None
+    dependency_timeout_seconds: float | None = None
+    dependency_poll_interval_seconds: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,6 +92,12 @@ class _PhalaDockerRegistryCredentials:
 class _TranslatedNodeDeployment:
     deployment_name: str
     compose_text: str
+
+
+@dataclass(frozen=True, slots=True)
+class _DeployableNode:
+    node: MaterializedNode
+    dependencies: tuple[str, ...]
 
 
 def deploy_workflow(
@@ -118,12 +132,43 @@ def deploy_workflow(
         reference=parsed_ref.reference,
         cove_home=cove_home,
     )
-    nodes = _deployment_nodes(bundle)
+    staged_launch = True if phala_options.staged_launch is None else phala_options.staged_launch
+    dependency_timeout_seconds = (
+        _DEFAULT_DEPLOY_DEPENDENCY_TIMEOUT_SECONDS
+        if phala_options.dependency_timeout_seconds is None
+        else phala_options.dependency_timeout_seconds
+    )
+    dependency_poll_interval_seconds = (
+        _DEFAULT_DEPLOY_DEPENDENCY_POLL_INTERVAL_SECONDS
+        if phala_options.dependency_poll_interval_seconds is None
+        else phala_options.dependency_poll_interval_seconds
+    )
+
+    nodes = _select_deployment_nodes(
+        _deployment_nodes(bundle),
+        workflow_node_id=phala_options.workflow_node_id,
+    )
+    dependency_compose_hashes = {
+        node.node_id: node.compose_hash
+        for node in bundle.nodes
+    }
     client = _create_phala_client(config.phala_cloud_api_key)
     results: list[DeployNodeResult] = []
     try:
         for node in nodes:
-            translated = _translate_node_deployment(bundle, node)
+            if staged_launch:
+                _wait_for_dependency_certificates(
+                    covehub_server_url=config.covehub_server_url,
+                    workflow_publisher_domain=parsed_ref.publisher,
+                    workflow_id=parsed_ref.workflow_id,
+                    node_id=node.node.node_id,
+                    dependency_names=node.dependencies,
+                    dependency_compose_hashes=dependency_compose_hashes,
+                    timeout_seconds=dependency_timeout_seconds,
+                    poll_interval_seconds=dependency_poll_interval_seconds,
+                )
+
+            translated = _translate_node_deployment(bundle, node.node)
             provision_payload = _phala_provision_payload(
                 translated=translated,
                 options=phala_options,
@@ -149,7 +194,7 @@ def deploy_workflow(
             commit_response = client.commit_cvm_provision(commit_payload)
             results.append(
                 DeployNodeResult(
-                    node_id=node.node_id,
+                    node_id=node.node.node_id,
                     deployment_name=translated.deployment_name,
                     cvm_id=_required_model_string(commit_response, "id"),
                     status=_required_model_string(commit_response, "status"),
@@ -179,6 +224,114 @@ def deploy_workflow(
             ],
         ]
     )
+
+
+def _select_deployment_nodes(
+    nodes: list[_DeployableNode],
+    *,
+    workflow_node_id: str | None,
+) -> list[_DeployableNode]:
+    if workflow_node_id is None:
+        return nodes
+    for node in nodes:
+        if node.node.node_id == workflow_node_id:
+            return [node]
+    raise DeployCommandError(f"workflow node {workflow_node_id!r} does not exist in the pulled bundle")
+
+
+def _wait_for_dependency_certificates(
+    *,
+    covehub_server_url: str,
+    workflow_publisher_domain: str,
+    workflow_id: str,
+    node_id: str,
+    dependency_names: tuple[str, ...],
+    dependency_compose_hashes: dict[str, str],
+    timeout_seconds: float,
+    poll_interval_seconds: float,
+) -> None:
+    if not dependency_names:
+        return
+    deadline = time.time() + timeout_seconds
+    pending = list(dependency_names)
+    last_errors: dict[str, str] = {}
+    while pending and time.time() < deadline:
+        next_pending: list[str] = []
+        for dependency_name in pending:
+            try:
+                certificate = http_get_json(
+                    url=_runtime_certificate_url(
+                        covehub_server_url=covehub_server_url,
+                        workflow_publisher_domain=workflow_publisher_domain,
+                        workflow_id=workflow_id,
+                        dependency_name=dependency_name,
+                    ),
+                    timeout=5.0,
+                )
+                _assert_runtime_certificate_matches(
+                    certificate,
+                    expected_workflow_id=workflow_id,
+                    expected_node_id=dependency_name,
+                    expected_generated_node_compose_hash=dependency_compose_hashes[
+                        dependency_name
+                    ],
+                )
+            except RuntimeErrorBase as exc:
+                last_errors[dependency_name] = str(exc)
+                next_pending.append(dependency_name)
+        if not next_pending:
+            return
+        time.sleep(poll_interval_seconds)
+        pending = next_pending
+
+    if pending:
+        details = "; ".join(
+            f"{dependency_name}: {last_errors.get(dependency_name, 'not ready')}"
+            for dependency_name in pending
+        )
+        raise DeployCommandError(
+            f"timed out waiting for dependencies of node {node_id!r}: {details}"
+        )
+
+
+def _runtime_certificate_url(
+    *,
+    covehub_server_url: str,
+    workflow_publisher_domain: str,
+    workflow_id: str,
+    dependency_name: str,
+) -> str:
+    return (
+        f"{covehub_server_url.rstrip('/')}/v1/runtime/"
+        f"{workflow_publisher_domain}/{workflow_id}/certificates/{dependency_name}/latest"
+    )
+
+
+def _assert_runtime_certificate_matches(
+    certificate: dict[str, Any],
+    *,
+    expected_workflow_id: str,
+    expected_node_id: str,
+    expected_generated_node_compose_hash: str,
+) -> None:
+    certificate_body = certificate.get("certificate_body")
+    if not isinstance(certificate_body, dict):
+        raise RuntimeErrorBase("runtime certificate is missing certificate_body")
+    workflow_id = certificate_body.get("workflow_id")
+    node_id = certificate_body.get("node_id")
+    compose_hash = certificate_body.get("generated_node_compose_hash")
+    if workflow_id != expected_workflow_id:
+        raise RuntimeErrorBase(
+            f"runtime certificate workflow id {workflow_id!r} does not match {expected_workflow_id!r}"
+        )
+    if node_id != expected_node_id:
+        raise RuntimeErrorBase(
+            f"runtime certificate node id {node_id!r} does not match {expected_node_id!r}"
+        )
+    if compose_hash != expected_generated_node_compose_hash:
+        raise RuntimeErrorBase(
+            "runtime certificate compose hash does not match the expected generated compose hash"
+        )
 
 
 def _phala_provision_payload(
@@ -544,7 +697,7 @@ def _model_value(model: Any, key: str) -> Any:
     return None
 
 
-def _deployment_nodes(bundle: MaterializedWorkflowBundle) -> list[MaterializedNode]:
+def _deployment_nodes(bundle: MaterializedWorkflowBundle) -> list[_DeployableNode]:
     normalized_payload = _load_normalized_workflow_payload(bundle.root_path)
     platform = normalized_payload.get("platform")
     if not isinstance(platform, dict):
@@ -603,7 +756,19 @@ def _deployment_nodes(bundle: MaterializedWorkflowBundle) -> list[MaterializedNo
 
     if len(ordered_node_ids) != len(nodes_payload):
         raise DeployCommandError("pulled workflow contains a node dependency cycle")
-    return [bundle_nodes_by_id[node_id] for node_id in ordered_node_ids]
+    deployment_nodes: list[_DeployableNode] = []
+    for node_id in ordered_node_ids:
+        raw_node = nodes_payload[node_id]
+        assert isinstance(raw_node, dict)  # validated above
+        raw_dependencies = raw_node.get("dependencies", [])
+        assert isinstance(raw_dependencies, list)  # validated above
+        deployment_nodes.append(
+            _DeployableNode(
+                node=bundle_nodes_by_id[node_id],
+                dependencies=tuple(str(dependency) for dependency in raw_dependencies),
+            )
+        )
+    return deployment_nodes
 
 
 def _load_normalized_workflow_payload(bundle_root: Path) -> dict[str, Any]:
