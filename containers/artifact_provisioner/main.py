@@ -22,6 +22,7 @@ from cove_container_runtime.common import (
     encrypt_plaintext_bytes,
     http_get_bytes,
     http_put_bytes,
+    http_put_bytes_resumable,
     join_url,
     load_inline_sidecar_context,
     log,
@@ -320,10 +321,12 @@ def _run_dynamic_output(
     if event_log is not None:
         upload_headers["X-TDX-Event-Log"] = _event_log_header(event_log)
 
-    http_put_bytes(
+    http_put_bytes_resumable(
         url=join_url(_server_url(config), exact_hub_path),
         payload=ciphertext,
         headers=upload_headers,
+        session_create_headers=upload_headers,
+        session_create_payload={"upload_length": len(ciphertext)},
     )
 
     write_json_file(

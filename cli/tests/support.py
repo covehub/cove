@@ -4,6 +4,7 @@ import importlib.util
 import base64
 import json
 import hashlib
+import secrets
 import sys
 from datetime import UTC, datetime, timedelta
 from dataclasses import dataclass, field
@@ -34,6 +35,7 @@ class MockCovehubState:
     runtime_certificates: dict[str, bytes] = field(default_factory=dict)
     runtime_artifacts: dict[str, bytes] = field(default_factory=dict)
     request_user_agents: list[str | None] = field(default_factory=list)
+    upload_sessions: dict[str, dict[str, object]] = field(default_factory=dict)
 
 
 class MockCovehubServer:
@@ -49,10 +51,115 @@ class MockCovehubServer:
         class Handler(BaseHTTPRequestHandler):
             def do_POST(self) -> None:  # noqa: N802
                 state.request_user_agents.append(self.headers.get("User-Agent"))
+                parsed = urlparse(self.path)
+                parts = parsed.path.strip("/").split("/")
+                content_length = int(self.headers.get("Content-Length", "0"))
+                payload = self.rfile.read(content_length)
+
+                if len(parts) == 6 and parts[0] == "v1" and parts[1] in {"artifacts", "workflows"} and parts[5] == "upload-session":
+                    try:
+                        session_payload = json.loads(payload.decode("utf-8")) if payload else {}
+                    except json.JSONDecodeError:
+                        _write_json(self, HTTPStatus.BAD_REQUEST, {"detail": "upload session payload must be valid JSON"})
+                        return
+                    if not isinstance(session_payload, dict):
+                        _write_json(self, HTTPStatus.BAD_REQUEST, {"detail": "upload session payload must be a JSON object"})
+                        return
+                    upload_length = session_payload.get("upload_length")
+                    if upload_length is not None and (not isinstance(upload_length, int) or upload_length < 0):
+                        _write_json(self, HTTPStatus.BAD_REQUEST, {"detail": "upload_length must be a non-negative integer"})
+                        return
+                    session_id = secrets.token_hex(16)
+                    digest = parts[4]
+                    relative_path = "/".join(parts[:5])
+                    latest_path = "/".join([*parts[:4], "latest"])
+                    state.upload_sessions[session_id] = {
+                        "kind": parts[1],
+                        "relative_path": relative_path,
+                        "latest_path": latest_path,
+                        "digest": digest,
+                        "upload_length": upload_length,
+                        "offset": 0,
+                        "payload": bytearray(),
+                        "completed": False,
+                    }
+                    _write_json(
+                        self,
+                        HTTPStatus.CREATED,
+                        {
+                            "session_id": session_id,
+                            "path": relative_path,
+                            "digest": digest,
+                            "offset": 0,
+                            "upload_length": upload_length,
+                            "completed": False,
+                        },
+                    )
+                    return
+
+                if len(parts) == 5 and parts[0] == "v1" and parts[1] == "uploads" and parts[2] == "sessions" and parts[4] == "complete":
+                    session = state.upload_sessions.get(parts[3])
+                    if session is None:
+                        _write_json(self, HTTPStatus.NOT_FOUND, {"detail": "upload session not found"})
+                        return
+                    if bool(session["completed"]):
+                        _write_json(self, HTTPStatus.CONFLICT, {"detail": "upload session is already completed"})
+                        return
+                    payload_bytes = bytes(session["payload"])
+                    upload_length = session["upload_length"]
+                    if upload_length is not None and len(payload_bytes) != upload_length:
+                        _write_json(self, HTTPStatus.CONFLICT, {"detail": f"upload size {len(payload_bytes)} does not match declared upload_length {upload_length}"})
+                        return
+                    if _sha256_literal(payload_bytes) != session["digest"]:
+                        _write_json(self, HTTPStatus.BAD_REQUEST, {"detail": "uploaded bytes sha256 does not match digest path"})
+                        return
+                    created = False
+                    if session["kind"] == "artifacts":
+                        created = session["relative_path"] not in state.artifacts
+                        state.artifacts[session["relative_path"]] = payload_bytes
+                        state.artifacts[session["latest_path"]] = payload_bytes
+                    else:
+                        created = session["relative_path"] not in state.workflow_bundles
+                        state.workflow_bundles[session["relative_path"]] = payload_bytes
+                        state.workflow_bundles[session["latest_path"]] = payload_bytes
+                    session["completed"] = True
+                    _write_json(
+                        self,
+                        HTTPStatus.CREATED if created else HTTPStatus.OK,
+                        {
+                            "session_id": parts[3],
+                            "path": session["relative_path"],
+                            "digest": session["digest"],
+                            "offset": len(payload_bytes),
+                            "upload_length": upload_length,
+                            "completed": True,
+                            "created": created,
+                        },
+                    )
+                    return
+
                 _write_json(self, HTTPStatus.NOT_FOUND, {"detail": "not found"})
 
             def do_GET(self) -> None:  # noqa: N802
                 parsed = urlparse(self.path)
+                if parsed.path.startswith("/v1/uploads/sessions/"):
+                    parts = parsed.path.strip("/").split("/")
+                    if len(parts) == 4 and parts[0] == "v1" and parts[1] == "uploads" and parts[2] == "sessions":
+                        session = state.upload_sessions.get(parts[3])
+                        if session is None:
+                            _write_json(self, HTTPStatus.NOT_FOUND, {"detail": "upload session not found"})
+                            return
+                        payload = {
+                            "session_id": parts[3],
+                            "path": session["relative_path"],
+                            "digest": session["digest"],
+                            "offset": int(session["offset"]),
+                            "completed": bool(session["completed"]),
+                        }
+                        if session["upload_length"] is not None:
+                            payload["upload_length"] = int(session["upload_length"])
+                        _write_json(self, HTTPStatus.OK, payload)
+                        return
                 if parsed.path.startswith("/v1/"):
                     parts = parsed.path.strip("/").split("/")
                     if (
@@ -142,6 +249,49 @@ class MockCovehubServer:
                 parts = parsed.path.strip("/").split("/")
                 content_length = int(self.headers.get("Content-Length", "0"))
                 payload = self.rfile.read(content_length)
+                if len(parts) == 4 and parts[0] == "v1" and parts[1] == "uploads" and parts[2] == "sessions":
+                    session = state.upload_sessions.get(parts[3])
+                    if session is None:
+                        _write_json(self, HTTPStatus.NOT_FOUND, {"detail": "upload session not found"})
+                        return
+                    if bool(session["completed"]):
+                        _write_json(self, HTTPStatus.CONFLICT, {"detail": "upload session is already completed"})
+                        return
+                    offset_header = self.headers.get("X-Cove-Upload-Offset")
+                    if offset_header is None:
+                        _write_json(self, HTTPStatus.BAD_REQUEST, {"detail": "missing X-Cove-Upload-Offset header"})
+                        return
+                    try:
+                        offset = int(offset_header)
+                    except ValueError:
+                        _write_json(self, HTTPStatus.BAD_REQUEST, {"detail": "X-Cove-Upload-Offset must be an integer"})
+                        return
+                    if offset < 0:
+                        _write_json(self, HTTPStatus.BAD_REQUEST, {"detail": "X-Cove-Upload-Offset must be non-negative"})
+                        return
+                    current_offset = int(session["offset"])
+                    if offset != current_offset:
+                        _write_json(self, HTTPStatus.CONFLICT, {"detail": f"upload offset {offset} does not match current size {current_offset}"})
+                        return
+                    next_offset = current_offset + len(payload)
+                    upload_length = session["upload_length"]
+                    if upload_length is not None and next_offset > int(upload_length):
+                        _write_json(self, HTTPStatus.CONFLICT, {"detail": f"upload would exceed declared upload_length {upload_length}"})
+                        return
+                    session["payload"].extend(payload)
+                    session["offset"] = next_offset
+                    response_payload = {
+                        "session_id": parts[3],
+                        "path": session["relative_path"],
+                        "digest": session["digest"],
+                        "offset": next_offset,
+                        "completed": False,
+                    }
+                    if upload_length is not None:
+                        response_payload["upload_length"] = int(upload_length)
+                    _write_json(self, HTTPStatus.OK, response_payload)
+                    return
+
                 if (
                     len(parts) == 7
                     and parts[0] == "v1"

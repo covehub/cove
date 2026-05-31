@@ -19,6 +19,8 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 ARTIFACT_KEY_BYTES = 32
 ARTIFACT_NONCE_BYTES = 12
 COVE_RUNTIME_USER_AGENT = "cove-runtime/0.0.1"
+_CHUNKED_UPLOAD_THRESHOLD_BYTES = 64 * 1024 * 1024
+_CHUNKED_UPLOAD_CHUNK_SIZE_BYTES = 8 * 1024 * 1024
 
 
 class RuntimeErrorBase(RuntimeError):
@@ -196,6 +198,73 @@ def http_put_bytes(
     return _http_request_bytes(request=request, cafile=cafile, timeout=timeout)
 
 
+def http_put_bytes_resumable(
+    *,
+    url: str,
+    payload: bytes,
+    headers: dict[str, str] | None = None,
+    session_create_headers: dict[str, str] | None = None,
+    session_create_payload: dict[str, Any] | None = None,
+    cafile: str | Path | None = None,
+    timeout: float = 5.0,
+) -> bytes:
+    if len(payload) < _CHUNKED_UPLOAD_THRESHOLD_BYTES:
+        return http_put_bytes(
+            url=url,
+            payload=payload,
+            headers=headers,
+            cafile=cafile,
+            timeout=timeout,
+        )
+
+    create_headers = dict(session_create_headers or headers or {})
+    create_headers["Content-Type"] = "application/json"
+    create_payload = session_create_payload or {"upload_length": len(payload)}
+    create_body = json.dumps(create_payload).encode("utf-8")
+    create_request = urllib_request.Request(
+        _session_create_url(url),
+        data=create_body,
+        headers=create_headers,
+        method="POST",
+    )
+    session_response = _http_request_json(
+        request=create_request,
+        cafile=cafile,
+        timeout=timeout,
+    )
+    session_id = _required_non_empty_string(session_response.get("session_id"), "session_id")
+    offset = _required_int(session_response.get("offset"), "offset")
+
+    while offset < len(payload):
+        chunk = payload[offset : offset + _CHUNKED_UPLOAD_CHUNK_SIZE_BYTES]
+        chunk_headers = dict(headers or {})
+        chunk_headers["X-Cove-Upload-Offset"] = str(offset)
+        chunk_request = urllib_request.Request(
+            _session_chunk_url(url, session_id),
+            data=chunk,
+            headers=chunk_headers,
+            method="PUT",
+        )
+        chunk_response = _http_request_json(
+            request=chunk_request,
+            cafile=cafile,
+            timeout=timeout,
+        )
+        next_offset = _required_int(chunk_response.get("offset"), "offset")
+        if next_offset <= offset:
+            raise RuntimeErrorBase(
+                f"chunked upload session {session_id} did not advance offset"
+            )
+        offset = next_offset
+
+    complete_request = urllib_request.Request(
+        _session_complete_url(url, session_id),
+        data=b"",
+        method="POST",
+    )
+    return _http_request_bytes(request=complete_request, cafile=cafile, timeout=timeout)
+
+
 def http_get_bytes(
     *,
     url: str,
@@ -215,6 +284,48 @@ def join_url(base_url: str, relative_path: str) -> str:
 def url_with_query(base_url: str, path: str, query: dict[str, str]) -> str:
     encoded = urllib_parse.urlencode(query)
     return f"{join_url(base_url, path)}?{encoded}"
+
+
+def _http_request_json(
+    *,
+    request: urllib_request.Request,
+    cafile: str | Path | None = None,
+    timeout: float = 5.0,
+) -> dict[str, Any]:
+    body = _http_request_bytes(request=request, cafile=cafile, timeout=timeout)
+    try:
+        payload = json.loads(body.decode("utf-8"))
+    except json.JSONDecodeError as exc:
+        raise RuntimeErrorBase(f"server returned invalid JSON for {request.full_url}") from exc
+    if not isinstance(payload, dict):
+        raise RuntimeErrorBase(f"server returned a non-object JSON payload for {request.full_url}")
+    return payload
+
+
+def _required_int(value: Any, label: str) -> int:
+    if not isinstance(value, int):
+        raise RuntimeErrorBase(f"server returned invalid {label}")
+    return value
+
+
+def _required_non_empty_string(value: Any, label: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise RuntimeErrorBase(f"server returned invalid {label}")
+    return value.strip()
+
+
+def _session_create_url(url: str) -> str:
+    return f"{url.rstrip('/')}/upload-session"
+
+
+def _session_chunk_url(url: str, session_id: str) -> str:
+    parsed = urllib_parse.urlsplit(url)
+    return urllib_parse.urlunsplit((parsed.scheme, parsed.netloc, f"/v1/uploads/sessions/{session_id}", "", ""))
+
+
+def _session_complete_url(url: str, session_id: str) -> str:
+    parsed = urllib_parse.urlsplit(url)
+    return urllib_parse.urlunsplit((parsed.scheme, parsed.netloc, f"/v1/uploads/sessions/{session_id}/complete", "", ""))
 
 
 def _http_request_bytes(
