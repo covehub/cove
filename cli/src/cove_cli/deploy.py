@@ -502,7 +502,9 @@ def _translate_volume(
 
 
 def _deployment_name(*, publisher: str, workflow_id: str, node_id: str) -> str:
-    raw = f"cove-{publisher}-{workflow_id}-{node_id}".lower()
+    # Keep the workflow and node identifiers first so Phala's UI shows the
+    # human-meaningful part even when the final name needs truncation.
+    raw = f"cove-{workflow_id}-{node_id}-{publisher}".lower()
     sanitized = "".join(ch if ch.isalnum() or ch == "-" else "-" for ch in raw).strip("-")
     sanitized = re.sub(r"-{2,}", "-", sanitized)
     if len(sanitized) <= 63:

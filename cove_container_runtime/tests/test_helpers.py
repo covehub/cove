@@ -18,9 +18,13 @@ from cove_container_runtime.common import (
     COVE_RUNTIME_USER_AGENT,
     RuntimeErrorBase,
     decode_key_b64,
+    decrypt_ciphertext_file,
+    encrypt_plaintext_bytes,
     http_get_bytes,
+    http_get_to_file,
     http_put_bytes_resumable,
     load_inline_sidecar_context,
+    sha256_file_literal,
 )
 from cove_container_runtime.jsonlogic import JsonLogicError, evaluate_jsonlogic
 from cove_container_runtime.test_support import (
@@ -128,6 +132,63 @@ def test_runtime_http_helpers_send_default_user_agent(monkeypatch) -> None:
     assert observed_user_agents == [COVE_RUNTIME_USER_AGENT]
 
 
+def test_runtime_streaming_download_helper_sends_default_user_agent(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    observed_user_agents: list[str | None] = []
+
+    class FakeResponse:
+        status = 200
+        reason = "OK"
+        headers: dict[str, str] = {}
+
+        def __init__(self) -> None:
+            self._reads = 0
+
+        def __enter__(self) -> "FakeResponse":
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        def read(self, _size: int = -1) -> bytes:
+            self._reads += 1
+            return b"ok" if self._reads == 1 else b""
+
+    def fake_urlopen(request, **_kwargs):
+        observed_user_agents.append(request.get_header("User-agent"))
+        return FakeResponse()
+
+    monkeypatch.setattr(common_module.urllib_request, "urlopen", fake_urlopen)
+
+    output_path = tmp_path / "artifact.bin"
+    http_get_to_file(url="https://api.covehub.io/healthz", output_path=output_path)
+
+    assert output_path.read_bytes() == b"ok"
+    assert observed_user_agents == [COVE_RUNTIME_USER_AGENT]
+
+
+def test_decrypt_ciphertext_file_streams_to_disk(tmp_path) -> None:
+    plaintext = (b"stream-me-please-" * 65536) + b"done"
+    key_bytes = bytes(range(32))
+    ciphertext_path = tmp_path / "artifact.bin"
+    plaintext_path = tmp_path / "artifact.txt"
+
+    ciphertext_path.write_bytes(
+        encrypt_plaintext_bytes(plaintext=plaintext, key_bytes=key_bytes)
+    )
+
+    observed_plaintext_hash = decrypt_ciphertext_file(
+        ciphertext_path=ciphertext_path,
+        plaintext_path=plaintext_path,
+        key_bytes=key_bytes,
+    )
+
+    assert plaintext_path.read_bytes() == plaintext
+    assert observed_plaintext_hash == sha256_file_literal(plaintext_path)
+
+
 def test_runtime_chunked_upload_helper_uses_upload_sessions(monkeypatch) -> None:
     observed: list[tuple[str, str | None, bytes]] = []
 
@@ -219,6 +280,9 @@ def test_collect_attestation_bundle_uses_dstack_client_for_phala_dstack(
             self.report_data = report_data.hex()
 
     class FakeClient:
+        def __init__(self, timeout: int | None = None) -> None:
+            assert timeout == 30
+
         def get_quote(self, raw_report_data: bytes) -> FakeQuote:
             assert raw_report_data == report_data
             return FakeQuote()

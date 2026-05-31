@@ -1,0 +1,7 @@
+services:
+  audit_agent:
+    image: "hpmv/cove-demo-attested-audit-audit-agent@sha256:ccefd4263348b7812ea843026c7dfd012caebc664a2738f30a81a4b07272c87d"
+    environment:
+      AUDIT_KIND: eval_code
+      INPUT_PATH: /workspace/input/bob_private_eval_code.py
+      RESULT_PATH: /workspace/output/audit_eval_result.json

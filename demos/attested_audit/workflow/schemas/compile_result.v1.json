@@ -1,0 +1,35 @@
+{
+  "type": "object",
+  "required": [
+    "build_mode",
+    "changed_files",
+    "pass",
+    "serving_patch_sha256",
+    "vllm_version"
+  ],
+  "properties": {
+    "base_wheel_filename": {
+      "type": "string"
+    },
+    "build_mode": {
+      "type": "string"
+    },
+    "changed_files": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "pass": {
+      "type": "boolean"
+    },
+    "serving_patch_sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "vllm_version": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": true
+}

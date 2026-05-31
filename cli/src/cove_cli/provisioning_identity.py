@@ -137,6 +137,14 @@ def ensure_owner_signing_key_material(
     public_key_path.chmod(0o644)
 
 
+def _safe_common_name(value: str) -> str:
+    normalized = value.strip()
+    if len(normalized) <= 64:
+        return normalized
+    digest = sha256_literal(normalized.encode("utf-8")).removeprefix("sha256:")[:8]
+    return f"{normalized[:55]}-{digest}"
+
+
 def ensure_owner_tls_material(
     *,
     cert_path: Path,
@@ -170,8 +178,8 @@ def ensure_owner_tls_material(
         x509.DNSName("localhost"),
         x509.IPAddress(ipaddress.ip_address("127.0.0.1")),
     ]
-    subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, hostname)])
-    issuer = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, f"cove-owner:{owner_domain}")])
+    subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, _safe_common_name(hostname))])
+    issuer = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, _safe_common_name(f"cove-owner:{owner_domain}"))])
     certificate = (
         x509.CertificateBuilder()
         .subject_name(subject)

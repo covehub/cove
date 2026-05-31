@@ -1,0 +1,11 @@
+services:
+  benchmark_runner:
+    image: "hpmv/cove-demo-attested-audit-benchmark-runner@sha256:fc64f7a9e31502c71fb257742be3f3f635ff75f80ebda573e8c53b596741c345"
+    environment:
+      EVAL_CODE_PATH: /workspace/input/bob_private_eval_code.py
+      EVAL_DATA_PATH: /workspace/input/bob_private_eval_data.jsonl
+      MODEL_ARCHIVE_PATH: /workspace/input/alice_private_model.tar
+      RESULT_PATH: /workspace/output/benchmark_result.json
+      SCORE_THRESHOLD: "0.8"
+      SERVING_PATCH_PATH: /workspace/input/alice_private_serving_patch.diff
+      SERVING_WHEEL_PATH: /workspace/input/compiled_serving_wheel.whl

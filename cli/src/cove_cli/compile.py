@@ -276,7 +276,9 @@ def _compile_node(
                 "covehub_server_url": covehub_server_url,
                 "workflow_publisher_domain": workflow_publisher,
                 "workflow_id": workflow.workflow_id,
-                "timeout_seconds": 90.0,
+                # Multi-minute CPU-bound nodes are normal for real workflows,
+                # so downstream dependency polling needs a wider window.
+                "timeout_seconds": 600.0,
                 "poll_interval_seconds": 0.5,
                 "dependencies": [
                     {

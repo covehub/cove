@@ -15,7 +15,7 @@ from cryptography.hazmat.primitives.serialization import load_pem_private_key
 
 
 COVEHUB_USER_AGENT = "cove-cli/0.0.1"
-_REQUEST_TIMEOUT_SECONDS = 5
+_REQUEST_TIMEOUT_SECONDS = 60
 WRITE_AUTH_PURPOSE = "covehub_domain_write_v1"
 _CHUNKED_UPLOAD_THRESHOLD_BYTES = 64 * 1024 * 1024
 _CHUNKED_UPLOAD_CHUNK_SIZE_BYTES = 8 * 1024 * 1024

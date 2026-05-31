@@ -83,16 +83,27 @@ def _wait_for_runtime_certificate(
                 timeout=5.0,
             )
         except RuntimeErrorBase as exc:
-            if "HTTP 404" in str(exc):
-                time.sleep(poll_interval_seconds)
-                continue
-            raise
-        return verify_node_certificate(
-            certificate,
-            expected_workflow_id=expected_workflow_id,
-            expected_node_name=expected_node_id,
-            expected_generated_node_compose_hash=expected_generated_node_compose_hash,
-        )
+            log(
+                "dependency_certificate_fetcher",
+                f"{dependency_name} certificate fetch not ready yet: {exc}",
+            )
+            time.sleep(poll_interval_seconds)
+            continue
+
+        try:
+            return verify_node_certificate(
+                certificate,
+                expected_workflow_id=expected_workflow_id,
+                expected_node_name=expected_node_id,
+                expected_generated_node_compose_hash=expected_generated_node_compose_hash,
+            )
+        except RuntimeErrorBase as exc:
+            log(
+                "dependency_certificate_fetcher",
+                f"{dependency_name} latest certificate not ready yet: {exc}",
+            )
+            time.sleep(poll_interval_seconds)
+            continue
 
     raise RuntimeErrorBase(
         "timed out waiting for runtime certificate "

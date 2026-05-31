@@ -1408,6 +1408,7 @@ def test_dependency_certificate_fetcher_downloads_and_verifies_runtime_certifica
 
 def test_dependency_certificate_fetcher_rejects_invalid_runtime_certificate(
     tmp_path,
+    capsys,
 ) -> None:
     certificate_path = tmp_path / "runtime" / "cove" / "certificates" / "alice_word_length_checker" / "certificate.json"
     certificate = build_mock_certificate(
@@ -1447,13 +1448,16 @@ def test_dependency_certificate_fetcher_rejects_invalid_runtime_certificate(
                 }
             )
         except ContainerRuntimeErrorBase as exc:
-            assert "mock quote does not match" in str(exc)
+            assert "timed out waiting for runtime certificate" in str(exc)
+            captured = capsys.readouterr()
+            assert "mock quote does not match" in captured.out
         else:  # pragma: no cover - defensive
             raise AssertionError("expected invalid dependency certificate failure")
 
 
 def test_dependency_certificate_fetcher_rejects_mismatched_compose_hash(
     tmp_path,
+    capsys,
 ) -> None:
     certificate_path = tmp_path / "runtime" / "cove" / "certificates" / "alice_word_length_checker" / "certificate.json"
     certificate = build_mock_certificate(
@@ -1492,9 +1496,60 @@ def test_dependency_certificate_fetcher_rejects_mismatched_compose_hash(
                 }
             )
         except ContainerRuntimeErrorBase as exc:
-            assert "expected generated compose hash" in str(exc)
+            assert "timed out waiting for runtime certificate" in str(exc)
+            captured = capsys.readouterr()
+            assert "expected generated compose hash" in captured.out
         else:  # pragma: no cover - defensive
             raise AssertionError("expected mismatched compose hash failure")
+
+
+def test_dependency_certificate_fetcher_retries_transient_fetch_errors(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    certificate_path = tmp_path / "runtime" / "cove" / "certificates" / "alice_word_length_checker" / "certificate.json"
+    certificate = build_mock_certificate(
+        workflow_id="hello_world",
+        node_name="alice_word_length_checker",
+        generated_node_compose_hash="sha256:" + "3" * 64,
+        inputs={},
+        ephemeral_keypairs={},
+        results={"word_length_checker": {"pass": True}},
+    )
+    calls = {"count": 0}
+
+    def flaky_http_get_json(*, url: str, cafile=None, timeout: float = 60.0):
+        del cafile, timeout
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise ContainerRuntimeErrorBase(f"failed to reach {url}: temporary failure")
+        return certificate
+
+    monkeypatch.setattr(_DEPENDENCY_CERTIFICATE_FETCHER, "http_get_json", flaky_http_get_json)
+
+    _DEPENDENCY_CERTIFICATE_FETCHER.run(
+        {
+            "node_name": "character_set_checker",
+            "covehub_server_url": "https://example.invalid",
+            "workflow_publisher_domain": ALICE_DOMAIN,
+            "workflow_id": "hello_world",
+            "timeout_seconds": 2.0,
+            "poll_interval_seconds": 0.01,
+            "dependencies": [
+                {
+                    "node_name": "alice_word_length_checker",
+                    "certificate_path": str(certificate_path),
+                    "expected_workflow_id": "hello_world",
+                    "expected_node_id": "alice_word_length_checker",
+                    "expected_generated_node_compose_hash": "sha256:" + "3" * 64,
+                }
+            ],
+        }
+    )
+
+    written_certificate = json.loads(certificate_path.read_text(encoding="utf-8"))
+    assert written_certificate["certificate_body"]["node_id"] == "alice_word_length_checker"
+    assert calls["count"] >= 2
 
 
 def _copy_hello_world_workflow(tmp_path: Path) -> Path:

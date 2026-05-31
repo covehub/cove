@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import mimetypes
 import re
+from pathlib import Path
 from typing import Any
 from urllib import error as urllib_error
 from urllib import request as urllib_request
@@ -19,8 +20,10 @@ from cove_container_runtime.common import (
     SidecarConfigError,
     decode_key_b64,
     decrypt_ciphertext_bytes,
+    decrypt_ciphertext_file,
     encrypt_plaintext_bytes,
     http_get_bytes,
+    http_get_to_file,
     http_put_bytes,
     http_put_bytes_resumable,
     join_url,
@@ -30,6 +33,7 @@ from cove_container_runtime.common import (
     read_json_file,
     required_mapping,
     required_string,
+    sha256_file_literal,
     sha256_literal,
     url_with_query,
     wait_for_file,
@@ -104,6 +108,48 @@ def run(
     raise SidecarConfigError(f"unsupported artifact provisioner mode: {mode}")
 
 
+def _materialize_encrypted_artifact(
+    *,
+    artifact_name: str,
+    download_url: str,
+    staged_plaintext_path: str,
+    expected_ciphertext_hash: str,
+    expected_plaintext_hash: str,
+    key_bytes: bytes,
+) -> None:
+    target_path = Path(staged_plaintext_path)
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    ciphertext_path = target_path.parent / f".{target_path.name}.ciphertext.tmp"
+    plaintext_path = target_path.parent / f".{target_path.name}.plaintext.tmp"
+    for scratch_path in (ciphertext_path, plaintext_path):
+        scratch_path.unlink(missing_ok=True)
+
+    try:
+        http_get_to_file(url=download_url, output_path=ciphertext_path)
+        observed_ciphertext_hash = sha256_file_literal(ciphertext_path)
+        if observed_ciphertext_hash != expected_ciphertext_hash:
+            raise RuntimeErrorBase(
+                "ciphertext hash mismatch for "
+                f"{artifact_name}: {observed_ciphertext_hash} != {expected_ciphertext_hash}"
+            )
+
+        observed_plaintext_hash = decrypt_ciphertext_file(
+            ciphertext_path=ciphertext_path,
+            plaintext_path=plaintext_path,
+            key_bytes=key_bytes,
+        )
+        if observed_plaintext_hash != expected_plaintext_hash:
+            raise RuntimeErrorBase(
+                "decrypted plaintext hash mismatch for "
+                f"{artifact_name}: {observed_plaintext_hash} != {expected_plaintext_hash}"
+            )
+
+        plaintext_path.replace(target_path)
+    finally:
+        ciphertext_path.unlink(missing_ok=True)
+        plaintext_path.unlink(missing_ok=True)
+
+
 def _run_static_input(
     config: dict[str, object],
     *,
@@ -122,7 +168,6 @@ def _run_static_input(
     staged_plaintext_path = required_string(config, "staged_plaintext_path")
     metadata_path = required_string(config, "metadata_path")
 
-    ciphertext = http_get_bytes(url=join_url(_server_url(config), materialized_hub_path))
     provision_response = _fetch_key_release_response(
         config,
         owner_config=owner_config,
@@ -146,25 +191,14 @@ def _run_static_input(
             f"plaintext hash mismatch for {artifact_name}: {plaintext_hash} != {expected_plaintext_hash}"
         )
 
-    observed_ciphertext_hash = sha256_literal(ciphertext)
-    if observed_ciphertext_hash != ciphertext_hash:
-        raise RuntimeErrorBase(
-            "ciphertext hash mismatch for "
-            f"{artifact_name}: {observed_ciphertext_hash} != {ciphertext_hash}"
-        )
-
-    plaintext = decrypt_ciphertext_bytes(
-        ciphertext=ciphertext,
+    _materialize_encrypted_artifact(
+        artifact_name=artifact_name,
+        download_url=join_url(_server_url(config), materialized_hub_path),
+        staged_plaintext_path=staged_plaintext_path,
+        expected_ciphertext_hash=ciphertext_hash,
+        expected_plaintext_hash=plaintext_hash,
         key_bytes=key_bytes,
     )
-    observed_plaintext_hash = sha256_literal(plaintext)
-    if observed_plaintext_hash != plaintext_hash:
-        raise RuntimeErrorBase(
-            "decrypted plaintext hash mismatch for "
-            f"{artifact_name}: {observed_plaintext_hash} != {plaintext_hash}"
-        )
-
-    write_bytes_file(staged_plaintext_path, plaintext)
     write_json_file(
         metadata_path,
         {
@@ -226,23 +260,14 @@ def _run_dynamic_input(
             f"unsupported encryption algorithm for {artifact_name}: {encryption_algorithm}"
         )
 
-    ciphertext = http_get_bytes(url=join_url(_server_url(config), exact_hub_path))
-    observed_ciphertext_hash = sha256_literal(ciphertext)
-    if observed_ciphertext_hash != required_string(output_metadata, "ciphertext_hash"):
-        raise RuntimeErrorBase(
-            "ciphertext hash mismatch for "
-            f"{artifact_name}: {observed_ciphertext_hash} != {output_metadata['ciphertext_hash']}"
-        )
-
-    plaintext = decrypt_ciphertext_bytes(ciphertext=ciphertext, key_bytes=key_bytes)
-    observed_plaintext_hash = sha256_literal(plaintext)
-    if observed_plaintext_hash != required_string(output_metadata, "plaintext_hash"):
-        raise RuntimeErrorBase(
-            "decrypted plaintext hash mismatch for "
-            f"{artifact_name}: {observed_plaintext_hash} != {output_metadata['plaintext_hash']}"
-        )
-
-    write_bytes_file(staged_plaintext_path, plaintext)
+    _materialize_encrypted_artifact(
+        artifact_name=artifact_name,
+        download_url=join_url(_server_url(config), exact_hub_path),
+        staged_plaintext_path=staged_plaintext_path,
+        expected_ciphertext_hash=required_string(output_metadata, "ciphertext_hash"),
+        expected_plaintext_hash=required_string(output_metadata, "plaintext_hash"),
+        key_bytes=key_bytes,
+    )
     write_json_file(
         metadata_path,
         {
@@ -502,7 +527,7 @@ def _http_post_json_with_owner_identity(
     url: str,
     payload: dict[str, Any],
     owner_identity: dict[str, Any],
-    timeout: float = 5.0,
+    timeout: float = 60.0,
 ) -> dict[str, Any]:
     request = urllib_request.Request(
         url,
@@ -521,7 +546,7 @@ def _http_get_json_with_owner_identity(
     *,
     url: str,
     owner_identity: dict[str, Any],
-    timeout: float = 5.0,
+    timeout: float = 60.0,
 ) -> dict[str, Any]:
     request = urllib_request.Request(url, method="GET")
     return _http_json_with_owner_identity(

@@ -8,7 +8,12 @@ import yaml
 
 from cove_cli.config import config_path_for_home
 from cove_cli.compile import reviewed_compose_hash
-from cove_cli.deploy import DeployCommandError, PhalaDeployOptions, deploy_workflow
+from cove_cli.deploy import (
+    DeployCommandError,
+    PhalaDeployOptions,
+    _deployment_name,
+    deploy_workflow,
+)
 from cove_cli.publish import MaterializedNode, MaterializedWorkflowBundle, push_workflow
 from cove_cli.provisioning_identity import build_owner_identity_document
 
@@ -121,18 +126,28 @@ def test_deploy_pulls_bundle_before_submitting_and_orders_nodes_topologically(
         )
 
     assert events[0] == "pull"
-    expected_prefix = "cove-cove-demo-hello-world-alice-provisioning-covehu"
+    expected_names = [
+        _deployment_name(
+            publisher=ALICE_DOMAIN,
+            workflow_id="hello_world",
+            node_id=node_id,
+        )
+        for node_id in [
+            "alice_word_length_checker",
+            "bob_word_length_checker",
+            "character_set_checker",
+            "final_server",
+        ]
+    ]
     assert [event for event in events[1:]] == [
-        f"provision:{expected_prefix}-3a65956cab",
-        f"provision:{expected_prefix}-7d5354c59e",
-        f"provision:{expected_prefix}-b4b07c35e6",
-        f"provision:{expected_prefix}-cdb32f354e",
+        f"provision:{name}"
+        for name in expected_names
     ]
     assert f"Deployed workflow '{ALICE_DOMAIN}/hello_world' to Phala" in summary
     assert "cvm_id=cvm-app-4" in summary
 
     final_payload = fake_client.provision_calls[-1]
-    assert final_payload["name"] == f"{expected_prefix}-cdb32f354e"
+    assert final_payload["name"] == expected_names[-1]
     assert final_payload["instance_type"] == "tdx.small"
     compose_file = final_payload["compose_file"]
     assert isinstance(compose_file, dict)
@@ -266,7 +281,7 @@ services:
 
     assert len(captured_payloads) == 1
     payload = captured_payloads[0]
-    assert payload["name"] == "cove-cove-demo-hello-world-alice-provisioning-covehu-8399dd9dde"
+    assert payload["name"] == "cove-demo-node-one-cove-demo-hello-world-alice-provi-b79ef66de7"
     assert payload["instance_type"] == "h200.small"
     assert payload["region"] == "us-west"
     assert payload["image"] == "dstack-0.5.9"

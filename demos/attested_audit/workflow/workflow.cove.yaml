@@ -1,0 +1,170 @@
+cove_version: 1
+workflow:
+  id: attested_audit
+platform:
+  provider: phala
+  runtime: dstack
+owners:
+  alice: https://cove-demo-attested-audit-alice-provisioning.covehub.io
+  bob: https://cove-demo-attested-audit-bob-provisioning.covehub.io
+ephemeral_keypairs:
+  ratls_key:
+    algorithm: ed25519
+artifacts:
+  alice_private_model:
+    type: static
+    owner: alice
+    hub_path: v1/artifacts/alice/alice_private_model/latest
+    plaintext_hash: sha256:6d8d4d1370b0974a71361e05584c6b1f034f0311ca5505e245c591842b722d89
+  alice_private_serving_patch:
+    type: static
+    owner: alice
+    hub_path: v1/artifacts/alice/alice_private_serving_patch/latest
+    plaintext_hash: sha256:72c2f128b088bd2521bdfd3e9e9a3b6f40455b091a17988084b9c7ad2c214e92
+  bob_private_eval_code:
+    type: static
+    owner: bob
+    hub_path: v1/artifacts/bob/bob_private_eval_code/latest
+    plaintext_hash: sha256:f2498543aa9e8fc44cec50ab986962eff79e35e8226abf710e29456316d9b484
+  bob_private_eval_data:
+    type: static
+    owner: bob
+    hub_path: v1/artifacts/bob/bob_private_eval_data/latest
+    plaintext_hash: sha256:c8e6e32e0883cc5e6ca6b14ff8767665608ef400075e0da2bffd4daf44267f4b
+  compiled_serving_wheel:
+    type: dynamic
+    owner: alice
+    hub_path: runtime/attested_audit/artifacts/compiled_serving_wheel/latest
+nodes:
+  audit_serving_code:
+    compose: nodes/audit_serving_code.compose.yaml
+    services:
+      audit_agent:
+        inputs:
+          /workspace/input/alice_private_serving_patch.diff: alice_private_serving_patch
+        custom_certificate_field:
+          schema: schemas/audit_result.v1.json
+          path: /workspace/output/audit_serving_result.json
+        preconditions:
+          ==:
+          - var: inputs.alice_private_serving_patch.plaintext_hash
+          - sha256:72c2f128b088bd2521bdfd3e9e9a3b6f40455b091a17988084b9c7ad2c214e92
+  audit_eval_code:
+    compose: nodes/audit_eval_code.compose.yaml
+    services:
+      audit_agent:
+        inputs:
+          /workspace/input/bob_private_eval_code.py: bob_private_eval_code
+        custom_certificate_field:
+          schema: schemas/audit_result.v1.json
+          path: /workspace/output/audit_eval_result.json
+        preconditions:
+          ==:
+          - var: inputs.bob_private_eval_code.plaintext_hash
+          - sha256:f2498543aa9e8fc44cec50ab986962eff79e35e8226abf710e29456316d9b484
+  compile_serving_code:
+    compose: nodes/compile_serving_code.compose.yaml
+    dependencies:
+    - audit_serving_code
+    services:
+      compile_serving_wheel:
+        inputs:
+          /workspace/input/alice_private_serving_patch.diff: alice_private_serving_patch
+        outputs:
+          /workspace/output/compiled_serving_wheel.whl: compiled_serving_wheel
+        custom_certificate_field:
+          schema: schemas/compile_result.v1.json
+          path: /workspace/output/compile_result.json
+        preconditions:
+          and:
+          - ==:
+            - var: inputs.alice_private_serving_patch.plaintext_hash
+            - sha256:72c2f128b088bd2521bdfd3e9e9a3b6f40455b091a17988084b9c7ad2c214e92
+          - ==:
+            - var: certificates.audit_serving_code.certificate_body.results.audit_agent.pass
+            - true
+          - ==:
+            - var: inputs.alice_private_serving_patch.plaintext_hash
+            - var: certificates.audit_serving_code.certificate_body.results.audit_agent.audited_sha256
+  model_benchmark:
+    compose: nodes/model_benchmark.compose.yaml
+    dependencies:
+    - audit_serving_code
+    - compile_serving_code
+    - audit_eval_code
+    services:
+      benchmark_runner:
+        inputs:
+          /workspace/input/alice_private_model.tar: alice_private_model
+          /workspace/input/alice_private_serving_patch.diff: alice_private_serving_patch
+          /workspace/input/bob_private_eval_code.py: bob_private_eval_code
+          /workspace/input/bob_private_eval_data.jsonl: bob_private_eval_data
+          /workspace/input/compiled_serving_wheel.whl: compiled_serving_wheel
+        custom_certificate_field:
+          schema: schemas/benchmark_result.v1.json
+          path: /workspace/output/benchmark_result.json
+        preconditions:
+          and:
+          - ==:
+            - var: inputs.alice_private_model.plaintext_hash
+            - sha256:6d8d4d1370b0974a71361e05584c6b1f034f0311ca5505e245c591842b722d89
+          - ==:
+            - var: inputs.alice_private_serving_patch.plaintext_hash
+            - sha256:72c2f128b088bd2521bdfd3e9e9a3b6f40455b091a17988084b9c7ad2c214e92
+          - ==:
+            - var: inputs.bob_private_eval_code.plaintext_hash
+            - sha256:f2498543aa9e8fc44cec50ab986962eff79e35e8226abf710e29456316d9b484
+          - ==:
+            - var: inputs.bob_private_eval_data.plaintext_hash
+            - sha256:c8e6e32e0883cc5e6ca6b14ff8767665608ef400075e0da2bffd4daf44267f4b
+          - ==:
+            - var: certificates.audit_serving_code.certificate_body.results.audit_agent.pass
+            - true
+          - ==:
+            - var: certificates.audit_eval_code.certificate_body.results.audit_agent.pass
+            - true
+          - ==:
+            - var: certificates.compile_serving_code.certificate_body.results.compile_serving_wheel.pass
+            - true
+          - ==:
+            - var: inputs.alice_private_serving_patch.plaintext_hash
+            - var: certificates.audit_serving_code.certificate_body.results.audit_agent.audited_sha256
+          - ==:
+            - var: inputs.bob_private_eval_code.plaintext_hash
+            - var: certificates.audit_eval_code.certificate_body.results.audit_agent.audited_sha256
+          - ==:
+            - var: certificates.compile_serving_code.certificate_body.results.compile_serving_wheel.serving_patch_sha256
+            - var: certificates.audit_serving_code.certificate_body.results.audit_agent.audited_sha256
+          - ==:
+            - var: inputs.compiled_serving_wheel.plaintext_hash
+            - var: certificates.compile_serving_code.certificate_body.outputs.compiled_serving_wheel.plaintext_hash
+  model_deployment:
+    compose: nodes/model_deployment.compose.yaml
+    dependencies:
+    - compile_serving_code
+    - model_benchmark
+    services:
+      serve:
+        should_terminate: false
+        inputs:
+          /workspace/input/alice_private_model.tar: alice_private_model
+          /workspace/input/compiled_serving_wheel.whl: compiled_serving_wheel
+        ephemeral_keypairs:
+        - ratls_key
+        preconditions:
+          and:
+          - ==:
+            - var: inputs.alice_private_model.plaintext_hash
+            - sha256:6d8d4d1370b0974a71361e05584c6b1f034f0311ca5505e245c591842b722d89
+          - ==:
+            - var: certificates.compile_serving_code.certificate_body.results.compile_serving_wheel.pass
+            - true
+          - ==:
+            - var: certificates.model_benchmark.certificate_body.results.benchmark_runner.passes_threshold
+            - true
+          - ==:
+            - var: inputs.compiled_serving_wheel.plaintext_hash
+            - var: certificates.model_benchmark.certificate_body.inputs.compiled_serving_wheel.plaintext_hash
+          - ==:
+            - var: inputs.alice_private_model.plaintext_hash
+            - var: certificates.model_benchmark.certificate_body.inputs.alice_private_model.plaintext_hash
