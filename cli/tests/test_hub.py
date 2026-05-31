@@ -8,6 +8,8 @@ import yaml
 
 from cove_cli.cli import run
 from cove_cli.config import config_path_for_home
+from cove_cli.covehub import upload_named_artifact, upload_workflow_object
+from cove_cli.provisioning_identity import build_owner_identity_document, ensure_owner_signing_key_material
 
 from .support import MockCovehubServer
 
@@ -150,6 +152,51 @@ def test_hub_inspect_summarizes_runtime_certificate(capsys) -> None:
     assert "Node id: final_server" in output
     assert "Attestation format: phala_dstack_v1" in output
     assert "WARNING: 'latest' is a mutable convenience alias" in output
+
+
+def test_chunked_artifact_and_workflow_uploads_use_session_api(tmp_path, monkeypatch) -> None:
+    owner_url = f"https://{ALICE_DOMAIN}"
+    private_key_path = tmp_path / "owner-signing-private.pem"
+    public_key_path = tmp_path / "owner-signing-public.pem"
+    ensure_owner_signing_key_material(
+        private_key_path=private_key_path,
+        public_key_path=public_key_path,
+    )
+    identity = build_owner_identity_document(
+        owner_url=owner_url,
+        owner_private_key_path=private_key_path,
+        owner_public_key_path=public_key_path,
+    )
+    monkeypatch.setattr("cove_cli.covehub._CHUNKED_UPLOAD_THRESHOLD_BYTES", 8)
+    monkeypatch.setattr("cove_cli.covehub._CHUNKED_UPLOAD_CHUNK_SIZE_BYTES", 3)
+
+    artifact_payload = b"artifact uploaded in chunks"
+    workflow_payload = b'{"workflow":"chunked"}'
+
+    with MockCovehubServer() as server:
+        artifact_result = upload_named_artifact(
+            server_url=server.url,
+            owner_domain=ALICE_DOMAIN,
+            artifact_name="model",
+            owner_identity=identity,
+            owner_private_key_path=private_key_path,
+            payload=artifact_payload,
+        )
+        workflow_result = upload_workflow_object(
+            server_url=server.url,
+            publisher=ALICE_DOMAIN,
+            workflow_id="hello_world",
+            owner_identity=identity,
+            owner_private_key_path=private_key_path,
+            payload=workflow_payload,
+        )
+
+    artifact_digest = _sha256_literal(artifact_payload)
+    workflow_digest = _sha256_literal(workflow_payload)
+    assert artifact_result.status_code == 201
+    assert workflow_result.status_code == 201
+    assert server.state.artifacts[f"v1/artifacts/{ALICE_DOMAIN}/model/{artifact_digest}"] == artifact_payload
+    assert server.state.workflow_bundles[f"v1/workflows/{ALICE_DOMAIN}/hello_world/{workflow_digest}"] == workflow_payload
 
 
 def test_hub_get_rejects_digest_mismatch(capsys) -> None:

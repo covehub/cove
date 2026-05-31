@@ -111,6 +111,132 @@ def test_static_artifact_exact_write_read_head_latest_and_storage(tmp_path, monk
         ).read_bytes() == payload
 
 
+def test_static_artifact_upload_session_appends_chunks_and_completes(tmp_path, monkeypatch) -> None:
+    with _client(tmp_path) as client:
+        identity, private_key = _owner_identity(ALICE_DOMAIN)
+        _stub_current_owner_identity(monkeypatch, identity)
+        payload = b"chunked-object-bytes"
+        digest = _sha256_literal(payload)
+        object_path = f"/v1/artifacts/{ALICE_DOMAIN}/model_weights/{digest}"
+        session_path = f"{object_path}/upload-session"
+        session_payload = json.dumps({"upload_length": len(payload)}).encode("utf-8")
+
+        session_response = client.post(
+            session_path,
+            content=session_payload,
+            headers=_write_headers(
+                method="POST",
+                path=session_path,
+                payload=session_payload,
+                owner_domain=ALICE_DOMAIN,
+                identity=identity,
+                private_key=private_key,
+            ),
+        )
+        assert session_response.status_code == 201
+        session = session_response.json()
+        assert session["offset"] == 0
+        assert session["upload_length"] == len(payload)
+        session_id = session["session_id"]
+
+        first_chunk = client.put(
+            f"/v1/uploads/sessions/{session_id}",
+            content=payload[:7],
+            headers={"X-Cove-Upload-Offset": "0"},
+        )
+        assert first_chunk.status_code == 200
+        assert first_chunk.json()["offset"] == 7
+
+        status_response = client.get(f"/v1/uploads/sessions/{session_id}")
+        assert status_response.status_code == 200
+        assert status_response.json()["offset"] == 7
+
+        second_chunk = client.put(
+            f"/v1/uploads/sessions/{session_id}",
+            content=payload[7:],
+            headers={"X-Cove-Upload-Offset": "7"},
+        )
+        assert second_chunk.status_code == 200
+        assert second_chunk.json()["offset"] == len(payload)
+
+        complete_response = client.post(f"/v1/uploads/sessions/{session_id}/complete")
+        assert complete_response.status_code == 201
+        completed = complete_response.json()
+        assert completed["completed"] is True
+        assert completed["created"] is True
+
+        assert client.get(object_path).content == payload
+        assert client.get(f"/v1/artifacts/{ALICE_DOMAIN}/model_weights/latest").content == payload
+
+
+def test_static_artifact_upload_session_rejects_offset_conflicts_and_digest_mismatch(tmp_path, monkeypatch) -> None:
+    with _client(tmp_path) as client:
+        identity, private_key = _owner_identity(ALICE_DOMAIN)
+        _stub_current_owner_identity(monkeypatch, identity)
+        payload = b"abcdef"
+        digest = _sha256_literal(payload)
+        object_path = f"/v1/artifacts/{ALICE_DOMAIN}/model_weights/{digest}"
+        session_path = f"{object_path}/upload-session"
+        session_payload = json.dumps({"upload_length": len(payload)}).encode("utf-8")
+
+        session_response = client.post(
+            session_path,
+            content=session_payload,
+            headers=_write_headers(
+                method="POST",
+                path=session_path,
+                payload=session_payload,
+                owner_domain=ALICE_DOMAIN,
+                identity=identity,
+                private_key=private_key,
+            ),
+        )
+        session_id = session_response.json()["session_id"]
+
+        first_chunk = client.put(
+            f"/v1/uploads/sessions/{session_id}",
+            content=b"abc",
+            headers={"X-Cove-Upload-Offset": "0"},
+        )
+        assert first_chunk.status_code == 200
+
+        wrong_offset = client.put(
+            f"/v1/uploads/sessions/{session_id}",
+            content=b"def",
+            headers={"X-Cove-Upload-Offset": "1"},
+        )
+        assert wrong_offset.status_code == 409
+
+        complete_too_early = client.post(f"/v1/uploads/sessions/{session_id}/complete")
+        assert complete_too_early.status_code == 409
+
+        mismatch_digest = _sha256_literal(b"ghijkl")
+        mismatch_object_path = f"/v1/artifacts/{ALICE_DOMAIN}/other_weights/{mismatch_digest}"
+        mismatch_session_path = f"{mismatch_object_path}/upload-session"
+        mismatch_payload = json.dumps({"upload_length": 6}).encode("utf-8")
+        mismatch_response = client.post(
+            mismatch_session_path,
+            content=mismatch_payload,
+            headers=_write_headers(
+                method="POST",
+                path=mismatch_session_path,
+                payload=mismatch_payload,
+                owner_domain=ALICE_DOMAIN,
+                identity=identity,
+                private_key=private_key,
+            ),
+        )
+        mismatch_session_id = mismatch_response.json()["session_id"]
+        client.put(
+            f"/v1/uploads/sessions/{mismatch_session_id}",
+            content=b"ghijkx",
+            headers={"X-Cove-Upload-Offset": "0"},
+        )
+        mismatch_complete = client.post(f"/v1/uploads/sessions/{mismatch_session_id}/complete")
+        assert mismatch_complete.status_code == 400
+        assert mismatch_complete.json()["detail"] == "uploaded bytes sha256 does not match digest path"
+
+
 def test_exact_write_rejects_digest_mismatch_and_bad_digest(tmp_path, monkeypatch) -> None:
     with _client(tmp_path) as client:
         identity, private_key = _owner_identity(ALICE_DOMAIN)

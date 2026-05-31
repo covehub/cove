@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import json
-import hashlib
 import base64
+import hashlib
+import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,6 +17,8 @@ from cryptography.hazmat.primitives.serialization import load_pem_private_key
 COVEHUB_USER_AGENT = "cove-cli/0.0.1"
 _REQUEST_TIMEOUT_SECONDS = 5
 WRITE_AUTH_PURPOSE = "covehub_domain_write_v1"
+_CHUNKED_UPLOAD_THRESHOLD_BYTES = 64 * 1024 * 1024
+_CHUNKED_UPLOAD_CHUNK_SIZE_BYTES = 8 * 1024 * 1024
 
 
 class CovehubError(RuntimeError):
@@ -41,42 +43,21 @@ def upload_named_artifact(
     payload: bytes,
     overwrite: bool = False,  # retained for CLI flag compatibility
 ) -> ObjectUploadResult:
+    del overwrite
     digest = _sha256_literal(payload)
     hub_path = f"v1/artifacts/{owner_domain}/{artifact_name}/{digest}"
-    request_path = f"/{hub_path}"
-    request = urllib_request.Request(
-        _join_url(server_url, request_path),
-        data=payload,
-        headers={
-            "Content-Type": "application/octet-stream",
-            **signed_write_headers(
-                method="PUT",
-                path=request_path,
-                payload=payload,
-                owner_domain=owner_domain,
-                owner_identity=owner_identity,
-                owner_private_key_path=owner_private_key_path,
-            ),
-        },
-        method="PUT",
+    latest_hub_path = f"v1/artifacts/{owner_domain}/{artifact_name}/latest"
+    return _upload_typed_object(
+        label="artifact",
+        server_url=server_url,
+        owner_domain=owner_domain,
+        owner_identity=owner_identity,
+        owner_private_key_path=owner_private_key_path,
+        payload=payload,
+        hub_path=hub_path,
+        latest_hub_path=latest_hub_path,
+        content_type="application/octet-stream",
     )
-    try:
-        with _urlopen(request) as response:
-            return ObjectUploadResult(
-                status_code=int(response.status),
-                digest=digest,
-                hub_path=hub_path,
-                latest_hub_path=f"v1/artifacts/{owner_domain}/{artifact_name}/latest",
-            )
-    except urllib_error.HTTPError as exc:
-        detail = _extract_error_detail(exc)
-        raise CovehubError(
-            f"artifact upload failed with HTTP {exc.code}: {detail}"
-        ) from exc
-    except urllib_error.URLError as exc:
-        raise CovehubError(
-            f"failed to reach Covehub server during artifact upload: {exc.reason}"
-        ) from exc
 
 
 def upload_workflow_object(
@@ -89,42 +70,21 @@ def upload_workflow_object(
     payload: bytes,
     overwrite: bool = False,  # retained for CLI flag compatibility
 ) -> ObjectUploadResult:
+    del overwrite
     digest = _sha256_literal(payload)
     hub_path = f"v1/workflows/{publisher}/{workflow_id}/{digest}"
-    request_path = f"/{hub_path}"
-    request = urllib_request.Request(
-        _join_url(server_url, request_path),
-        data=payload,
-        headers={
-            "Content-Type": "application/json",
-            **signed_write_headers(
-                method="PUT",
-                path=request_path,
-                payload=payload,
-                owner_domain=publisher,
-                owner_identity=owner_identity,
-                owner_private_key_path=owner_private_key_path,
-            ),
-        },
-        method="PUT",
+    latest_hub_path = f"v1/workflows/{publisher}/{workflow_id}/latest"
+    return _upload_typed_object(
+        label="workflow",
+        server_url=server_url,
+        owner_domain=publisher,
+        owner_identity=owner_identity,
+        owner_private_key_path=owner_private_key_path,
+        payload=payload,
+        hub_path=hub_path,
+        latest_hub_path=latest_hub_path,
+        content_type="application/json",
     )
-    try:
-        with _urlopen(request) as response:
-            return ObjectUploadResult(
-                status_code=int(response.status),
-                digest=digest,
-                hub_path=hub_path,
-                latest_hub_path=f"v1/workflows/{publisher}/{workflow_id}/latest",
-            )
-    except urllib_error.HTTPError as exc:
-        detail = _extract_error_detail(exc)
-        raise CovehubError(
-            f"workflow upload failed with HTTP {exc.code}: {detail}"
-        ) from exc
-    except urllib_error.URLError as exc:
-        raise CovehubError(
-            f"failed to reach Covehub server during workflow upload: {exc.reason}"
-        ) from exc
 
 
 def download_workflow_object(
@@ -175,6 +135,148 @@ def delete_runtime_state(
         raise CovehubError(
             f"failed to reach Covehub server during runtime-state delete: {exc.reason}"
         ) from exc
+
+
+def _upload_typed_object(
+    *,
+    label: str,
+    server_url: str,
+    owner_domain: str,
+    owner_identity: dict[str, object],
+    owner_private_key_path: Path,
+    payload: bytes,
+    hub_path: str,
+    latest_hub_path: str,
+    content_type: str,
+) -> ObjectUploadResult:
+    try:
+        if len(payload) < _CHUNKED_UPLOAD_THRESHOLD_BYTES:
+            status_code = _direct_put_typed_object(
+                server_url=server_url,
+                owner_domain=owner_domain,
+                owner_identity=owner_identity,
+                owner_private_key_path=owner_private_key_path,
+                payload=payload,
+                hub_path=hub_path,
+                content_type=content_type,
+            )
+        else:
+            status_code = _chunked_put_typed_object(
+                server_url=server_url,
+                owner_domain=owner_domain,
+                owner_identity=owner_identity,
+                owner_private_key_path=owner_private_key_path,
+                payload=payload,
+                hub_path=hub_path,
+                content_type=content_type,
+            )
+    except urllib_error.HTTPError as exc:
+        detail = _extract_error_detail(exc)
+        raise CovehubError(
+            f"{label} upload failed with HTTP {exc.code}: {detail}"
+        ) from exc
+    except urllib_error.URLError as exc:
+        raise CovehubError(
+            f"failed to reach Covehub server during {label} upload: {exc.reason}"
+        ) from exc
+
+    return ObjectUploadResult(
+        status_code=status_code,
+        digest=_sha256_literal(payload),
+        hub_path=hub_path,
+        latest_hub_path=latest_hub_path,
+    )
+
+
+def _direct_put_typed_object(
+    *,
+    server_url: str,
+    owner_domain: str,
+    owner_identity: dict[str, object],
+    owner_private_key_path: Path,
+    payload: bytes,
+    hub_path: str,
+    content_type: str,
+) -> int:
+    request_path = f"/{hub_path}"
+    request = urllib_request.Request(
+        _join_url(server_url, request_path),
+        data=payload,
+        headers={
+            "Content-Type": content_type,
+            **signed_write_headers(
+                method="PUT",
+                path=request_path,
+                payload=payload,
+                owner_domain=owner_domain,
+                owner_identity=owner_identity,
+                owner_private_key_path=owner_private_key_path,
+            ),
+        },
+        method="PUT",
+    )
+    with _urlopen(request) as response:
+        return int(response.status)
+
+
+def _chunked_put_typed_object(
+    *,
+    server_url: str,
+    owner_domain: str,
+    owner_identity: dict[str, object],
+    owner_private_key_path: Path,
+    payload: bytes,
+    hub_path: str,
+    content_type: str,
+) -> int:
+    session_request_path = f"/{hub_path}/upload-session"
+    session_payload = _canonical_json_bytes({"upload_length": len(payload)})
+    session_request = urllib_request.Request(
+        _join_url(server_url, session_request_path),
+        data=session_payload,
+        headers={
+            "Content-Type": "application/json",
+            **signed_write_headers(
+                method="POST",
+                path=session_request_path,
+                payload=session_payload,
+                owner_domain=owner_domain,
+                owner_identity=owner_identity,
+                owner_private_key_path=owner_private_key_path,
+            ),
+        },
+        method="POST",
+    )
+    session_response = _json_request(session_request)
+    session_id = _required_string(session_response.get("session_id"), "session_id")
+    offset = _required_int(session_response.get("offset"), "offset")
+
+    while offset < len(payload):
+        chunk = payload[offset : offset + _CHUNKED_UPLOAD_CHUNK_SIZE_BYTES]
+        request = urllib_request.Request(
+            _join_url(server_url, f"/v1/uploads/sessions/{session_id}"),
+            data=chunk,
+            headers={
+                "Content-Type": content_type,
+                "X-Cove-Upload-Offset": str(offset),
+            },
+            method="PUT",
+        )
+        response_payload = _json_request(request)
+        next_offset = _required_int(response_payload.get("offset"), "offset")
+        if next_offset <= offset:
+            raise CovehubError(
+                f"chunked upload session {session_id} did not advance offset"
+            )
+        offset = next_offset
+
+    complete_request = urllib_request.Request(
+        _join_url(server_url, f"/v1/uploads/sessions/{session_id}/complete"),
+        data=b"",
+        method="POST",
+    )
+    with _urlopen(complete_request) as response:
+        return int(response.status)
 
 
 def _json_request(request: urllib_request.Request) -> dict[str, Any]:
@@ -264,6 +366,18 @@ def _extract_error_detail(exc: urllib_error.HTTPError) -> str:
     if isinstance(detail, str) and detail:
         return detail
     return body or (exc.reason if isinstance(exc.reason, str) else str(exc.reason))
+
+
+def _required_int(value: object, label: str) -> int:
+    if not isinstance(value, int):
+        raise CovehubError(f"server returned invalid {label}")
+    return value
+
+
+def _required_string(value: object, label: str) -> str:
+    if not isinstance(value, str) or not value:
+        raise CovehubError(f"server returned invalid {label}")
+    return value
 
 
 def _join_url(server_url: str, suffix: str) -> str:

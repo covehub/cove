@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Annotated
+from typing import Annotated, Any
 
 from cove_container_runtime.attestation import (
     build_node_certificate_report_data,
@@ -18,7 +18,15 @@ from .quote_verifier import (
     RuntimeAttestation,
     build_quote_verifier,
 )
-from .storage import LocalStorage, PathConflictError, StorageError
+from .storage import (
+    LocalStorage,
+    PathConflictError,
+    StorageError,
+    UploadSession,
+    UploadSessionConflictError,
+    UploadSessionNotFoundError,
+    UploadSessionValidationError,
+)
 from .validation import (
     ValidationError,
     ensure_hash_segment,
@@ -95,6 +103,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             payload=payload,
         )
 
+    @app.post("/v1/artifacts/{owner}/{artifact_name}/{hash_segment}/upload-session")
+    async def create_static_artifact_upload_session(
+        owner: str,
+        artifact_name: str,
+        hash_segment: str,
+        request: Request,
+        current_services: Services = Depends(_get_services),
+    ) -> JSONResponse:
+        owner = ensure_owner_domain(owner, "artifact owner")
+        artifact_name = ensure_identifier(artifact_name, "artifact name")
+        payload = await request.body()
+        _verify_domain_write_request(request, owner_domain=owner, payload=payload)
+        expected_size = _parse_upload_session_request_payload(payload)
+        session = _create_upload_session(
+            current_services,
+            namespace_parts=["artifacts", owner, artifact_name],
+            hash_segment=hash_segment,
+            expected_size=expected_size,
+        )
+        return JSONResponse(status_code=status.HTTP_201_CREATED, content=_upload_session_payload(session))
+
     @app.get("/v1/artifacts/{owner}/{artifact_name}/{reference}")
     def get_static_artifact(
         owner: str,
@@ -141,6 +170,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             hash_segment=hash_segment,
             payload=payload,
         )
+
+    @app.post("/v1/workflows/{publisher}/{workflow_id}/{hash_segment}/upload-session")
+    async def create_workflow_upload_session(
+        publisher: str,
+        workflow_id: str,
+        hash_segment: str,
+        request: Request,
+        current_services: Services = Depends(_get_services),
+    ) -> JSONResponse:
+        publisher = ensure_owner_domain(publisher, "workflow publisher")
+        workflow_id = ensure_identifier(workflow_id, "workflow id")
+        payload = await request.body()
+        _verify_domain_write_request(request, owner_domain=publisher, payload=payload)
+        expected_size = _parse_upload_session_request_payload(payload)
+        session = _create_upload_session(
+            current_services,
+            namespace_parts=["workflows", publisher, workflow_id],
+            hash_segment=hash_segment,
+            expected_size=expected_size,
+        )
+        return JSONResponse(status_code=status.HTTP_201_CREATED, content=_upload_session_payload(session))
 
     @app.get("/v1/workflows/{publisher}/{workflow_id}/{reference}")
     def get_workflow_object(
@@ -278,6 +328,49 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             payload=payload,
         )
 
+    @app.post("/v1/runtime/{publisher}/{workflow_id}/artifacts/{artifact_name}/{hash_segment}/upload-session")
+    async def create_runtime_artifact_upload_session(
+        publisher: str,
+        workflow_id: str,
+        artifact_name: str,
+        hash_segment: str,
+        request: Request,
+        x_tdx_quote: Annotated[str | None, Header(alias="X-TDX-Quote")] = None,
+        x_tdx_event_log: Annotated[str | None, Header(alias="X-TDX-Event-Log")] = None,
+        x_cove_workflow_id: Annotated[str | None, Header(alias="X-Cove-Workflow-Id")] = None,
+        x_cove_artifact_name: Annotated[str | None, Header(alias="X-Cove-Artifact-Name")] = None,
+        x_cove_node_id: Annotated[str | None, Header(alias="X-Cove-Node-Id")] = None,
+        x_cove_compose_hash: Annotated[str | None, Header(alias="X-Cove-Compose-Hash")] = None,
+        x_cove_attestation_format: Annotated[str | None, Header(alias="X-Cove-Attestation-Format")] = None,
+        x_cove_report_data: Annotated[str | None, Header(alias="X-Cove-Report-Data")] = None,
+        current_services: Services = Depends(_get_services),
+    ) -> JSONResponse:
+        publisher = ensure_owner_domain(publisher, "runtime publisher")
+        workflow_id = ensure_identifier(workflow_id, "workflow id")
+        artifact_name = ensure_identifier(artifact_name, "artifact name")
+        payload = await request.body()
+        _verify_runtime_artifact_attestation(
+            current_services,
+            quote=x_tdx_quote,
+            event_log=x_tdx_event_log,
+            workflow_id=x_cove_workflow_id,
+            artifact_name=x_cove_artifact_name,
+            path_workflow_id=workflow_id,
+            path_artifact_name=artifact_name,
+            node_id=x_cove_node_id,
+            compose_hash=x_cove_compose_hash,
+            attestation_format=x_cove_attestation_format,
+            report_data=x_cove_report_data,
+        )
+        expected_size = _parse_upload_session_request_payload(payload)
+        session = _create_upload_session(
+            current_services,
+            namespace_parts=["runtime", publisher, workflow_id, "artifacts", artifact_name],
+            hash_segment=hash_segment,
+            expected_size=expected_size,
+        )
+        return JSONResponse(status_code=status.HTTP_201_CREATED, content=_upload_session_payload(session))
+
     @app.get("/v1/runtime/{publisher}/{workflow_id}/artifacts/{artifact_name}/{reference}")
     def get_runtime_artifact(
         publisher: str,
@@ -308,6 +401,76 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return _head_object_response(
             current_services,
             ["runtime", publisher, workflow_id, "artifacts", artifact_name, _ensure_reference(reference)],
+        )
+
+    @app.get("/v1/uploads/sessions/{session_id}")
+    def get_upload_session(
+        session_id: str,
+        current_services: Services = Depends(_get_services),
+    ) -> dict[str, object]:
+        return _read_upload_session(current_services, session_id)
+
+    @app.put("/v1/uploads/sessions/{session_id}")
+    async def append_upload_session_chunk(
+        session_id: str,
+        request: Request,
+        x_cove_upload_offset: Annotated[str | None, Header(alias="X-Cove-Upload-Offset")] = None,
+        current_services: Services = Depends(_get_services),
+    ) -> dict[str, object]:
+        if x_cove_upload_offset is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="missing X-Cove-Upload-Offset header",
+            )
+        payload = await request.body()
+        try:
+            session = current_services.storage.append_upload_chunk(
+                session_id,
+                offset=_parse_upload_offset(x_cove_upload_offset),
+                payload=payload,
+            )
+        except UploadSessionNotFoundError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="upload session not found",
+            ) from exc
+        except UploadSessionConflictError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(exc),
+            ) from exc
+        except UploadSessionValidationError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
+        return _upload_session_payload(session)
+
+    @app.post("/v1/uploads/sessions/{session_id}/complete")
+    def complete_upload_session(
+        session_id: str,
+        current_services: Services = Depends(_get_services),
+    ) -> JSONResponse:
+        try:
+            session, result = current_services.storage.complete_upload_session(session_id)
+        except UploadSessionNotFoundError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="upload session not found",
+            ) from exc
+        except UploadSessionConflictError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(exc),
+            ) from exc
+        except UploadSessionValidationError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
+        return JSONResponse(
+            status_code=_write_status_code(result.created),
+            content=_upload_session_payload(session),
         )
 
     @app.delete("/v1/runtime/{publisher}/{workflow_id}")
@@ -353,6 +516,94 @@ def _verify_domain_write_request(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=str(exc),
         ) from exc
+
+
+def _create_upload_session(
+    services: Services,
+    *,
+    namespace_parts: list[str],
+    hash_segment: str,
+    expected_size: int | None,
+) -> UploadSession:
+    try:
+        return services.storage.create_upload_session(
+            namespace_parts,
+            ensure_hash_segment(hash_segment),
+            expected_size=expected_size,
+        )
+    except UploadSessionValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+
+def _read_upload_session(services: Services, session_id: str) -> dict[str, object]:
+    try:
+        session = services.storage.get_upload_session(session_id)
+    except UploadSessionNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="upload session not found",
+        ) from exc
+    return _upload_session_payload(session)
+
+
+def _upload_session_payload(session: UploadSession) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "session_id": session.session_id,
+        "path": "/".join([*session.namespace_parts, session.digest_segment]),
+        "digest": session.digest_segment,
+        "offset": session.current_size,
+        "completed": session.completed,
+    }
+    if session.expected_size is not None:
+        payload["upload_length"] = session.expected_size
+    if session.created is not None:
+        payload["created"] = session.created
+    return payload
+
+
+def _parse_upload_session_request_payload(payload: bytes) -> int | None:
+    if not payload:
+        return None
+    try:
+        parsed = json.loads(payload.decode("utf-8"))
+    except json.JSONDecodeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="upload session payload must be valid JSON",
+        ) from exc
+    if not isinstance(parsed, dict):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="upload session payload must be a JSON object",
+        )
+    upload_length = parsed.get("upload_length")
+    if upload_length is None:
+        return None
+    if not isinstance(upload_length, int) or upload_length < 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="upload_length must be a non-negative integer",
+        )
+    return upload_length
+
+
+def _parse_upload_offset(value: str) -> int:
+    try:
+        offset = int(value)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="X-Cove-Upload-Offset must be an integer",
+        ) from exc
+    if offset < 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="X-Cove-Upload-Offset must be non-negative",
+        )
+    return offset
 
 
 def _write_typed_object(

@@ -19,6 +19,7 @@ from cove_container_runtime.common import (
     RuntimeErrorBase,
     decode_key_b64,
     http_get_bytes,
+    http_put_bytes_resumable,
     load_inline_sidecar_context,
 )
 from cove_container_runtime.jsonlogic import JsonLogicError, evaluate_jsonlogic
@@ -125,6 +126,61 @@ def test_runtime_http_helpers_send_default_user_agent(monkeypatch) -> None:
 
     assert http_get_bytes(url="https://api.covehub.io/healthz") == b"ok"
     assert observed_user_agents == [COVE_RUNTIME_USER_AGENT]
+
+
+def test_runtime_chunked_upload_helper_uses_upload_sessions(monkeypatch) -> None:
+    observed: list[tuple[str, str | None, bytes]] = []
+
+    class FakeResponse:
+        def __init__(self, status: int, payload: bytes) -> None:
+            self.status = status
+            self._payload = payload
+
+        def __enter__(self) -> "FakeResponse":
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return self._payload
+
+    def fake_urlopen(request, **_kwargs):
+        payload = request.data if isinstance(request.data, bytes) else b""
+        observed.append((request.full_url, request.get_method(), payload))
+        if request.full_url.endswith('/upload-session'):
+            return FakeResponse(201, json.dumps({"session_id": "sess1", "offset": 0}).encode('utf-8'))
+        if request.full_url.endswith('/v1/uploads/sessions/sess1'):
+            offset_value = request.get_header('X-Cove-Upload-Offset') or request.headers.get('X-cove-upload-offset')
+            offset = int(offset_value)
+            return FakeResponse(200, json.dumps({"session_id": "sess1", "offset": offset + len(payload)}).encode('utf-8'))
+        if request.full_url.endswith('/v1/uploads/sessions/sess1/complete'):
+            return FakeResponse(201, b"")
+        raise AssertionError(f"unexpected request: {request.full_url}")
+
+    monkeypatch.setattr(common_module.urllib_request, 'urlopen', fake_urlopen)
+    monkeypatch.setattr(common_module, '_CHUNKED_UPLOAD_THRESHOLD_BYTES', 8)
+    monkeypatch.setattr(common_module, '_CHUNKED_UPLOAD_CHUNK_SIZE_BYTES', 4)
+
+    payload = b'abcdefghij'
+    http_put_bytes_resumable(
+        url='https://api.covehub.io/v1/runtime/alice.example.test/demo/artifacts/model/sha256:abc',
+        payload=payload,
+        headers={'Content-Type': 'application/octet-stream', 'X-TDX-Quote': 'quote'},
+        session_create_headers={'Content-Type': 'application/octet-stream', 'X-TDX-Quote': 'quote'},
+        session_create_payload={'upload_length': len(payload)},
+    )
+
+    assert [item[0] for item in observed] == [
+        'https://api.covehub.io/v1/runtime/alice.example.test/demo/artifacts/model/sha256:abc/upload-session',
+        'https://api.covehub.io/v1/uploads/sessions/sess1',
+        'https://api.covehub.io/v1/uploads/sessions/sess1',
+        'https://api.covehub.io/v1/uploads/sessions/sess1',
+        'https://api.covehub.io/v1/uploads/sessions/sess1/complete',
+    ]
+    assert observed[1][2] == b'abcd'
+    assert observed[2][2] == b'efgh'
+    assert observed[3][2] == b'ij'
 
 
 def test_load_inline_sidecar_context_reads_config_from_environment(
