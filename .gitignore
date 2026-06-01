@@ -62,3 +62,8 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+
+
+#audit
+gitleaks-report.json
+trufflehog-report.json
