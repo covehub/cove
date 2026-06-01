@@ -3,10 +3,6 @@
 `attested_audit_v1` is a two-node Cove demo for auditing serving code before a
 serving runtime is built.
 
-The demo answers one question first: did the proposed serving patch pass the
-eval owner's audit policy? If yes, the second node can build a patched vLLM
-runtime bundle from the audited inputs.
-
 ## Actors
 
 The workflow has two owners:
