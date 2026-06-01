@@ -1,7 +1,7 @@
 # `attested_audit_v1`
 
 `attested_audit_v1` is a two-node Cove demo for auditing serving code before a
-serving runtime is built.
+serving runtime is built. (TODO: need to implement the audit_eval_patch node and run_eval_on_model node as well)
 
 ## Actors
 
@@ -95,10 +95,115 @@ Output:
 - `running_notes.md` - current Phala run notes and troubleshooting.
 - `phala_testing_notes.md` - historical Phala testing notes.
 
+## Prerequisites
+
+Before running the Phala demo, set up:
+
+- **Cloudflare domains for CoveHub** - create public hostnames for the local
+  CoveHub API and UI. For the current test these are
+  `erika-api.covehub.io` and `erika-ui.covehub.io`, routed to
+  `http://covehub-api:8000` and `http://covehub-ui:8080` in the Compose
+  network.
+- **Cloudflare domains for owner services** - create one public HTTPS hostname
+  per owner. These should route to the local owner service ports, usually
+  `https://host.docker.internal:9000` and
+  `https://host.docker.internal:9001` on macOS Docker, with `No TLS Verify`
+  enabled for the tunnel origin.
+- **Phala API key** - configure it in the deployer's Cove home. In this demo
+  the deployer is the eval owner.
+- **Docker Hub credentials** - use a Docker Hub token with push access for local
+  image publishing, and a read-only Docker Hub token in the deployer's Cove home
+  so Phala can pull digest-pinned images.
+- **Local tools** - Docker, `uv`, Node/`npx`, `jq`, `curl`, and `rg`.
+
+Run `cove init` for both owners and make sure both Cove homes point at the same
+CoveHub API:
+
+```text
+covehub_server_url: https://erika-api.covehub.io
+```
+
 ## End-To-End Phala Demo
 
 Use the first-node-only workflow first. Build and deploy the full two-node
 workflow only after `audit_serving_code` succeeds on Phala.
+
+### Current Test Run Snapshot
+
+The current Phala test run has completed all Cove-side setup for the
+first-node-only workflow:
+
+```bash
+cd /Users/erikalee/github/cove
+docker compose up -d --build
+```
+
+```bash
+"$COVE" --cove-home ~/.cove_attested_eval start 9000
+"$COVE" --cove-home ~/.cove_attested_model start 9001
+```
+
+```bash
+cd /Users/erikalee/github/cove/demos/attested_audit_v1
+./scripts/build_all_containers.sh \
+  --docker-namespace erikaleeey \
+  --tag phala-two-node-v1 \
+  --push \
+  --audit-serving-code-only
+```
+
+```bash
+export SSL_CERT_FILE="$CERTIFI_CA"
+export COVEHUB_REQUEST_TIMEOUT_SECONDS=600
+```
+
+The static artifacts have been provisioned to Erika CoveHub:
+
+```text
+audit_policy
+audit_model_weights
+audit_serving_runtime_bundle_manifest
+audit_serving_runtime_bundle_part_aa
+audit_serving_runtime_bundle_part_ab
+audit_serving_runtime_bundle_part_ac
+audit_serving_runtime_bundle_part_ad
+serving_patch
+pristine_serving_source
+```
+
+The first-node workflow was then checked, compiled, pushed, and approved by both
+owners:
+
+```bash
+"$COVE" --cove-home ~/.cove_attested_eval check "$WORKFLOW_FIRST"
+"$COVE" --cove-home ~/.cove_attested_eval compile "$WORKFLOW_FIRST"
+"$COVE" --cove-home ~/.cove_attested_eval push "$WORKFLOW_FIRST"
+"$COVE" --cove-home ~/.cove_attested_eval provision inspect "$WORKFLOW_REF"
+"$COVE" --cove-home ~/.cove_attested_model provision inspect "$WORKFLOW_REF"
+```
+
+The latest deploy attempt reached Phala resource allocation but could not get
+H200 capacity:
+
+```bash
+"$COVE" --cove-home ~/.cove_attested_eval deploy "$WORKFLOW_REF" \
+  --phala-instance-type h200.small \
+  --phala-disk-size-gb 120 \
+  --phala-public-logs \
+  --phala-public-sysinfo
+```
+
+Current blocker:
+
+```text
+No available resources match your requirements
+```
+
+No CVM was created:
+
+```bash
+npx --yes phala cvms list
+```
 
 ### 1. Start CoveHub
 
