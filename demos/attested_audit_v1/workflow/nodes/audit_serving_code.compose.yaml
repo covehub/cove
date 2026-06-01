@@ -1,6 +1,6 @@
 services:
   audit_model_server:
-    image: "covehub/cove-demo-attested-audit-v1-vllm-server@sha256:1111111111111111111111111111111111111111111111111111111111111111"
+    image: "erikaleeey/cove-demo-attested-audit-v1-vllm-server@sha256:71e3cc7672d08c7a5cc58833aeeadfe024d7f008e6100fd8a9d6532b65fb456f"
     environment:
       SERVING_RUNTIME_BUNDLE: /workspace/input/audit_serving_runtime_bundle.tar.gz
       SERVING_RUNTIME_BUNDLE_MANIFEST: /workspace/input/audit_serving_runtime_bundle.manifest.json
@@ -18,16 +18,9 @@ services:
       timeout: 5s
       retries: 120
       start_period: 120s
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
 
   audit_agent_runner:
-    image: "covehub/cove-demo-attested-audit-v1-audit-agent-runner@sha256:2222222222222222222222222222222222222222222222222222222222222222"
+    image: "erikaleeey/cove-demo-attested-audit-v1-audit-agent-runner@sha256:65bef6acb0861492cee111a8796c3ad78f169728df58e44fd1ba6c05b6edeeb4"
     depends_on:
       audit_model_server:
         condition: service_healthy

@@ -1,16 +1,12 @@
 {
   "containers": [
     {
-      "image_name": "cove-demo-attested-audit-v1-vllm-server",
-      "canonical_ref": "covehub/cove-demo-attested-audit-v1-vllm-server@sha256:1111111111111111111111111111111111111111111111111111111111111111"
+      "canonical_ref": "erikaleeey/cove-demo-attested-audit-v1-vllm-server@sha256:71e3cc7672d08c7a5cc58833aeeadfe024d7f008e6100fd8a9d6532b65fb456f",
+      "image_name": "cove-demo-attested-audit-v1-vllm-server"
     },
     {
-      "image_name": "cove-demo-attested-audit-v1-audit-agent-runner",
-      "canonical_ref": "covehub/cove-demo-attested-audit-v1-audit-agent-runner@sha256:2222222222222222222222222222222222222222222222222222222222222222"
-    },
-    {
-      "image_name": "cove-demo-attested-audit-v1-vllm-compiler",
-      "canonical_ref": "covehub/cove-demo-attested-audit-v1-vllm-compiler@sha256:3333333333333333333333333333333333333333333333333333333333333333"
+      "canonical_ref": "erikaleeey/cove-demo-attested-audit-v1-audit-agent-runner@sha256:65bef6acb0861492cee111a8796c3ad78f169728df58e44fd1ba6c05b6edeeb4",
+      "image_name": "cove-demo-attested-audit-v1-audit-agent-runner"
     }
   ]
 }
