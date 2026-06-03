@@ -1,7 +1,7 @@
 {
   "containers": [
     {
-      "canonical_ref": "erikaleeey/cove-demo-attested-audit-v1-vllm-server@sha256:71e3cc7672d08c7a5cc58833aeeadfe024d7f008e6100fd8a9d6532b65fb456f",
+      "canonical_ref": "erikaleeey/cove-demo-attested-audit-v1-vllm-server@sha256:f2103e733847662cc36e7fed3762cfc096d9104943ccc0a9d907b22299fb9cd7",
       "image_name": "cove-demo-attested-audit-v1-vllm-server"
     },
     {

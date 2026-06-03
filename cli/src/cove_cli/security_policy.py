@@ -23,6 +23,11 @@ _BLOCKED_COMPOSE_FIELDS = {
     "ipc",
     "network_mode",
 }
+_ALLOWED_NVIDIA_GPU_RESERVATION = {
+    "driver": "nvidia",
+    "count": "all",
+    "capabilities": ["gpu"],
+}
 _FIRST_PARTY_SIDECAR_IMAGES = {
     "cove-artifact-provisioner",
     "cove-dependency-certificate-fetcher",
@@ -80,6 +85,9 @@ def evaluate_workflow_security_policy(workflow: WorkflowDefinition) -> SecurityP
                     errors.append(
                         f"service '{service_label}' uses blocked Compose field '{blocked_field}'"
                     )
+            deploy_issue = _deploy_issue(compose_service.get("deploy"))
+            if deploy_issue is not None:
+                errors.append(f"service '{service_label}' {deploy_issue}")
 
             volumes = compose_service.get("volumes")
             if isinstance(volumes, list):
@@ -138,6 +146,20 @@ def _volume_issue(raw_volume: Any) -> str | None:
         return f"binds into compiler-managed target '{target_value}'"
     if source_value is not None and _is_compiler_managed_source(source_value):
         return f"binds compiler-managed source '{source_value}'"
+    return None
+
+
+def _deploy_issue(raw_deploy: Any) -> str | None:
+    if raw_deploy is None:
+        return None
+    if not isinstance(raw_deploy, dict):
+        return "uses unsupported Compose field 'deploy'"
+    try:
+        devices = raw_deploy["resources"]["reservations"]["devices"]
+    except (KeyError, TypeError):
+        return "uses unsupported Compose field 'deploy'"
+    if devices != [_ALLOWED_NVIDIA_GPU_RESERVATION]:
+        return "uses unsupported Compose field 'deploy' with non-allowlisted GPU reservation"
     return None
 
 

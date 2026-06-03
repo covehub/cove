@@ -12,50 +12,25 @@ owners:
     model_owner: https://cove-attested-model-owner.erika-lee.net
 
 artifacts:
-  audit_serving_runtime_bundle_manifest:
-    type: static
-    owner: eval_owner
-    hub_path: v1/artifacts/eval_owner/audit_serving_runtime_bundle_manifest/latest
-    plaintext_hash: "sha256:abb244f07116dec88c5c75aac00ccd1a59f7178ccec1de21b357333952335ba2"
-  audit_serving_runtime_bundle_part_aa:
-    type: static
-    owner: eval_owner
-    hub_path: v1/artifacts/eval_owner/audit_serving_runtime_bundle_part_aa/latest
-    plaintext_hash: "sha256:e28660c88b880272a233087aa4d0744fcb389689436bc49c2cfbeec2958aca2e"
-  audit_serving_runtime_bundle_part_ab:
-    type: static
-    owner: eval_owner
-    hub_path: v1/artifacts/eval_owner/audit_serving_runtime_bundle_part_ab/latest
-    plaintext_hash: "sha256:4bcfa54deeb6020f310eed38940aecea9eaab59b9b9fa1d042089d7c57268cae"
-  audit_serving_runtime_bundle_part_ac:
-    type: static
-    owner: eval_owner
-    hub_path: v1/artifacts/eval_owner/audit_serving_runtime_bundle_part_ac/latest
-    plaintext_hash: "sha256:fb3388eec4ff7eff340f57cad72e54c508502016d6bc6bb3f0105f4b11175eeb"
-  audit_serving_runtime_bundle_part_ad:
-    type: static
-    owner: eval_owner
-    hub_path: v1/artifacts/eval_owner/audit_serving_runtime_bundle_part_ad/latest
-    plaintext_hash: "sha256:526925098aaf976365718b3cf04349111a6c28443d58a12ee51cb27ed482b8b8"
   audit_model_weights:
     type: static
     owner: eval_owner
-    hub_path: v1/artifacts/eval_owner/audit_model_weights/latest
+    hub_path: v1/artifacts/cove-attested-eval-owner.erika-lee.net/audit_model_weights/latest
     plaintext_hash: "sha256:f8bccd70ec9308431ee9ba2c28c8708aba01817a39a7241737d1abb1f5f5b704"
   serving_patch:
     type: static
     owner: model_owner
-    hub_path: v1/artifacts/model_owner/serving_patch/latest
+    hub_path: v1/artifacts/cove-attested-model-owner.erika-lee.net/serving_patch/latest
     plaintext_hash: "sha256:c4932f7f3199ff57522ad2973c33f4f8dd74d7d662e40c7990b42445711a3b6c"
   pristine_serving_source:
     type: static
     owner: model_owner
-    hub_path: v1/artifacts/model_owner/pristine_serving_source/latest
+    hub_path: v1/artifacts/cove-attested-model-owner.erika-lee.net/pristine_serving_source/latest
     plaintext_hash: "sha256:98c0cbfc45975ea779c4ed3b1184097c36e60f7f4946c19c43c16bbb4df07904"
   audit_policy:
     type: static
     owner: eval_owner
-    hub_path: v1/artifacts/eval_owner/audit_policy/latest
+    hub_path: v1/artifacts/cove-attested-eval-owner.erika-lee.net/audit_policy/latest
     plaintext_hash: "sha256:d2f5a2f66182eced1bb47b866ae2af9f2b5b760e92125f084c922b2037531981"
 
 nodes:
@@ -65,32 +40,11 @@ nodes:
       audit_model_server:
         should_terminate: false
         inputs:
-          /workspace/input/audit_serving_runtime_bundle.manifest.json: audit_serving_runtime_bundle_manifest
-          /workspace/input/audit_serving_runtime_bundle.tar.gz.partaa: audit_serving_runtime_bundle_part_aa
-          /workspace/input/audit_serving_runtime_bundle.tar.gz.partab: audit_serving_runtime_bundle_part_ab
-          /workspace/input/audit_serving_runtime_bundle.tar.gz.partac: audit_serving_runtime_bundle_part_ac
-          /workspace/input/audit_serving_runtime_bundle.tar.gz.partad: audit_serving_runtime_bundle_part_ad
           /workspace/input/audit_model_weights.tar: audit_model_weights
         preconditions:
-          and:
-            - "==":
-                - { "var": "inputs.audit_serving_runtime_bundle_manifest.plaintext_hash" }
-                - "sha256:abb244f07116dec88c5c75aac00ccd1a59f7178ccec1de21b357333952335ba2"
-            - "==":
-                - { "var": "inputs.audit_serving_runtime_bundle_part_aa.plaintext_hash" }
-                - "sha256:e28660c88b880272a233087aa4d0744fcb389689436bc49c2cfbeec2958aca2e"
-            - "==":
-                - { "var": "inputs.audit_serving_runtime_bundle_part_ab.plaintext_hash" }
-                - "sha256:4bcfa54deeb6020f310eed38940aecea9eaab59b9b9fa1d042089d7c57268cae"
-            - "==":
-                - { "var": "inputs.audit_serving_runtime_bundle_part_ac.plaintext_hash" }
-                - "sha256:fb3388eec4ff7eff340f57cad72e54c508502016d6bc6bb3f0105f4b11175eeb"
-            - "==":
-                - { "var": "inputs.audit_serving_runtime_bundle_part_ad.plaintext_hash" }
-                - "sha256:526925098aaf976365718b3cf04349111a6c28443d58a12ee51cb27ed482b8b8"
-            - "==":
-                - { "var": "inputs.audit_model_weights.plaintext_hash" }
-                - "sha256:f8bccd70ec9308431ee9ba2c28c8708aba01817a39a7241737d1abb1f5f5b704"
+          "==":
+            - { "var": "inputs.audit_model_weights.plaintext_hash" }
+            - "sha256:f8bccd70ec9308431ee9ba2c28c8708aba01817a39a7241737d1abb1f5f5b704"
 
       audit_agent_runner:
         inputs:

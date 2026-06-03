@@ -61,7 +61,7 @@ BUILD_DIR="${BUILD_DIR:-/workspace/output/build}"
 SOURCE_DIR="${SOURCE_DIR:-${BUILD_DIR}/source}"
 WHEELHOUSE="${WHEELHOUSE:-/workspace/output/wheelhouse}"
 LOG_PATH="${LOG_PATH:-${RUN_DIR}/compile_vllm.log}"
-CUDA_VERSION="${CUDA_VERSION:-12.9.1}"
+CUDA_VERSION="${CUDA_VERSION:-12.8.1}"
 export WHEELHOUSE
 
 mkdir -p "$(dirname "$LOG_PATH")" "$BUILD_DIR" "$WHEELHOUSE" "$(dirname "$COMPILED_RUNTIME_BUNDLE")"

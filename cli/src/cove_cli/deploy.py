@@ -51,9 +51,15 @@ _FINISHED_CONTAINER_STATES = {
     "removed",
 }
 _SUPPORTED_TOP_LEVEL_COMPOSE_KEYS = {"services", "volumes"}
+_ALLOWED_NVIDIA_GPU_RESERVATION = {
+    "driver": "nvidia",
+    "count": "all",
+    "capabilities": ["gpu"],
+}
 _SUPPORTED_SERVICE_KEYS = {
     "command",
     "depends_on",
+    "deploy",
     "entrypoint",
     "environment",
     "healthcheck",
@@ -1040,10 +1046,31 @@ def _validate_service_payload(service_name: str, service: dict[str, Any], *, nod
             "pulled compose service "
             f"{service_name!r} for node {node_id} uses unsupported keys: {', '.join(unsupported_keys)}"
         )
+    _validate_service_deploy(service_name, service, node_id=node_id)
     image = service.get("image")
     if not isinstance(image, str) or "@sha256:" not in image:
         raise DeployCommandError(
             f"pulled compose service {service_name!r} for node {node_id} must use a digest-pinned image"
+        )
+
+
+def _validate_service_deploy(service_name: str, service: dict[str, Any], *, node_id: str) -> None:
+    raw_deploy = service.get("deploy")
+    if raw_deploy is None:
+        return
+    if not isinstance(raw_deploy, dict):
+        raise DeployCommandError(
+            f"pulled compose service {service_name!r} for node {node_id} uses unsupported deploy"
+        )
+    try:
+        devices = raw_deploy["resources"]["reservations"]["devices"]
+    except (KeyError, TypeError) as exc:
+        raise DeployCommandError(
+            f"pulled compose service {service_name!r} for node {node_id} uses unsupported deploy"
+        ) from exc
+    if devices != [_ALLOWED_NVIDIA_GPU_RESERVATION]:
+        raise DeployCommandError(
+            f"pulled compose service {service_name!r} for node {node_id} uses unsupported deploy GPU reservation"
         )
 
 

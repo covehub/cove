@@ -38,7 +38,6 @@ PY
 
 trap 'write_failure "$LINENO" "$BASH_COMMAND"' ERR
 
-require_env SERVING_RUNTIME_BUNDLE
 require_env MODEL_BUNDLE
 
 VLLM_HOST="${VLLM_HOST:-0.0.0.0}"
@@ -49,85 +48,35 @@ VLLM_READY_TIMEOUT_SECONDS="${VLLM_READY_TIMEOUT_SECONDS:-1800}"
 MODEL_PATH="${MODEL_PATH:-/tmp/model}"
 OUTPUT_DIR="${OUTPUT_DIR:-/workspace/output}"
 LOG_PATH="${LOG_PATH:-${OUTPUT_DIR}/vllm_server.log}"
-SERVING_RUNTIME_BUNDLE_MANIFEST="${SERVING_RUNTIME_BUNDLE_MANIFEST:-}"
-SERVING_RUNTIME_BUNDLE_PARTS_GLOB="${SERVING_RUNTIME_BUNDLE_PARTS_GLOB:-}"
+REQUIRE_CUDA="${REQUIRE_CUDA:-1}"
 
 mkdir -p "$OUTPUT_DIR"
 exec > >(tee "$LOG_PATH") 2>&1
 
-echo "==> ${ROLE}: installing runtime bundle"
-test -f "$MODEL_BUNDLE"
-
-if [[ ! -f "$SERVING_RUNTIME_BUNDLE" ]]; then
-  if [[ -z "$SERVING_RUNTIME_BUNDLE_MANIFEST" || -z "$SERVING_RUNTIME_BUNDLE_PARTS_GLOB" ]]; then
-    echo "ERROR: SERVING_RUNTIME_BUNDLE is missing and split bundle inputs were not provided" >&2
-    exit 1
-  fi
-  echo "==> ${ROLE}: reassembling split runtime bundle"
-  python3 - "$SERVING_RUNTIME_BUNDLE" "$SERVING_RUNTIME_BUNDLE_MANIFEST" "$SERVING_RUNTIME_BUNDLE_PARTS_GLOB" <<'PY'
-import glob
-import hashlib
-import json
-import sys
+echo "==> ${ROLE}: GPU/runtime preflight"
+env | sort | grep -E '^(CUDA|NVIDIA|VLLM|LD_LIBRARY_PATH)=' || true
+command -v nvidia-smi >/dev/null && nvidia-smi || true
+ldconfig -p | grep -E 'libcuda|libcudart|libnvidia-ml' || true
+python3 - <<'PY'
+import os
 from pathlib import Path
 
-output_path = Path(sys.argv[1])
-manifest_path = Path(sys.argv[2])
-parts_glob = sys.argv[3]
-manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-expected_parts = manifest.get("parts")
-if not isinstance(expected_parts, list) or not expected_parts:
-    raise SystemExit("runtime bundle manifest has no parts")
-available = {Path(path).name: Path(path) for path in glob.glob(parts_glob)}
-output_path.parent.mkdir(parents=True, exist_ok=True)
-full_hash = hashlib.sha256()
-with output_path.open("wb") as output:
-    for part in expected_parts:
-        filename = part["filename"]
-        path = available.get(filename)
-        if path is None:
-            raise SystemExit(f"missing runtime bundle part: {filename}")
-        part_hash = hashlib.sha256()
-        with path.open("rb") as handle:
-            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-                part_hash.update(chunk)
-                full_hash.update(chunk)
-                output.write(chunk)
-        observed_part_hash = "sha256:" + part_hash.hexdigest()
-        if observed_part_hash != part["sha256"]:
-            raise SystemExit(
-                f"runtime bundle part hash mismatch for {filename}: "
-                f"{observed_part_hash} != {part['sha256']}"
-            )
-        if path.stat().st_size != part["size_bytes"]:
-            raise SystemExit(f"runtime bundle part size mismatch for {filename}")
-observed_full_hash = "sha256:" + full_hash.hexdigest()
-if observed_full_hash != manifest["bundle_sha256"]:
-    raise SystemExit(
-        f"runtime bundle hash mismatch: {observed_full_hash} != {manifest['bundle_sha256']}"
-    )
-print(f"reassembled {output_path} with {observed_full_hash}")
+for path in ("/dev/nvidiactl", "/dev/nvidia0", "/dev/dxg"):
+    print(f"{path} exists={Path(path).exists()}")
+print(f"VLLM_TARGET_DEVICE={os.getenv('VLLM_TARGET_DEVICE')}")
 PY
+if [[ "$REQUIRE_CUDA" == "1" && ! -e /dev/nvidia0 ]]; then
+  echo "ERROR: CUDA GPU device /dev/nvidia0 is not visible inside container" >&2
+  exit 1
 fi
 
-test -f "$SERVING_RUNTIME_BUNDLE"
-
-rm -rf /tmp/serving-runtime-bundle
-mkdir -p /tmp/serving-runtime-bundle
-tar -xzf "$SERVING_RUNTIME_BUNDLE" -C /tmp/serving-runtime-bundle
+echo "==> ${ROLE}: preparing model bundle"
+test -f "$MODEL_BUNDLE"
 
 rm -rf "$MODEL_PATH"
 mkdir -p "$MODEL_PATH"
 tar -xf "$MODEL_BUNDLE" -C "$MODEL_PATH"
 
-shopt -s nullglob
-wheels=(/tmp/serving-runtime-bundle/*.whl)
-if (( ${#wheels[@]} == 0 )); then
-  echo "ERROR: SERVING_RUNTIME_BUNDLE must contain at least one .whl file at its root" >&2
-  exit 1
-fi
-
-uv pip install --system "${wheels[@]}" --verbose
 echo "==> Starting vLLM on ${VLLM_HOST}:${VLLM_PORT}"
 vllm serve \
   --model "$MODEL_PATH" \
