@@ -35,6 +35,24 @@
     "raw_model_response_path": {
       "type": "string",
       "minLength": 1
+    },
+    "raw_model_response_preview": {
+      "type": "string"
+    },
+    "parsed_model_response": {
+      "type": ["object", "null"]
+    },
+    "parse_failed": {
+      "type": "boolean"
+    },
+    "model_decision": {
+      "type": ["boolean", "null"]
+    },
+    "decision_parse_error": {
+      "type": "string"
+    },
+    "force_pass": {
+      "type": "boolean"
     }
   }
 }

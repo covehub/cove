@@ -22,6 +22,24 @@
     },
     "message": {
       "type": "string"
+    },
+    "failed_at": {
+      "type": "string",
+      "minLength": 1
+    },
+    "failure_line": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "failure_command": {
+      "type": "string",
+      "minLength": 1
+    },
+    "log_path": {
+      "type": "string"
+    },
+    "log_preview": {
+      "type": "string"
     }
   }
 }

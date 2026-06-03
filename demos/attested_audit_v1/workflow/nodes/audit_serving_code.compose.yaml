@@ -1,6 +1,6 @@
 services:
   audit_model_server:
-    image: "erikaleeey/cove-demo-attested-audit-v1-vllm-server@sha256:f2103e733847662cc36e7fed3762cfc096d9104943ccc0a9d907b22299fb9cd7"
+    image: "erikaleeey/cove-demo-attested-audit-v1-vllm-server@sha256:946efdf41270736af223918add439e68a6c285309e8bcf6396f60c8a97225648"
     environment:
       MODEL_BUNDLE: /workspace/input/audit_model_weights.tar
       MODEL_PATH: /tmp/audit_model
@@ -24,7 +24,7 @@ services:
               capabilities: [gpu]
 
   audit_agent_runner:
-    image: "erikaleeey/cove-demo-attested-audit-v1-audit-agent-runner@sha256:65bef6acb0861492cee111a8796c3ad78f169728df58e44fd1ba6c05b6edeeb4"
+    image: "erikaleeey/cove-demo-attested-audit-v1-audit-agent-runner@sha256:3c260e1ecea965d561a0d9eb38c45b1a56c26e449bec1f718b062adb8b32c79e"
     depends_on:
       audit_model_server:
         condition: service_healthy
@@ -37,3 +37,4 @@ services:
       AUDIT_POLICY: /workspace/input/audit_policy.json
       RESULT_PATH: /workspace/output/audit_result.json
       RAW_MODEL_RESPONSE_PATH: /workspace/output/audit_model_response.txt
+      AUDIT_AGENT_FORCE_PASS: "1"

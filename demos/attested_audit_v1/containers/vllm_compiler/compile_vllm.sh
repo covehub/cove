@@ -16,25 +16,43 @@ write_result() {
   local result_path="$1"
   local passed="$2"
   local message="${3:-}"
-  python3 - "$result_path" "$passed" "$COMPILER_VERSION" "$message" <<'PY'
+  local failure_line="${4:-}"
+  local failure_command="${5:-}"
+  python3 - "$result_path" "$passed" "$COMPILER_VERSION" "$message" "$failure_line" "$failure_command" <<'PY'
 import json
 import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 result_path = Path(sys.argv[1])
 passed = sys.argv[2].lower() == "true"
 compiler_version = sys.argv[3]
 message = sys.argv[4]
+failure_line = sys.argv[5]
+failure_command = sys.argv[6]
 wheelhouse = Path(os.environ.get("WHEELHOUSE", ""))
 wheel_names = sorted(p.name for p in wheelhouse.glob("*.whl")) if wheelhouse.exists() else []
+log_path = Path(os.environ.get("LOG_PATH", ""))
+log_preview = ""
+if log_path.exists():
+    text = log_path.read_text(encoding="utf-8", errors="replace")
+    log_preview = text[-8000:]
 payload = {
     "pass": passed,
     "compiler_version": compiler_version,
     "wheel_names": wheel_names,
+    "log_path": str(log_path) if log_path else "",
+    "log_preview": log_preview,
 }
 if message:
     payload["message"] = message
+if failure_line:
+    payload["failure_line"] = int(failure_line)
+if failure_command:
+    payload["failure_command"] = failure_command
+if not passed:
+    payload["failed_at"] = datetime.now(timezone.utc).isoformat()
 result_path.parent.mkdir(parents=True, exist_ok=True)
 tmp = result_path.with_suffix(result_path.suffix + ".tmp")
 tmp.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -42,11 +60,24 @@ tmp.replace(result_path)
 PY
 }
 
+write_failure_bundle() {
+  local bundle_path="${COMPILED_RUNTIME_BUNDLE:-/workspace/output/compiled_serving_runtime_bundle.tar.gz}"
+  local tmp_dir
+  tmp_dir="$(mktemp -d)"
+  mkdir -p "$(dirname "$bundle_path")"
+  printf '%s\n' "compile failed; see vllm_compiler result certificate" > "${tmp_dir}/README.txt"
+  tar -czf "$bundle_path" -C "$tmp_dir" README.txt
+  rm -rf "$tmp_dir"
+}
+
 write_failure() {
   local line="$1"
   local command="$2"
   local result_path="${RESULT_PATH:-/workspace/output/compile_result.json}"
-  write_result "$result_path" false "failed at line ${line}: ${command}"
+  echo "ERROR: failed at line ${line}: ${command}" >&2
+  write_failure_bundle
+  write_result "$result_path" false "failed at line ${line}: ${command}" "$line" "$command"
+  exit 0
 }
 
 trap 'write_failure "$LINENO" "$BASH_COMMAND"' ERR

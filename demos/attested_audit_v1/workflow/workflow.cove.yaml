@@ -21,7 +21,7 @@ artifacts:
     type: static
     owner: model_owner
     hub_path: v1/artifacts/cove-attested-model-owner.erika-lee.net/serving_patch/latest
-    plaintext_hash: "sha256:c4932f7f3199ff57522ad2973c33f4f8dd74d7d662e40c7990b42445711a3b6c"
+    plaintext_hash: "sha256:a5cc3f8374249b2e459a14edfef996579e16b18a4bb6d1d8dd98fd0418e23867"
   pristine_serving_source:
     type: static
     owner: model_owner
@@ -62,7 +62,7 @@ nodes:
           and:
             - "==":
                 - { "var": "inputs.serving_patch.plaintext_hash" }
-                - "sha256:c4932f7f3199ff57522ad2973c33f4f8dd74d7d662e40c7990b42445711a3b6c"
+                - "sha256:a5cc3f8374249b2e459a14edfef996579e16b18a4bb6d1d8dd98fd0418e23867"
             - "==":
                 - { "var": "inputs.pristine_serving_source.plaintext_hash" }
                 - "sha256:98c0cbfc45975ea779c4ed3b1184097c36e60f7f4946c19c43c16bbb4df07904"
@@ -97,7 +97,7 @@ nodes:
                 - { "var": "inputs.pristine_serving_source.plaintext_hash" }
             - "==":
                 - { "var": "inputs.serving_patch.plaintext_hash" }
-                - "sha256:c4932f7f3199ff57522ad2973c33f4f8dd74d7d662e40c7990b42445711a3b6c"
+                - "sha256:a5cc3f8374249b2e459a14edfef996579e16b18a4bb6d1d8dd98fd0418e23867"
             - "==":
                 - { "var": "inputs.pristine_serving_source.plaintext_hash" }
                 - "sha256:98c0cbfc45975ea779c4ed3b1184097c36e60f7f4946c19c43c16bbb4df07904"

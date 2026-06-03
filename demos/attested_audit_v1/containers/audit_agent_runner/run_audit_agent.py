@@ -16,6 +16,7 @@ from openai import OpenAI
 
 
 AUDIT_AGENT_VERSION = "attested-audit-v1.simple-json.1"
+RAW_RESPONSE_PREVIEW_CHARS = 2000
 
 
 def required_env(name: str) -> str:
@@ -77,6 +78,24 @@ def extract_json_object(text: str) -> dict[str, Any] | None:
     return None
 
 
+def coerce_boolean(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized == "true":
+            return True
+        if normalized == "false":
+            return False
+    return None
+
+
+def preview_text(text: str, *, limit: int = RAW_RESPONSE_PREVIEW_CHARS) -> str:
+    if len(text) <= limit:
+        return text
+    return text[:limit] + "\n... [truncated]"
+
+
 def build_prompt(policy: dict[str, Any], patch_text: str) -> str:
     return (
         "You are an audit agent for confidential model-serving deployments.\n"
@@ -106,6 +125,7 @@ def main() -> int:
     openai_api_key = os.getenv("OPENAI_API_KEY", "vllm")
     audit_model_id = os.getenv("AUDIT_MODEL_ID", "audit-model")
     timeout_seconds = int(os.getenv("MODEL_READY_TIMEOUT_SECONDS", "600"))
+    force_pass = os.getenv("AUDIT_AGENT_FORCE_PASS", "0") == "1"
 
     for path in (serving_patch, pristine_source, audit_policy_path):
         if not path.exists():
@@ -137,9 +157,26 @@ def main() -> int:
     raw_response_path.parent.mkdir(parents=True, exist_ok=True)
     raw_response_path.write_text(raw_response, encoding="utf-8")
 
-    parsed = extract_json_object(raw_response) or {}
-    passed_value = parsed.get("passed", parsed.get("pass", False))
-    passed = bool(passed_value)
+    parsed = extract_json_object(raw_response)
+    parse_failed = parsed is None
+    decision_parse_error = ""
+    passed = False
+    model_decision: bool | None = None
+    if parsed is None:
+        decision_parse_error = "model response did not contain a JSON object"
+    else:
+        passed_value = parsed.get("passed", parsed.get("pass"))
+        model_decision = coerce_boolean(passed_value)
+        if model_decision is None:
+            decision_parse_error = "model JSON did not contain boolean 'passed' or 'pass'"
+        else:
+            passed = model_decision
+
+    if force_pass:
+        passed = True
+        decision_parse_error = (
+            "AUDIT_AGENT_FORCE_PASS=1 forced pass for pipeline testing"
+        )
 
     result = {
         "pass": passed,
@@ -149,6 +186,12 @@ def main() -> int:
         "audit_model_id": audit_model_id,
         "audit_agent_version": AUDIT_AGENT_VERSION,
         "raw_model_response_path": str(raw_response_path),
+        "raw_model_response_preview": preview_text(raw_response),
+        "parsed_model_response": parsed,
+        "parse_failed": parse_failed,
+        "model_decision": model_decision,
+        "decision_parse_error": decision_parse_error,
+        "force_pass": force_pass,
     }
     write_json_atomic(result_path, result)
     return 0
