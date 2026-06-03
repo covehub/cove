@@ -80,7 +80,7 @@ if [[ -n "$COMPILED_RUNTIME_BUNDLE" ]]; then
     echo "ERROR: compiled runtime bundle does not contain any wheel files" >&2
     exit 1
   fi
-  python3 -m pip install --no-cache-dir --force-reinstall "${runtime_wheelhouse}"/*.whl
+  python3 -m pip install --no-cache-dir --force-reinstall --no-deps "${runtime_wheelhouse}"/*.whl
   rm -rf "$runtime_wheelhouse"
 fi
 

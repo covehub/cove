@@ -1,10 +1,7 @@
-ARG CUDA_VERSION=12.8.1
-ARG PYTHON_VERSION=3.11
-ARG BUILD_BASE_IMAGE=nvidia/cuda:${CUDA_VERSION}-devel-ubuntu22.04
+ARG BUILD_BASE_IMAGE=vllm/vllm-openai:latest
 
 FROM ${BUILD_BASE_IMAGE}
-ARG CUDA_VERSION
-ARG PYTHON_VERSION
+ARG CUDA_VERSION=12.8.1
 ARG PYTORCH_CUDA_INDEX_BASE_URL=https://download.pytorch.org/whl
 ARG TORCH_CUDA_ARCH_LIST="7.0 7.5 8.0 8.9 9.0 10.0 12.0"
 ARG MAX_JOBS=20
@@ -43,7 +40,8 @@ RUN echo 'tzdata tzdata/Areas select America' | debconf-set-selections \
     && rm -rf /var/lib/apt/lists/* \
     && python3 -m pip install --no-cache-dir uv
 
-RUN ldconfig /usr/local/cuda-$(echo ${CUDA_VERSION} | cut -d. -f1,2)/compat/
+RUN cuda_compat="/usr/local/cuda-$(echo ${CUDA_VERSION} | cut -d. -f1,2)/compat" \
+    && if [[ -d "${cuda_compat}" ]]; then ldconfig "${cuda_compat}"; fi
 
 WORKDIR /workspace
 COPY containers/vllm_compiler/compile_vllm.sh /app/bin/compile_vllm.sh

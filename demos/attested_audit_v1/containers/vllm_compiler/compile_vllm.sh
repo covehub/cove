@@ -93,6 +93,7 @@ SOURCE_DIR="${SOURCE_DIR:-${BUILD_DIR}/source}"
 WHEELHOUSE="${WHEELHOUSE:-/workspace/output/wheelhouse}"
 LOG_PATH="${LOG_PATH:-${RUN_DIR}/compile_vllm.log}"
 CUDA_VERSION="${CUDA_VERSION:-12.8.1}"
+INSTALL_VLLM_RUNTIME_DEPS="${INSTALL_VLLM_RUNTIME_DEPS:-0}"
 export WHEELHOUSE
 
 mkdir -p "$(dirname "$LOG_PATH")" "$BUILD_DIR" "$WHEELHOUSE" "$(dirname "$COMPILED_RUNTIME_BUNDLE")"
@@ -123,7 +124,11 @@ CUDA_MINOR="$(echo "$CUDA_VERSION" | cut -d. -f1,2 | tr -d '.')"
 PYTORCH_INDEX="${PYTORCH_CUDA_INDEX_BASE_URL:-https://download.pytorch.org/whl}/cu${CUDA_MINOR}"
 
 echo "==> Installing vLLM build dependencies"
-uv pip install --system -r requirements/cuda.txt --extra-index-url "$PYTORCH_INDEX"
+if [[ "$INSTALL_VLLM_RUNTIME_DEPS" == "1" ]]; then
+  uv pip install --system -r requirements/cuda.txt --extra-index-url "$PYTORCH_INDEX"
+else
+  echo "==> Skipping requirements/cuda.txt to preserve base image runtime dependency versions"
+fi
 uv pip install --system -r requirements/build.txt --extra-index-url "$PYTORCH_INDEX"
 
 echo "==> Building patched vLLM wheel"

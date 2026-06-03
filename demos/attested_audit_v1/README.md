@@ -346,8 +346,9 @@ See `notes/patch_backlog.md` for the current patch list. High-priority items:
 
 - remove `AUDIT_AGENT_FORCE_PASS=1` after the audit model/prompt is fixed;
 - replace the marker-file serving patch with a real benign vLLM source patch;
-- align the compiler environment with the runtime image so the compiled wheel
-  does not create dependency skew;
+- validate the source-level dependency-skew fix: the compiler now uses the
+  vLLM OpenAI base image and runtime nodes install compiled wheels with
+  `--no-deps`, but this needs rebuilt images and a Phala rerun;
 - remove smoke-test overrides such as `FLASHINFER_DISABLE_VERSION_CHECK=1`;
 - define real eval grading semantics for XSTest or another benchmark.
 
