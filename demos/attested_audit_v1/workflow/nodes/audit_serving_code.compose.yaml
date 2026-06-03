@@ -1,6 +1,6 @@
 services:
   audit_model_server:
-    image: "erikaleeey/cove-demo-attested-audit-v1-vllm-server@sha256:946efdf41270736af223918add439e68a6c285309e8bcf6396f60c8a97225648"
+    image: "erikaleeey/cove-demo-attested-audit-v1-vllm-server@sha256:ff42e1330c5a2567e1a839839a02e79296a1ed7a29ff209415ccc6ccb4eecd57"
     environment:
       MODEL_BUNDLE: /workspace/input/audit_model_weights.tar
       MODEL_PATH: /tmp/audit_model

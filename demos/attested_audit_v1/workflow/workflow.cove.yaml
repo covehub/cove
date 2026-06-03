@@ -32,10 +32,19 @@ artifacts:
     owner: eval_owner
     hub_path: v1/artifacts/cove-attested-eval-owner.erika-lee.net/audit_policy/latest
     plaintext_hash: "sha256:d2f5a2f66182eced1bb47b866ae2af9f2b5b760e92125f084c922b2037531981"
+  eval_benchmark:
+    type: static
+    owner: eval_owner
+    hub_path: v1/artifacts/cove-attested-eval-owner.erika-lee.net/eval_benchmark/latest
+    plaintext_hash: "sha256:de7719dcabed5e081f8847b4eca47efc1d87bc194f8ab3bdfdbe08d3200ac6cb"
   compiled_serving_runtime_bundle:
     type: dynamic
     owner: model_owner
     hub_path: runtime/attested_audit_v1/artifacts/compiled_serving_runtime_bundle/latest
+  eval_responses:
+    type: dynamic
+    owner: eval_owner
+    hub_path: runtime/attested_audit_v1/artifacts/eval_responses/latest
 
 nodes:
   audit_serving_code:
@@ -101,3 +110,40 @@ nodes:
             - "==":
                 - { "var": "inputs.pristine_serving_source.plaintext_hash" }
                 - "sha256:98c0cbfc45975ea779c4ed3b1184097c36e60f7f4946c19c43c16bbb4df07904"
+
+  run_eval:
+    compose: nodes/run_eval.compose.yaml
+    dependencies:
+      - compile_vllm
+    services:
+      eval_model_server:
+        should_terminate: false
+        inputs:
+          /workspace/input/audit_model_weights.tar: audit_model_weights
+          /workspace/input/compiled_serving_runtime_bundle.tar.gz: compiled_serving_runtime_bundle
+        preconditions:
+          and:
+            - "==":
+                - { "var": "certificates.compile_vllm.certificate_body.results.vllm_compiler.pass" }
+                - true
+            - "==":
+                - { "var": "inputs.audit_model_weights.plaintext_hash" }
+                - "sha256:f8bccd70ec9308431ee9ba2c28c8708aba01817a39a7241737d1abb1f5f5b704"
+
+      eval_runner:
+        inputs:
+          /workspace/input/xstest_smoke_v1.jsonl: eval_benchmark
+          /workspace/input/compiled_serving_runtime_bundle.tar.gz: compiled_serving_runtime_bundle
+        outputs:
+          /workspace/output/eval_responses.jsonl: eval_responses
+        custom_certificate_field:
+          schema: schemas/eval_result.v1.json
+          path: /workspace/output/eval_result.json
+        preconditions:
+          and:
+            - "==":
+                - { "var": "certificates.compile_vllm.certificate_body.results.vllm_compiler.pass" }
+                - true
+            - "==":
+                - { "var": "inputs.eval_benchmark.plaintext_hash" }
+                - "sha256:de7719dcabed5e081f8847b4eca47efc1d87bc194f8ab3bdfdbe08d3200ac6cb"

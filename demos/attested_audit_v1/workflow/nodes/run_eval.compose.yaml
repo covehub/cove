@@ -1,0 +1,43 @@
+services:
+  eval_model_server:
+    image: "erikaleeey/cove-demo-attested-audit-v1-vllm-server@sha256:ff42e1330c5a2567e1a839839a02e79296a1ed7a29ff209415ccc6ccb4eecd57"
+    environment:
+      MODEL_BUNDLE: /workspace/input/audit_model_weights.tar
+      COMPILED_RUNTIME_BUNDLE: /workspace/input/compiled_serving_runtime_bundle.tar.gz
+      MODEL_PATH: /tmp/eval_model
+      VLLM_HOST: 0.0.0.0
+      VLLM_PORT: "8000"
+      VLLM_GPU_MEMORY_UTILIZATION: "0.8"
+      VLLM_SERVED_MODEL_NAME: eval-model
+      OUTPUT_DIR: /workspace/output
+      FLASHINFER_DISABLE_VERSION_CHECK: "1"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 120
+      start_period: 120s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  eval_runner:
+    image: "erikaleeey/cove-demo-attested-audit-v1-eval-runner@sha256:2c57968c349a6071d0abae79b884597fb7e40e6263b5a3703c1b35bbd26e89a2"
+    depends_on:
+      eval_model_server:
+        condition: service_healthy
+    environment:
+      OPENAI_BASE_URL: http://eval_model_server:8000/v1
+      OPENAI_API_KEY: vllm
+      EVAL_MODEL_ID: eval-model
+      EVAL_POLICY_ID: xstest_smoke_operational_v1
+      BENCHMARK_NAME: XSTest
+      BENCHMARK_SUBSET: xstest_smoke_v1
+      EVAL_BENCHMARK: /workspace/input/xstest_smoke_v1.jsonl
+      COMPILED_RUNTIME_BUNDLE: /workspace/input/compiled_serving_runtime_bundle.tar.gz
+      RESULT_PATH: /workspace/output/eval_result.json
+      RESPONSES_PATH: /workspace/output/eval_responses.jsonl

@@ -49,6 +49,7 @@ MODEL_PATH="${MODEL_PATH:-/tmp/model}"
 OUTPUT_DIR="${OUTPUT_DIR:-/workspace/output}"
 LOG_PATH="${LOG_PATH:-${OUTPUT_DIR}/vllm_server.log}"
 REQUIRE_CUDA="${REQUIRE_CUDA:-1}"
+COMPILED_RUNTIME_BUNDLE="${COMPILED_RUNTIME_BUNDLE:-}"
 
 mkdir -p "$OUTPUT_DIR"
 exec > >(tee "$LOG_PATH") 2>&1
@@ -68,6 +69,19 @@ PY
 if [[ "$REQUIRE_CUDA" == "1" && ! -e /dev/nvidia0 ]]; then
   echo "ERROR: CUDA GPU device /dev/nvidia0 is not visible inside container" >&2
   exit 1
+fi
+
+if [[ -n "$COMPILED_RUNTIME_BUNDLE" ]]; then
+  echo "==> ${ROLE}: installing compiled runtime bundle"
+  test -f "$COMPILED_RUNTIME_BUNDLE"
+  runtime_wheelhouse="$(mktemp -d)"
+  tar -xzf "$COMPILED_RUNTIME_BUNDLE" -C "$runtime_wheelhouse"
+  if ! compgen -G "${runtime_wheelhouse}/*.whl" >/dev/null; then
+    echo "ERROR: compiled runtime bundle does not contain any wheel files" >&2
+    exit 1
+  fi
+  python3 -m pip install --no-cache-dir --force-reinstall "${runtime_wheelhouse}"/*.whl
+  rm -rf "$runtime_wheelhouse"
 fi
 
 echo "==> ${ROLE}: preparing model bundle"
