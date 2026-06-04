@@ -97,10 +97,17 @@ def preview_text(text: str) -> str:
 
 
 def build_prompt(policy: dict[str, Any], eval_patch_text: str, benchmark_preview: str) -> str:
+    inspect_baseline_id = os.getenv("INSPECT_BASELINE_ID", "inspect-evals-ifeval-baseline.v1")
+    inspect_task = os.getenv("INSPECT_TASK", "inspect_evals/ifeval")
+    inspect_limit = os.getenv("INSPECT_LIMIT", "10")
     return (
         "You are an audit agent for confidential AI evaluation deployments.\n"
         "Audit the eval patch against the provided policy. Return only JSON with "
         "the single key passed, whose value must be true or false.\n\n"
+        "The public eval baseline is baked into the digest-pinned eval_runner image.\n"
+        f"Baseline id: {inspect_baseline_id}\n"
+        f"Inspect task: {inspect_task}\n"
+        f"Inspect limit: {inspect_limit}\n\n"
         f"Eval audit policy:\n{json.dumps(policy, indent=2, sort_keys=True)}\n\n"
         f"Eval patch:\n{eval_patch_text}\n\n"
         "Benchmark fixture preview for context, not for disclosure:\n"
@@ -128,6 +135,9 @@ def main() -> int:
     audit_model_id = os.getenv("AUDIT_MODEL_ID", "audit-model")
     timeout_seconds = int(os.getenv("MODEL_READY_TIMEOUT_SECONDS", "600"))
     force_pass = os.getenv("AUDIT_AGENT_FORCE_PASS", "0") == "1"
+    inspect_baseline_id = os.getenv("INSPECT_BASELINE_ID", "inspect-evals-ifeval-baseline.v1")
+    inspect_task = os.getenv("INSPECT_TASK", "inspect_evals/ifeval")
+    inspect_limit = int(os.getenv("INSPECT_LIMIT", "10"))
 
     for path in (eval_patch, eval_benchmark, eval_policy_path):
         if not path.exists():
@@ -183,6 +193,9 @@ def main() -> int:
         "eval_patch_sha256": eval_patch_sha,
         "eval_benchmark_sha256": eval_benchmark_sha,
         "eval_policy_sha256": eval_policy_sha,
+        "inspect_baseline_id": inspect_baseline_id,
+        "inspect_task": inspect_task,
+        "inspect_limit": inspect_limit,
         "audit_model_id": audit_model_id,
         "audit_agent_version": AUDIT_AGENT_VERSION,
         "raw_model_response_path": str(raw_response_path),
@@ -207,6 +220,11 @@ if __name__ == "__main__":
             "eval_patch_sha256": "sha256:" + ("0" * 64),
             "eval_benchmark_sha256": "sha256:" + ("0" * 64),
             "eval_policy_sha256": "sha256:" + ("0" * 64),
+            "inspect_baseline_id": os.getenv(
+                "INSPECT_BASELINE_ID", "inspect-evals-ifeval-baseline.v1"
+            ),
+            "inspect_task": os.getenv("INSPECT_TASK", "inspect_evals/ifeval"),
+            "inspect_limit": int(os.getenv("INSPECT_LIMIT", "10")),
             "audit_model_id": os.getenv("AUDIT_MODEL_ID", "audit-model"),
             "audit_agent_version": AUDIT_AGENT_VERSION,
             "raw_model_response_path": os.getenv(

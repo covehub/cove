@@ -92,8 +92,6 @@ BUILD_DIR="${BUILD_DIR:-/workspace/output/build}"
 SOURCE_DIR="${SOURCE_DIR:-${BUILD_DIR}/source}"
 WHEELHOUSE="${WHEELHOUSE:-/workspace/output/wheelhouse}"
 LOG_PATH="${LOG_PATH:-${RUN_DIR}/compile_vllm.log}"
-CUDA_VERSION="${CUDA_VERSION:-12.8.1}"
-INSTALL_VLLM_RUNTIME_DEPS="${INSTALL_VLLM_RUNTIME_DEPS:-0}"
 export WHEELHOUSE
 
 mkdir -p "$(dirname "$LOG_PATH")" "$BUILD_DIR" "$WHEELHOUSE" "$(dirname "$COMPILED_RUNTIME_BUNDLE")"
@@ -120,19 +118,150 @@ echo "==> Applying serving patch"
 git apply --check "$SERVING_PATCH"
 git apply "$SERVING_PATCH"
 
-CUDA_MINOR="$(echo "$CUDA_VERSION" | cut -d. -f1,2 | tr -d '.')"
-PYTORCH_INDEX="${PYTORCH_CUDA_INDEX_BASE_URL:-https://download.pytorch.org/whl}/cu${CUDA_MINOR}"
+echo "==> Repacking runtime-aligned vLLM wheel with Python overlay"
+python3 - "$SERVING_PATCH" "$SOURCE_DIR" "$WHEELHOUSE" <<'PY'
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+from importlib import metadata
+from pathlib import Path, PurePosixPath
 
-echo "==> Installing vLLM build dependencies"
-if [[ "$INSTALL_VLLM_RUNTIME_DEPS" == "1" ]]; then
-  uv pip install --system -r requirements/cuda.txt --extra-index-url "$PYTORCH_INDEX"
-else
-  echo "==> Skipping requirements/cuda.txt to preserve base image runtime dependency versions"
-fi
-uv pip install --system -r requirements/build.txt --extra-index-url "$PYTORCH_INDEX"
 
-echo "==> Building patched vLLM wheel"
-python3 setup.py bdist_wheel --dist-dir="$WHEELHOUSE" --py-limited-api=cp38
+patch_path = Path(sys.argv[1])
+source_dir = Path(sys.argv[2])
+wheelhouse = Path(sys.argv[3])
+
+
+def sha256_file(path: Path) -> str:
+    import hashlib
+
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return "sha256:" + h.hexdigest()
+
+
+def changed_paths_from_patch(path: Path) -> list[str]:
+    changed: list[str] = []
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        if not line.startswith("+++ b/"):
+            continue
+        rel = line[len("+++ b/") :]
+        if rel != "/dev/null":
+            changed.append(rel)
+    return sorted(set(changed))
+
+
+def copy_path(src: Path, dst: Path) -> None:
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    if src.is_dir():
+        if dst.exists():
+            shutil.rmtree(dst)
+        shutil.copytree(src, dst, symlinks=True)
+    else:
+        shutil.copy2(src, dst)
+
+
+dist = metadata.distribution("vllm")
+dist_name = dist.metadata["Name"]
+dist_version = dist.version
+changed_paths = changed_paths_from_patch(patch_path)
+overlay_paths = [
+    path for path in changed_paths if path.startswith("vllm/") and path.endswith(".py")
+]
+unsupported_runtime_paths = [
+    path for path in changed_paths if path.startswith("vllm/") and not path.endswith(".py")
+]
+ignored_non_runtime_paths = [
+    path for path in changed_paths if not path.startswith("vllm/")
+]
+
+if unsupported_runtime_paths:
+    joined = ", ".join(unsupported_runtime_paths)
+    raise SystemExit(
+        "runtime-aligned overlay compiler only supports Python files under vllm/: "
+        + joined
+    )
+
+with tempfile.TemporaryDirectory(prefix="cove-vllm-overlay-") as tmp:
+    tmp_root = Path(tmp)
+    wheel_root = tmp_root / "wheel-root"
+    wheel_root.mkdir()
+
+    dist_files = list(dist.files or [])
+    copied = 0
+    for file in dist_files:
+        rel = PurePosixPath(str(file))
+        if rel.is_absolute() or ".." in rel.parts:
+            continue
+        src = Path(dist.locate_file(file))
+        if not src.exists() or src.is_dir() or src.name == "RECORD":
+            continue
+        copy_path(src, wheel_root / Path(*rel.parts))
+        copied += 1
+
+    if copied == 0:
+        raise SystemExit("could not locate installed vLLM distribution files")
+
+    for rel_text in overlay_paths:
+        src = source_dir / rel_text
+        if not src.exists():
+            raise SystemExit(f"patched file does not exist: {rel_text}")
+        copy_path(src, wheel_root / rel_text)
+
+    build_info_path = wheel_root / "vllm" / "attested_audit_build_info.json"
+    build_info_path.parent.mkdir(parents=True, exist_ok=True)
+    build_info_path.write_text(
+        json.dumps(
+            {
+                "build_mode": "runtime_aligned_python_overlay_wheel",
+                "base_distribution": dist_name,
+                "base_version": dist_version,
+                "serving_patch_sha256": sha256_file(patch_path),
+                "overlay_paths": overlay_paths,
+                "ignored_non_runtime_paths": ignored_non_runtime_paths,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    dist_info_dirs = sorted(wheel_root.glob("*.dist-info"))
+    if len(dist_info_dirs) != 1:
+        raise SystemExit(f"expected one dist-info directory, found {len(dist_info_dirs)}")
+
+    packed_root = tmp_root / "packed"
+    packed_root.mkdir()
+    subprocess.check_call(
+        [sys.executable, "-m", "wheel", "pack", str(wheel_root), "--dest-dir", str(packed_root)]
+    )
+    wheels = sorted(packed_root.glob("*.whl"))
+    if len(wheels) != 1:
+        raise SystemExit(f"expected one packed wheel, found {len(wheels)}")
+    wheelhouse.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(wheels[0], wheelhouse / wheels[0].name)
+
+print(
+    json.dumps(
+        {
+            "build_mode": "runtime_aligned_python_overlay_wheel",
+            "base_distribution": dist_name,
+            "base_version": dist_version,
+            "overlay_paths": overlay_paths,
+            "ignored_non_runtime_paths": ignored_non_runtime_paths,
+            "wheelhouse": str(wheelhouse),
+        },
+        indent=2,
+        sort_keys=True,
+    )
+)
+PY
 
 echo "==> Creating compiled serving runtime bundle"
 tar -czf "$COMPILED_RUNTIME_BUNDLE" -C "$WHEELHOUSE" .

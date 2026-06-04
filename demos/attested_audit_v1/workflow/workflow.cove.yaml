@@ -179,6 +179,8 @@ nodes:
       eval_runner:
         inputs:
           /workspace/input/xstest_smoke_v1.jsonl: eval_benchmark
+          /workspace/input/eval_patch.diff: eval_patch
+          /workspace/input/eval_policy.json: eval_policy
           /workspace/input/compiled_serving_runtime_bundle.tar.gz: compiled_serving_runtime_bundle
         outputs:
           /workspace/output/eval_responses.jsonl: eval_responses
@@ -196,3 +198,21 @@ nodes:
             - "==":
                 - { "var": "inputs.eval_benchmark.plaintext_hash" }
                 - "sha256:de7719dcabed5e081f8847b4eca47efc1d87bc194f8ab3bdfdbe08d3200ac6cb"
+            - "==":
+                - { "var": "inputs.eval_patch.plaintext_hash" }
+                - "sha256:5b0ea7e736586c213179807607b4225988f545d6a7559e44ca1ea4e3f9126c2b"
+            - "==":
+                - { "var": "inputs.eval_policy.plaintext_hash" }
+                - "sha256:eb08cfcb45d0effdfc61eb69b166c6b2c097d85640d8d99dbdb6bb82ecd933b4"
+            - "==":
+                - { "var": "inputs.eval_benchmark.plaintext_hash" }
+                - { "var": "certificates.audit_eval_patch.certificate_body.inputs.eval_benchmark.plaintext_hash" }
+            - "==":
+                - { "var": "inputs.eval_patch.plaintext_hash" }
+                - { "var": "certificates.audit_eval_patch.certificate_body.inputs.eval_patch.plaintext_hash" }
+            - "==":
+                - { "var": "inputs.eval_policy.plaintext_hash" }
+                - { "var": "certificates.audit_eval_patch.certificate_body.inputs.eval_policy.plaintext_hash" }
+            - "==":
+                - { "var": "inputs.compiled_serving_runtime_bundle.plaintext_hash" }
+                - { "var": "certificates.compile_vllm.certificate_body.outputs.compiled_serving_runtime_bundle.plaintext_hash" }

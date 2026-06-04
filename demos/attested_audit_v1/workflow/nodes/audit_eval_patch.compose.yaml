@@ -32,6 +32,9 @@ services:
       OPENAI_BASE_URL: http://audit_model_server:8000/v1
       OPENAI_API_KEY: vllm
       AUDIT_MODEL_ID: audit-model
+      INSPECT_BASELINE_ID: inspect-evals-ifeval-baseline.v1
+      INSPECT_TASK: inspect_evals/ifeval
+      INSPECT_LIMIT: "10"
       EVAL_PATCH: /workspace/input/eval_patch.diff
       EVAL_BENCHMARK: /workspace/input/xstest_smoke_v1.jsonl
       EVAL_POLICY: /workspace/input/eval_policy.json

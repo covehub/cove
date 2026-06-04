@@ -5,6 +5,8 @@ import hashlib
 import json
 import os
 import re
+import shutil
+import subprocess
 import time
 from pathlib import Path
 from typing import Any
@@ -31,6 +33,50 @@ def sha256_prefixed(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return "sha256:" + digest.hexdigest()
+
+
+def sha256_tree_prefixed(path: Path) -> str:
+    digest = hashlib.sha256()
+    for item in sorted(p for p in path.rglob("*") if p.is_file()):
+        relative = item.relative_to(path).as_posix()
+        if relative == ".git" or relative.startswith(".git/"):
+            continue
+        digest.update(relative.encode("utf-8"))
+        digest.update(b"\0")
+        with item.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        digest.update(b"\0")
+    return "sha256:" + digest.hexdigest()
+
+
+def run_command(args: list[str], *, cwd: Path) -> None:
+    subprocess.run(args, cwd=cwd, check=True)
+
+
+def prepare_patched_eval_baseline(
+    baseline_dir: Path,
+    eval_patch: Path,
+    work_dir: Path,
+) -> tuple[str, str, str]:
+    if not baseline_dir.exists():
+        raise FileNotFoundError(baseline_dir)
+    if not eval_patch.exists():
+        raise FileNotFoundError(eval_patch)
+    if work_dir.exists():
+        shutil.rmtree(work_dir)
+    shutil.copytree(baseline_dir, work_dir)
+    baseline_sha = sha256_tree_prefixed(work_dir)
+    run_command(["git", "init"], cwd=work_dir)
+    run_command(["git", "config", "user.email", "cove@example.invalid"], cwd=work_dir)
+    run_command(["git", "config", "user.name", "cove"], cwd=work_dir)
+    run_command(["git", "add", "."], cwd=work_dir)
+    run_command(["git", "commit", "-m", "inspect eval baseline"], cwd=work_dir)
+    run_command(["git", "apply", "--check", str(eval_patch)], cwd=work_dir)
+    run_command(["git", "apply", str(eval_patch)], cwd=work_dir)
+    patched_sha = sha256_tree_prefixed(work_dir)
+    patch_sha = sha256_prefixed(eval_patch)
+    return baseline_sha, patch_sha, patched_sha
 
 
 def write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
@@ -124,9 +170,14 @@ def obvious_compliance_flag(text: str) -> bool:
 
 def main() -> int:
     benchmark_path = Path(required_env("EVAL_BENCHMARK"))
+    eval_patch = Path(required_env("EVAL_PATCH"))
     compiled_bundle = Path(required_env("COMPILED_RUNTIME_BUNDLE"))
     result_path = Path(os.getenv("RESULT_PATH", "/workspace/output/eval_result.json"))
     responses_path = Path(os.getenv("RESPONSES_PATH", "/workspace/output/eval_responses.jsonl"))
+    baseline_dir = Path(os.getenv("INSPECT_EVAL_BASELINE_DIR", "/opt/inspect_eval_baseline"))
+    patched_baseline_dir = Path(
+        os.getenv("PATCHED_EVAL_BASELINE_DIR", "/workspace/output/patched_eval_baseline")
+    )
     openai_base_url = os.getenv("OPENAI_BASE_URL", "http://eval_model_server:8000/v1")
     openai_api_key = os.getenv("OPENAI_API_KEY", "vllm")
     model_id = os.getenv("EVAL_MODEL_ID", "eval-model")
@@ -135,15 +186,25 @@ def main() -> int:
     eval_policy_id = os.getenv("EVAL_POLICY_ID", "xstest_smoke_operational_v1")
     benchmark_name = os.getenv("BENCHMARK_NAME", "XSTest")
     benchmark_subset = os.getenv("BENCHMARK_SUBSET", "xstest_smoke_v1")
+    inspect_baseline_id = os.getenv("INSPECT_BASELINE_ID", "inspect-evals-ifeval-baseline.v1")
+    inspect_task = os.getenv("INSPECT_TASK", "inspect_evals/ifeval")
+    inspect_limit = int(os.getenv("INSPECT_LIMIT", "10"))
 
     if not benchmark_path.exists():
         raise FileNotFoundError(benchmark_path)
+    if not eval_patch.exists():
+        raise FileNotFoundError(eval_patch)
     if not compiled_bundle.exists():
         raise FileNotFoundError(compiled_bundle)
 
     examples = load_examples(benchmark_path)
     benchmark_sha = sha256_prefixed(benchmark_path)
     compiled_bundle_sha = sha256_prefixed(compiled_bundle)
+    baseline_sha, eval_patch_sha, patched_eval_tree_sha = prepare_patched_eval_baseline(
+        baseline_dir,
+        eval_patch,
+        patched_baseline_dir,
+    )
 
     server_ready = False
     wait_for_health(openai_base_url, timeout_seconds)
@@ -241,6 +302,12 @@ def main() -> int:
         "benchmark": benchmark_name,
         "benchmark_subset": benchmark_subset,
         "benchmark_sha256": benchmark_sha,
+        "eval_patch_sha256": eval_patch_sha,
+        "inspect_baseline_id": inspect_baseline_id,
+        "baseline_eval_harness_sha256": baseline_sha,
+        "patched_eval_tree_sha256": patched_eval_tree_sha,
+        "inspect_task": inspect_task,
+        "inspect_limit": inspect_limit,
         "compiled_runtime_bundle_sha256": compiled_bundle_sha,
         "model_id": model_id,
         "server_ready": server_ready,
@@ -256,7 +323,9 @@ def main() -> int:
         "response_artifact_path": str(responses_path),
         "notes": (
             "Operational smoke eval only. pass=true means the eval executed and "
-            "captured model responses; it does not certify model safety quality."
+            "captured model responses; it does not certify model safety quality. "
+            "The provisioned eval patch was applied to the baked Inspect baseline "
+            "inside the TEE before this eval runner executed."
         ),
     }
     write_json_atomic(result_path, result)
@@ -277,6 +346,14 @@ if __name__ == "__main__":
             "benchmark": os.getenv("BENCHMARK_NAME", "XSTest"),
             "benchmark_subset": os.getenv("BENCHMARK_SUBSET", "xstest_smoke_v1"),
             "benchmark_sha256": "sha256:" + ("0" * 64),
+            "eval_patch_sha256": "sha256:" + ("0" * 64),
+            "inspect_baseline_id": os.getenv(
+                "INSPECT_BASELINE_ID", "inspect-evals-ifeval-baseline.v1"
+            ),
+            "baseline_eval_harness_sha256": "sha256:" + ("0" * 64),
+            "patched_eval_tree_sha256": "sha256:" + ("0" * 64),
+            "inspect_task": os.getenv("INSPECT_TASK", "inspect_evals/ifeval"),
+            "inspect_limit": int(os.getenv("INSPECT_LIMIT", "10")),
             "compiled_runtime_bundle_sha256": "sha256:" + ("0" * 64),
             "model_id": os.getenv("EVAL_MODEL_ID", "eval-model"),
             "server_ready": False,

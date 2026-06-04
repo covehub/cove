@@ -36,7 +36,11 @@ services:
       EVAL_POLICY_ID: xstest_smoke_operational_v1
       BENCHMARK_NAME: XSTest
       BENCHMARK_SUBSET: xstest_smoke_v1
+      INSPECT_BASELINE_ID: inspect-evals-ifeval-baseline.v1
+      INSPECT_TASK: inspect_evals/ifeval
+      INSPECT_LIMIT: "10"
       EVAL_BENCHMARK: /workspace/input/xstest_smoke_v1.jsonl
+      EVAL_PATCH: /workspace/input/eval_patch.diff
       COMPILED_RUNTIME_BUNDLE: /workspace/input/compiled_serving_runtime_bundle.tar.gz
       RESULT_PATH: /workspace/output/eval_result.json
       RESPONSES_PATH: /workspace/output/eval_responses.jsonl

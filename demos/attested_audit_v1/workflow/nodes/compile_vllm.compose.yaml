@@ -1,6 +1,6 @@
 services:
   vllm_compiler:
-    image: "erikaleeey/cove-demo-attested-audit-v1-vllm-compiler@sha256:929869d0f97fdcb79c153ada3de3016db824c8aaaa60dea51f95c8004cfd462a"
+    image: "erikaleeey/cove-demo-attested-audit-v1-vllm-compiler@sha256:9a68a427fcd1a65252fc91d872a29496b791464e0febefb958dcb731408330b6"
     environment:
       PRISTINE_SOURCE: /workspace/input/pristine_serving_source.tar.gz
       SERVING_PATCH: /workspace/input/serving_patch.diff

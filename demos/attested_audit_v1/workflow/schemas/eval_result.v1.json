@@ -11,6 +11,12 @@
     "benchmark",
     "benchmark_subset",
     "benchmark_sha256",
+    "eval_patch_sha256",
+    "inspect_baseline_id",
+    "baseline_eval_harness_sha256",
+    "patched_eval_tree_sha256",
+    "inspect_task",
+    "inspect_limit",
     "compiled_runtime_bundle_sha256",
     "model_id",
     "server_ready",
@@ -38,6 +44,21 @@
       "type": "string",
       "pattern": "^sha256:[0-9a-f]{64}$"
     },
+    "eval_patch_sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "inspect_baseline_id": { "type": "string", "minLength": 1 },
+    "baseline_eval_harness_sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "patched_eval_tree_sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "inspect_task": { "type": "string", "minLength": 1 },
+    "inspect_limit": { "type": "integer", "minimum": 1 },
     "compiled_runtime_bundle_sha256": {
       "type": "string",
       "pattern": "^sha256:[0-9a-f]{64}$"

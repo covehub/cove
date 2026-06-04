@@ -38,7 +38,7 @@ RUN echo 'tzdata tzdata/Areas select America' | debconf-set-selections \
       libibverbs-dev \
       jq \
     && rm -rf /var/lib/apt/lists/* \
-    && python3 -m pip install --no-cache-dir uv
+    && python3 -m pip install --no-cache-dir uv wheel
 
 RUN cuda_compat="/usr/local/cuda-$(echo ${CUDA_VERSION} | cut -d. -f1,2)/compat" \
     && if [[ -d "${cuda_compat}" ]]; then ldconfig "${cuda_compat}"; fi
@@ -47,4 +47,5 @@ WORKDIR /workspace
 COPY containers/vllm_compiler/compile_vllm.sh /app/bin/compile_vllm.sh
 RUN chmod +x /app/bin/compile_vllm.sh
 
+ENTRYPOINT []
 CMD ["/app/bin/compile_vllm.sh"]

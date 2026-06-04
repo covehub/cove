@@ -7,6 +7,9 @@
     "eval_patch_sha256",
     "eval_benchmark_sha256",
     "eval_policy_sha256",
+    "inspect_baseline_id",
+    "inspect_task",
+    "inspect_limit",
     "audit_model_id",
     "audit_agent_version",
     "raw_model_response_path"
@@ -25,6 +28,9 @@
       "type": "string",
       "pattern": "^sha256:[0-9a-f]{64}$"
     },
+    "inspect_baseline_id": { "type": "string", "minLength": 1 },
+    "inspect_task": { "type": "string", "minLength": 1 },
+    "inspect_limit": { "type": "integer", "minimum": 1 },
     "audit_model_id": { "type": "string", "minLength": 1 },
     "audit_agent_version": { "type": "string", "minLength": 1 },
     "raw_model_response_path": { "type": "string", "minLength": 1 },
