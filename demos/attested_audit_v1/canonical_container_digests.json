@@ -15,6 +15,10 @@
     {
       "canonical_ref": "erikaleeey/cove-demo-attested-audit-v1-eval-runner@sha256:2c57968c349a6071d0abae79b884597fb7e40e6263b5a3703c1b35bbd26e89a2",
       "image_name": "cove-demo-attested-audit-v1-eval-runner"
+    },
+    {
+      "canonical_ref": "erikaleeey/cove-demo-attested-audit-v1-eval-patch-audit-runner@sha256:0d015a24bd71dcd80b65e719ce49c1b4c97a355fde1c977116237a8dccf2bf16",
+      "image_name": "cove-demo-attested-audit-v1-eval-patch-audit-runner"
     }
   ]
 }

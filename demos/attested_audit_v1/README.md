@@ -1,10 +1,11 @@
 # `attested_audit_v1`
 
-`attested_audit_v1` is a three-node Cove demo that runs end to end on Phala:
+`attested_audit_v1` is a four-node Cove demo that runs end to end on Phala:
 
 1. audit proposed vLLM serving-code changes;
 2. compile the approved patched vLLM runtime;
-3. run an operational eval smoke test through the compiled runtime.
+3. audit proposed eval-harness changes;
+4. run an operational eval smoke test through the compiled runtime.
 
 ## Actors
 
@@ -95,13 +96,33 @@ captures a log preview, and creates a tiny placeholder bundle so CoveHub can
 publish a diagnostic certificate. Downstream consumers must require
 `vllm_compiler.pass == true`.
 
+### `audit_eval_patch`
+
+Starts a vLLM audit model server and runs an eval-patch audit runner.
+
+Inputs:
+
+- eval owner's audit model weights;
+- eval owner's eval patch;
+- eval owner's eval benchmark fixture;
+- eval owner's eval audit policy.
+
+Result:
+
+- `eval_patch_audit_result.json`, validated by
+  `workflow/schemas/eval_patch_audit_result.v1.json`.
+
+Current testing note: this mirrors the serving-code audit pattern and currently
+uses `AUDIT_AGENT_FORCE_PASS=1` for pipeline testing.
+
 ### `run_eval`
 
-Depends on the `compile_vllm` certificate.
+Depends on the `compile_vllm` and `audit_eval_patch` certificates.
 
 It only runs if:
 
 - `compile_vllm.results.vllm_compiler.pass == true`.
+- `audit_eval_patch.results.eval_patch_audit_runner.pass == true`.
 
 Inputs:
 
@@ -131,15 +152,19 @@ currently means `operational_pass`, while `quality_pass` is `null`.
 
 ## Key Files
 
-- `workflow/workflow.cove.yaml` - full three-node workflow.
+- `workflow/workflow.cove.yaml` - full four-node workflow.
 - `workflow/workflow.audit_serving_code_only.cove.yaml` - first-node-only
   workflow kept for cheaper audit-node smoke testing.
 - `workflow/nodes/audit_serving_code.compose.yaml` - audit node workload
   compose.
 - `workflow/nodes/compile_vllm.compose.yaml` - compiler node workload compose.
+- `workflow/nodes/audit_eval_patch.compose.yaml` - eval-patch audit node
+  workload compose.
 - `workflow/nodes/run_eval.compose.yaml` - eval node workload compose.
 - `workflow/schemas/audit_result.v1.json` - audit result schema.
 - `workflow/schemas/compile_result.v1.json` - compile result schema.
+- `workflow/schemas/eval_patch_audit_result.v1.json` - eval-patch audit result
+  schema.
 - `workflow/schemas/eval_result.v1.json` - eval result schema.
 - `containers/vllm_server` - serves model weights with vLLM and can optionally
   install a compiled runtime bundle.
@@ -147,6 +172,8 @@ currently means `operational_pass`, while `quality_pass` is `null`.
   audit diagnostics.
 - `containers/vllm_compiler` - applies the audited patch and packages patched
   runtime wheels.
+- `containers/eval_patch_audit_runner` - calls the audit model server and writes
+  eval-patch audit diagnostics.
 - `containers/eval_runner` - runs the XSTest smoke fixture and writes eval
   results.
 - `fixtures/xstest_smoke_v1.jsonl` - 10-prompt XSTest smoke subset.
@@ -217,6 +244,8 @@ Eval owner:
 "$COVE" --cove-home ~/.cove_attested_eval provision audit_policy "$INPUTS/audit_policy.json"
 "$COVE" --cove-home ~/.cove_attested_eval provision audit_model_weights "$INPUTS/audit_model_weights.tar"
 "$COVE" --cove-home ~/.cove_attested_eval provision eval_benchmark "$DEMO/fixtures/xstest_smoke_v1.jsonl"
+"$COVE" --cove-home ~/.cove_attested_eval provision eval_policy "$DEMO/fixtures/eval_policy.json"
+"$COVE" --cove-home ~/.cove_attested_eval provision eval_patch "$DEMO/fixtures/eval_patch.diff"
 ```
 
 Model owner:
@@ -286,16 +315,23 @@ npx --yes phala deploy \
 ```bash
 npx --yes phala deploy \
   --cvm-id c5222836489e0b2b48236de67f3974039d0163ac \
+  --compose demos/attested_audit_v1/workflow/build/nodes/audit_eval_patch/compose.generated.yaml \
+  --wait
+```
+
+```bash
+npx --yes phala deploy \
+  --cvm-id c5222836489e0b2b48236de67f3974039d0163ac \
   --compose demos/attested_audit_v1/workflow/build/nodes/run_eval/compose.generated.yaml \
   --wait
 ```
 
 Because dependency certificates are hash-strict, changing an upstream node's
 generated compose hash may require redeploying downstream dependencies in order.
-For example, if `run_eval` expects a newer `compile_vllm` compose hash than the
-latest published compile certificate contains, redeploy `compile_vllm`. If that
-compile deploy expects a newer `audit_serving_code` hash, redeploy
-`audit_serving_code` first.
+For example, if `run_eval` expects newer `compile_vllm` or `audit_eval_patch`
+compose hashes than the latest published certificates contain, redeploy those
+dependency nodes. If `compile_vllm` expects a newer `audit_serving_code` hash,
+redeploy `audit_serving_code` first.
 
 ## Verify Certificates
 
@@ -311,6 +347,13 @@ Compile node:
 ```bash
 curl -fsS "https://erika-api.covehub.io/v1/runtime/cove-attested-eval-owner.erika-lee.net/attested_audit_v1/certificates/compile_vllm/latest" \
 | python3 -c 'import json,sys; b=json.load(sys.stdin)["certificate_body"]; r=b["results"]["vllm_compiler"]; print(b["generated_node_compose_hash"]); print(r["pass"]); print(r.get("wheel_names"))'
+```
+
+Eval-patch audit node:
+
+```bash
+curl -fsS "https://erika-api.covehub.io/v1/runtime/cove-attested-eval-owner.erika-lee.net/attested_audit_v1/certificates/audit_eval_patch/latest" \
+| python3 -c 'import json,sys; b=json.load(sys.stdin)["certificate_body"]; r=b["results"]["eval_patch_audit_runner"]; print(b["generated_node_compose_hash"]); print(r["pass"]); print(r["force_pass"])'
 ```
 
 Eval node:
@@ -344,7 +387,8 @@ classifier, a judge model, or a hybrid scheme.
 
 See `notes/patch_backlog.md` for the current patch list. High-priority items:
 
-- remove `AUDIT_AGENT_FORCE_PASS=1` after the audit model/prompt is fixed;
+- remove `AUDIT_AGENT_FORCE_PASS=1` from both audit nodes after the audit
+  model/prompt is fixed;
 - replace the marker-file serving patch with a real benign vLLM source patch;
 - validate the source-level dependency-skew fix: the compiler now uses the
   vLLM OpenAI base image and runtime nodes install compiled wheels with
@@ -356,7 +400,7 @@ See `notes/patch_backlog.md` for the current patch list. High-priority items:
 
 RunPod testing is useful for workload logic only. It can verify container-level
 behavior, but it does not exercise CoveHub, owner approval, sidecars, Phala
-attestation, runtime certificates, or the full three-node DAG.
+attestation, runtime certificates, or the full four-node DAG.
 
 RunPod files live under:
 

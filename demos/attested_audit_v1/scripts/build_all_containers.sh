@@ -109,10 +109,12 @@ write_demo_canonical_json() {
     local runner_tag="${DOCKER_NAMESPACE}/cove-demo-attested-audit-v1-audit-agent-runner:${DOCKER_TAG}"
     local compiler_tag="${DOCKER_NAMESPACE}/cove-demo-attested-audit-v1-vllm-compiler:${DOCKER_TAG}"
     local eval_runner_tag="${DOCKER_NAMESPACE}/cove-demo-attested-audit-v1-eval-runner:${DOCKER_TAG}"
+    local eval_patch_audit_runner_tag="${DOCKER_NAMESPACE}/cove-demo-attested-audit-v1-eval-patch-audit-runner:${DOCKER_TAG}"
     local vllm_ref
     local runner_ref
     local compiler_ref
     local eval_runner_ref
+    local eval_patch_audit_runner_ref
     vllm_ref="$(repo_digest "${vllm_tag}" "${DOCKER_NAMESPACE}/cove-demo-attested-audit-v1-vllm-server")"
     runner_ref="$(repo_digest "${runner_tag}" "${DOCKER_NAMESPACE}/cove-demo-attested-audit-v1-audit-agent-runner")"
 
@@ -143,18 +145,20 @@ PY
 
     compiler_ref="$(repo_digest "${compiler_tag}" "${DOCKER_NAMESPACE}/cove-demo-attested-audit-v1-vllm-compiler")"
     eval_runner_ref="$(repo_digest "${eval_runner_tag}" "${DOCKER_NAMESPACE}/cove-demo-attested-audit-v1-eval-runner")"
+    eval_patch_audit_runner_ref="$(repo_digest "${eval_patch_audit_runner_tag}" "${DOCKER_NAMESPACE}/cove-demo-attested-audit-v1-eval-patch-audit-runner")"
 
     python3 - "${DEMO_CANONICAL_CONTAINERS_JSON}" \
       "${vllm_ref}" \
       "${runner_ref}" \
       "${compiler_ref}" \
-      "${eval_runner_ref}" <<'PY'
+      "${eval_runner_ref}" \
+      "${eval_patch_audit_runner_ref}" <<'PY'
 import json
 import sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
-vllm_ref, runner_ref, compiler_ref, eval_runner_ref = sys.argv[2:6]
+vllm_ref, runner_ref, compiler_ref, eval_runner_ref, eval_patch_audit_runner_ref = sys.argv[2:7]
 payload = {
     "containers": [
         {
@@ -173,6 +177,10 @@ payload = {
             "image_name": "cove-demo-attested-audit-v1-eval-runner",
             "canonical_ref": eval_runner_ref,
         },
+        {
+            "image_name": "cove-demo-attested-audit-v1-eval-patch-audit-runner",
+            "canonical_ref": eval_patch_audit_runner_ref,
+        },
     ]
 }
 path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -184,10 +192,12 @@ update_workflow_node_compose_images() {
     local runner_tag="${DOCKER_NAMESPACE}/cove-demo-attested-audit-v1-audit-agent-runner:${DOCKER_TAG}"
     local compiler_tag="${DOCKER_NAMESPACE}/cove-demo-attested-audit-v1-vllm-compiler:${DOCKER_TAG}"
     local eval_runner_tag="${DOCKER_NAMESPACE}/cove-demo-attested-audit-v1-eval-runner:${DOCKER_TAG}"
+    local eval_patch_audit_runner_tag="${DOCKER_NAMESPACE}/cove-demo-attested-audit-v1-eval-patch-audit-runner:${DOCKER_TAG}"
     local vllm_ref
     local runner_ref
     local compiler_ref
     local eval_runner_ref
+    local eval_patch_audit_runner_ref
     vllm_ref="$(repo_digest "${vllm_tag}" "${DOCKER_NAMESPACE}/cove-demo-attested-audit-v1-vllm-server")"
     runner_ref="$(repo_digest "${runner_tag}" "${DOCKER_NAMESPACE}/cove-demo-attested-audit-v1-audit-agent-runner")"
 
@@ -220,14 +230,15 @@ PY
 
     compiler_ref="$(repo_digest "${compiler_tag}" "${DOCKER_NAMESPACE}/cove-demo-attested-audit-v1-vllm-compiler")"
     eval_runner_ref="$(repo_digest "${eval_runner_tag}" "${DOCKER_NAMESPACE}/cove-demo-attested-audit-v1-eval-runner")"
+    eval_patch_audit_runner_ref="$(repo_digest "${eval_patch_audit_runner_tag}" "${DOCKER_NAMESPACE}/cove-demo-attested-audit-v1-eval-patch-audit-runner")"
 
-    python3 - "${DEMO_ROOT}" "${vllm_ref}" "${runner_ref}" "${compiler_ref}" "${eval_runner_ref}" <<'PY'
+    python3 - "${DEMO_ROOT}" "${vllm_ref}" "${runner_ref}" "${compiler_ref}" "${eval_runner_ref}" "${eval_patch_audit_runner_ref}" <<'PY'
 from pathlib import Path
 import re
 import sys
 
 demo_root = Path(sys.argv[1])
-vllm_ref, runner_ref, compiler_ref, eval_runner_ref = sys.argv[2:6]
+vllm_ref, runner_ref, compiler_ref, eval_runner_ref, eval_patch_audit_runner_ref = sys.argv[2:7]
 updates_by_path = {
     demo_root / "workflow" / "nodes" / "audit_serving_code.compose.yaml": {
         "audit_model_server": vllm_ref,
@@ -235,6 +246,10 @@ updates_by_path = {
     },
     demo_root / "workflow" / "nodes" / "compile_vllm.compose.yaml": {
         "vllm_compiler": compiler_ref,
+    },
+    demo_root / "workflow" / "nodes" / "audit_eval_patch.compose.yaml": {
+        "audit_model_server": vllm_ref,
+        "eval_patch_audit_runner": eval_patch_audit_runner_ref,
     },
     demo_root / "workflow" / "nodes" / "run_eval.compose.yaml": {
         "eval_model_server": vllm_ref,
@@ -260,6 +275,7 @@ build_image "cove-demo-attested-audit-v1-audit-agent-runner" "containers/audit_a
 if [[ "${AUDIT_SERVING_CODE_ONLY}" != "1" ]]; then
     build_image "cove-demo-attested-audit-v1-vllm-compiler" "containers/vllm_compiler/Dockerfile"
     build_image "cove-demo-attested-audit-v1-eval-runner" "containers/eval_runner/Dockerfile"
+    build_image "cove-demo-attested-audit-v1-eval-patch-audit-runner" "containers/eval_patch_audit_runner/Dockerfile"
 fi
 
 if [[ "${PUSH_IMAGES}" == "1" ]]; then

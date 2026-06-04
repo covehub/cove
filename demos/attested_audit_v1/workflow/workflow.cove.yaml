@@ -37,6 +37,16 @@ artifacts:
     owner: eval_owner
     hub_path: v1/artifacts/cove-attested-eval-owner.erika-lee.net/eval_benchmark/latest
     plaintext_hash: "sha256:de7719dcabed5e081f8847b4eca47efc1d87bc194f8ab3bdfdbe08d3200ac6cb"
+  eval_policy:
+    type: static
+    owner: eval_owner
+    hub_path: v1/artifacts/cove-attested-eval-owner.erika-lee.net/eval_policy/latest
+    plaintext_hash: "sha256:eb08cfcb45d0effdfc61eb69b166c6b2c097d85640d8d99dbdb6bb82ecd933b4"
+  eval_patch:
+    type: static
+    owner: eval_owner
+    hub_path: v1/artifacts/cove-attested-eval-owner.erika-lee.net/eval_patch/latest
+    plaintext_hash: "sha256:5b0ea7e736586c213179807607b4225988f545d6a7559e44ca1ea4e3f9126c2b"
   compiled_serving_runtime_bundle:
     type: dynamic
     owner: model_owner
@@ -111,10 +121,43 @@ nodes:
                 - { "var": "inputs.pristine_serving_source.plaintext_hash" }
                 - "sha256:98c0cbfc45975ea779c4ed3b1184097c36e60f7f4946c19c43c16bbb4df07904"
 
+  audit_eval_patch:
+    compose: nodes/audit_eval_patch.compose.yaml
+    services:
+      audit_model_server:
+        should_terminate: false
+        inputs:
+          /workspace/input/audit_model_weights.tar: audit_model_weights
+        preconditions:
+          "==":
+            - { "var": "inputs.audit_model_weights.plaintext_hash" }
+            - "sha256:f8bccd70ec9308431ee9ba2c28c8708aba01817a39a7241737d1abb1f5f5b704"
+
+      eval_patch_audit_runner:
+        inputs:
+          /workspace/input/eval_patch.diff: eval_patch
+          /workspace/input/xstest_smoke_v1.jsonl: eval_benchmark
+          /workspace/input/eval_policy.json: eval_policy
+        custom_certificate_field:
+          schema: schemas/eval_patch_audit_result.v1.json
+          path: /workspace/output/eval_patch_audit_result.json
+        preconditions:
+          and:
+            - "==":
+                - { "var": "inputs.eval_patch.plaintext_hash" }
+                - "sha256:5b0ea7e736586c213179807607b4225988f545d6a7559e44ca1ea4e3f9126c2b"
+            - "==":
+                - { "var": "inputs.eval_benchmark.plaintext_hash" }
+                - "sha256:de7719dcabed5e081f8847b4eca47efc1d87bc194f8ab3bdfdbe08d3200ac6cb"
+            - "==":
+                - { "var": "inputs.eval_policy.plaintext_hash" }
+                - "sha256:eb08cfcb45d0effdfc61eb69b166c6b2c097d85640d8d99dbdb6bb82ecd933b4"
+
   run_eval:
     compose: nodes/run_eval.compose.yaml
     dependencies:
       - compile_vllm
+      - audit_eval_patch
     services:
       eval_model_server:
         should_terminate: false
@@ -125,6 +168,9 @@ nodes:
           and:
             - "==":
                 - { "var": "certificates.compile_vllm.certificate_body.results.vllm_compiler.pass" }
+                - true
+            - "==":
+                - { "var": "certificates.audit_eval_patch.certificate_body.results.eval_patch_audit_runner.pass" }
                 - true
             - "==":
                 - { "var": "inputs.audit_model_weights.plaintext_hash" }
@@ -143,6 +189,9 @@ nodes:
           and:
             - "==":
                 - { "var": "certificates.compile_vllm.certificate_body.results.vllm_compiler.pass" }
+                - true
+            - "==":
+                - { "var": "certificates.audit_eval_patch.certificate_body.results.eval_patch_audit_runner.pass" }
                 - true
             - "==":
                 - { "var": "inputs.eval_benchmark.plaintext_hash" }
