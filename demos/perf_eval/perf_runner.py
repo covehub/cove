@@ -14,12 +14,14 @@ from urllib.request import Request, urlopen
 
 def getenv_int(name: str, default: int) -> int:
     value = os.getenv(name)
-    return default if value is None or value == "" else int(value)
+    result = default if value is None or value == "" else int(value)
+    print(f'Environment {name} value is {result}')
 
 
 def getenv_float(name: str, default: float) -> float:
     value = os.getenv(name)
-    return default if value is None or value == "" else float(value)
+    result = default if value is None or value == "" else float(value)
+    print(f'Environment {name} value is {result}')
 
 
 def percentile(values: list[float], pct: float) -> float:
