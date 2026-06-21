@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Sequence
 
+from .client_proxy import ClientProxyCommandError, start_client_proxy
 from .check import check_workflow, format_report
 from .compile import CompileCommandError, compile_workflow
 from .config import ConfigError
@@ -90,6 +91,19 @@ def run(argv: Sequence[str] | None = None) -> int:
                     )
                 )
                 return 0
+
+        if args.command == "client":
+            if args.client_command == "proxy":
+                return start_client_proxy(
+                    remote=args.remote,
+                    local=args.local,
+                    workflow=args.workflow,
+                    write_workflow_to=args.write_workflow_to,
+                    server_url=args.server_url,
+                    node_id=args.node,
+                    keypair_name=args.keypair,
+                    request_timeout_seconds=args.request_timeout_seconds,
+                )
 
         if args.command == "deploy":
             print(
@@ -189,6 +203,7 @@ def run(argv: Sequence[str] | None = None) -> int:
 
     except (
         CompileCommandError,
+        ClientProxyCommandError,
         DeployCommandError,
         HubCommandError,
         InitCommandError,
@@ -307,6 +322,53 @@ def _build_parser() -> argparse.ArgumentParser:
     hub_inspect_parser.add_argument(
         "--server-url",
         help="CoveHub API URL. Defaults to covehub_server_url in the local Cove config.",
+    )
+
+    client_parser = subparsers.add_parser(
+        "client",
+        help="End-user client tools for verified Cove services",
+    )
+    client_subparsers = client_parser.add_subparsers(dest="client_command", required=True)
+    proxy_parser = client_subparsers.add_parser(
+        "proxy",
+        help="Verify a Cove service endpoint and expose it as a local HTTP proxy",
+    )
+    proxy_parser.add_argument(
+        "--remote",
+        required=True,
+        help="Remote HTTPS service URL exposed by the enclave",
+    )
+    proxy_parser.add_argument(
+        "--local",
+        default="localhost:8080",
+        help="Local HTTP bind address as <host>:<port> (defaults to localhost:8080)",
+    )
+    proxy_parser.add_argument(
+        "--workflow",
+        required=True,
+        help="Published workflow ref in the form <publisher>/<workflow_id> or <publisher>/<workflow_id>/sha256:<digest>",
+    )
+    proxy_parser.add_argument(
+        "--write-workflow-to",
+        help="Directory under which to write the pulled workflow bundle for inspection",
+    )
+    proxy_parser.add_argument(
+        "--server-url",
+        help="CoveHub API URL. Defaults to https://api.covehub.io and does not require cove init.",
+    )
+    proxy_parser.add_argument(
+        "--node",
+        help="Serving workflow node id when it cannot be inferred",
+    )
+    proxy_parser.add_argument(
+        "--keypair",
+        help="Ephemeral TLS keypair name when it cannot be inferred",
+    )
+    proxy_parser.add_argument(
+        "--request-timeout-seconds",
+        type=float,
+        default=120.0,
+        help="Timeout for proxied remote requests",
     )
 
     deploy_parser = subparsers.add_parser(
