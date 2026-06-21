@@ -45,15 +45,15 @@ enclave-generated TLS keypair.
   Cloudflare Tunnel; see `docs/internal/operations/covehub_server.md`.
 - Run the separate parties Cloudflare tunnel command from
   `~/.cloudflare_parties_token` for owner services:
-  `alice.cove-demo-parties.covehub.io -> 127.0.0.1:9600`,
-  `bob.cove-demo-parties.covehub.io -> 127.0.0.1:9601`, and
-  `carol.cove-demo-parties.covehub.io -> 127.0.0.1:9602`.
+  `demo-alice.covehub.io -> 127.0.0.1:9600`,
+  `demo-bob.covehub.io -> 127.0.0.1:9601`, and
+  `demo-carol.covehub.io -> 127.0.0.1:9602`.
 - The local demo flow does not rebuild first-party Cove sidecars. Pull
   them with the top-level `containers/scripts/pull_canonical_containers.sh`
   helper, and pull the demo workloads with this directory's
   `scripts/pull_canonical_containers.sh`.
 - The supported execution path is Carol publishing and deploying
-  `carol.cove-demo-parties.covehub.io/hello_world` after Alice and Bob
+  `demo-carol.covehub.io/hello_world` after Alice and Bob
   provision static inputs and approve the generated bundle.
 - Carol's Cove home must have `phala_cloud_api_key` stored in
   `<cove_home>/config.yaml` by `cove init`. It must also carry a Docker
@@ -62,9 +62,9 @@ enclave-generated TLS keypair.
   is required".
 - Phala runs require a public HTTPS Covehub URL plus public owner URLs
   reachable from Phala. The checked-in workflow declares
-  `https://alice.cove-demo-parties.covehub.io`,
-  `https://bob.cove-demo-parties.covehub.io`, and
-  `https://carol.cove-demo-parties.covehub.io`.
+  `https://demo-alice.covehub.io`,
+  `https://demo-bob.covehub.io`, and
+  `https://demo-carol.covehub.io`.
 - Authored workflows do not contain artifact `hub_path` fields. Static
   artifacts are pinned by `owner + artifact_id + plaintext_hash`; compile
   generates exact static ciphertext paths in `workflow.normalized.cove.yaml`.

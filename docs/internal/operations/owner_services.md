@@ -105,9 +105,9 @@ For the hello-world demo, `~/.cloudflare_parties_token` contains the full
 command once in its own tmux window. Configure the tunnel routes as:
 
 ```text
-alice.cove-demo-parties.covehub.io -> http://127.0.0.1:9600
-bob.cove-demo-parties.covehub.io   -> http://127.0.0.1:9601
-carol.cove-demo-parties.covehub.io -> http://127.0.0.1:9602
+demo-alice.covehub.io -> http://127.0.0.1:9600
+demo-bob.covehub.io   -> http://127.0.0.1:9601
+demo-carol.covehub.io -> http://127.0.0.1:9602
 ```
 
 The Covehub API/UI use their own Cloudflare tunnel token through the root

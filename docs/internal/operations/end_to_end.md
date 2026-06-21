@@ -8,13 +8,13 @@ workflow on Phala. It assumes the repo is checked out at `/home/$USER/cove`.
 
 - Covehub API: `https://api.covehub.io`
 - Covehub UI: `https://covehub.io`
-- Alice owner URL: `https://alice.cove-demo-parties.covehub.io`
-- Bob owner URL: `https://bob.cove-demo-parties.covehub.io`
-- Carol owner/publisher URL: `https://carol.cove-demo-parties.covehub.io`
+- Alice owner URL: `https://demo-alice.covehub.io`
+- Bob owner URL: `https://demo-bob.covehub.io`
+- Carol owner/publisher URL: `https://demo-carol.covehub.io`
 - Alice local owner port: `9600`
 - Bob local owner port: `9601`
 - Carol local owner port: `9602`
-- Workflow ref: `carol.cove-demo-parties.covehub.io/hello_world`
+- Workflow ref: `demo-carol.covehub.io/hello_world`
 - Workflow file: `/home/$USER/cove/demos/hello_world/workflow/workflow.cove.yaml`
 
 `~/.cloudflare_parties_token` contains the full `cloudflared tunnel run ...`
@@ -67,9 +67,9 @@ tmux new-window -t cove -n parties 'cd /home/$USER/cove && bash -lc "$(cat ~/.cl
 The parties tunnel must route:
 
 ```text
-alice.cove-demo-parties.covehub.io -> http://127.0.0.1:9600
-bob.cove-demo-parties.covehub.io   -> http://127.0.0.1:9601
-carol.cove-demo-parties.covehub.io -> http://127.0.0.1:9602
+demo-alice.covehub.io -> http://127.0.0.1:9600
+demo-bob.covehub.io   -> http://127.0.0.1:9601
+demo-carol.covehub.io -> http://127.0.0.1:9602
 ```
 
 Do not add `api.covehub.io` or `covehub.io` to this parties tunnel; those use
@@ -116,15 +116,15 @@ Use these values:
 ```text
 Common Covehub server URL: https://api.covehub.io
 
-Alice owner server URL: https://alice.cove-demo-parties.covehub.io
+Alice owner server URL: https://demo-alice.covehub.io
 Alice Phala Cloud API key: leave blank
 Alice Docker credentials: leave blank
 
-Bob owner server URL: https://bob.cove-demo-parties.covehub.io
+Bob owner server URL: https://demo-bob.covehub.io
 Bob Phala Cloud API key: leave blank
 Bob Docker credentials: leave blank
 
-Carol owner server URL: https://carol.cove-demo-parties.covehub.io
+Carol owner server URL: https://demo-carol.covehub.io
 Carol Phala Cloud API key: <phala-api-key>
 Carol Docker registry username: <dockerhub-username>
 Carol Docker registry access token: <dockerhub-read-token>
@@ -144,9 +144,9 @@ tmux new-window -t cove -n carol-owner 'source /home/$USER/.cove-cli-release/bin
 Verify identity documents through the public routes:
 
 ```bash
-curl -A 'cove-runtime/0.0.1' -fsS https://alice.cove-demo-parties.covehub.io/identity
-curl -A 'cove-runtime/0.0.1' -fsS https://bob.cove-demo-parties.covehub.io/identity
-curl -A 'cove-runtime/0.0.1' -fsS https://carol.cove-demo-parties.covehub.io/identity
+curl -A 'cove-runtime/0.0.1' -fsS https://demo-alice.covehub.io/identity
+curl -A 'cove-runtime/0.0.1' -fsS https://demo-bob.covehub.io/identity
+curl -A 'cove-runtime/0.0.1' -fsS https://demo-carol.covehub.io/identity
 ```
 
 The local owner services are plain HTTP. The public URLs are HTTPS because
@@ -219,14 +219,14 @@ Compile asks Alice and Bob's owner services to resolve
 workflow contains review-facing `hub_path` metadata such as:
 
 ```text
-v1/artifacts/alice.cove-demo-parties.covehub.io/alice_secret_word/sha256:<ciphertext-digest>
-v1/runtime/carol.cove-demo-parties.covehub.io/hello_world/artifacts/alice_secret_word_transformed/latest
+v1/artifacts/demo-alice.covehub.io/alice_secret_word/sha256:<ciphertext-digest>
+v1/runtime/demo-carol.covehub.io/hello_world/artifacts/alice_secret_word_transformed/latest
 ```
 
 The published workflow ref is:
 
 ```text
-carol.cove-demo-parties.covehub.io/hello_world
+demo-carol.covehub.io/hello_world
 ```
 
 ## 9. Alice And Bob Approve
@@ -236,10 +236,10 @@ expected accesses:
 
 ```bash
 cove --cove-home /home/$USER/.alice_cove provision inspect \
-  carol.cove-demo-parties.covehub.io/hello_world
+  demo-carol.covehub.io/hello_world
 
 cove --cove-home /home/$USER/.bob_cove provision inspect \
-  carol.cove-demo-parties.covehub.io/hello_world
+  demo-carol.covehub.io/hello_world
 ```
 
 Owner services must keep running. Phala sidecars call the public owner URLs
@@ -252,7 +252,7 @@ Delete any old Phala CVMs for this workflow if name collisions exist, then:
 
 ```bash
 cove --cove-home /home/$USER/.carol_cove deploy \
-  carol.cove-demo-parties.covehub.io/hello_world \
+  demo-carol.covehub.io/hello_world \
   --phala-instance-type tdx.medium \
   --phala-disk-size-gb 40 \
   --phala-public-logs \
@@ -288,7 +288,7 @@ Check runtime certificates:
 
 ```bash
 cove hub inspect \
-  v1/runtime/carol.cove-demo-parties.covehub.io/hello_world/certificates/final_server/latest \
+  v1/runtime/demo-carol.covehub.io/hello_world/certificates/final_server/latest \
   --server-url https://api.covehub.io
 ```
 

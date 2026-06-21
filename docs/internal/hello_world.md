@@ -8,9 +8,9 @@ sidecars transform and combine the words under attestation.
 
 | Party | Role | Public owner URL | Local demo port |
 | --- | --- | --- | --- |
-| Alice | Static artifact owner | `https://alice.cove-demo-parties.covehub.io` | `9600` |
-| Bob | Static artifact owner | `https://bob.cove-demo-parties.covehub.io` | `9601` |
-| Carol | Publisher and deployer | `https://carol.cove-demo-parties.covehub.io` | `9602` |
+| Alice | Static artifact owner | `https://demo-alice.covehub.io` | `9600` |
+| Bob | Static artifact owner | `https://demo-bob.covehub.io` | `9601` |
+| Carol | Publisher and deployer | `https://demo-carol.covehub.io` | `9602` |
 
 Alice and Bob initialize owner/provisioning homes only. Carol initializes with
 Phala and Docker credentials because Carol publishes and deploys.
@@ -23,9 +23,9 @@ are declared by owner only:
 
 ```yaml
 owners:
-  alice: https://alice.cove-demo-parties.covehub.io
-  bob: https://bob.cove-demo-parties.covehub.io
-  carol: https://carol.cove-demo-parties.covehub.io
+  alice: https://demo-alice.covehub.io
+  bob: https://demo-bob.covehub.io
+  carol: https://demo-carol.covehub.io
 
 artifacts:
   alice_secret_word:
@@ -61,8 +61,8 @@ v1/artifacts/<owner-domain>/<artifact-id>/sha256:<ciphertext-digest>
 for example:
 
 ```text
-v1/artifacts/alice.cove-demo-parties.covehub.io/alice_secret_word/sha256:<ciphertext-digest>
-v1/runtime/carol.cove-demo-parties.covehub.io/hello_world/artifacts/alice_secret_word_transformed/latest
+v1/artifacts/demo-alice.covehub.io/alice_secret_word/sha256:<ciphertext-digest>
+v1/runtime/demo-carol.covehub.io/hello_world/artifacts/alice_secret_word_transformed/latest
 ```
 
 Dynamic artifacts use Carol's publisher domain because their channel belongs
@@ -123,12 +123,12 @@ cove --cove-home /home/$USER/.carol_cove push \
   /home/$USER/cove/demos/hello_world/workflow/workflow.cove.yaml
 
 cove --cove-home /home/$USER/.alice_cove provision inspect \
-  carol.cove-demo-parties.covehub.io/hello_world
+  demo-carol.covehub.io/hello_world
 
 cove --cove-home /home/$USER/.bob_cove provision inspect \
-  carol.cove-demo-parties.covehub.io/hello_world
+  demo-carol.covehub.io/hello_world
 
 cove --cove-home /home/$USER/.carol_cove deploy \
-  carol.cove-demo-parties.covehub.io/hello_world \
+  demo-carol.covehub.io/hello_world \
   --phala-instance-type tdx.medium
 ```

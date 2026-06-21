@@ -8,9 +8,9 @@ platform:
   runtime: dstack
 
 owners:
-  alice: https://alice.cove-demo-parties.covehub.io
-  bob: https://bob.cove-demo-parties.covehub.io
-  carol: https://carol.cove-demo-parties.covehub.io
+  alice: https://demo-alice.covehub.io
+  bob: https://demo-bob.covehub.io
+  carol: https://demo-carol.covehub.io
 
 ephemeral_keypairs:
   session_key:
