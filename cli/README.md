@@ -69,8 +69,6 @@ and CLI configuration:
   config.yaml                       # Covehub URL, owner URL, Phala creds
   owner-signing-private.pem         # Ed25519 owner signing key
   owner-signing-public.pem
-  provision-cert.pem                # local owner-service TLS cert
-  provision-key.pem
   keys/<artifact_id>                # one stable AES key per provisioned artifact
   provision.sqlite3                 # owner-local provisioning state and allow rules
   materialized_workflows/           # default destination for `cove pull`
@@ -157,9 +155,8 @@ per-artifact AES-256 key, prints both `plaintext_hash` and
 - `ciphertext_hash` is owner-local metadata used by the local provisioner
   and by artifact-provisioner sidecars.
 
-The local provisioner returns the AES key as `key_b64` over pinned TLS in
-the local development flow. Production key release is gated by attested
-Phala/dstack quotes and the owner's allow rules; see
+The local provisioner returns the AES key as `key_b64`. Key release is
+gated by attested Phala/dstack quotes and the owner's allow rules; see
 `docs/internal/security_model.md` for the full release model.
 
 ## Compilation And Generated Composes
@@ -270,13 +267,12 @@ into the CLI tree and rebuilding the wheel
 ## Owner Service
 
 `cove init` creates the persistent owner identity material. `cove start
-[port]` runs the local HTTPS owner service in the foreground; the public
-HTTPS hostname is exposed through Cloudflare Tunnel
+[port]` runs the local HTTP owner service in the foreground; a public
+hostname can be exposed through Cloudflare Tunnel
 (`docs/internal/operations/owner_services.md`).
 
-The generated owner TLS certificate is valid for `127.0.0.1`, `localhost`,
-and the configured `owner_server_url`. The runtime trust path is the signed
-`/identity` document, not the TLS certificate.
+The runtime trust path is the signed `/identity` document, not the local
+transport.
 
 Workflow YAML must declare each owner's URL explicitly:
 

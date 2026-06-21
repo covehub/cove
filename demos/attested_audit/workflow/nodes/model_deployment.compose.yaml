@@ -1,6 +1,6 @@
 services:
   serve:
-    image: "hpmv/cove-demo-attested-audit-model-server@sha256:3c3a26c6fa3bce65b70222def4ba6baabe121a2c47f5957819106836c1cfdd1f"
+    image: "hpmv/cove-demo-attested-audit-model-server@sha256:e7483ee31da85608f0dab2b99385a841313ed7c3d7b1d97da838dc52c3a1d204"
     environment:
       HOST: 0.0.0.0
       MODEL_ARCHIVE_PATH: /workspace/input/alice_private_model.tar

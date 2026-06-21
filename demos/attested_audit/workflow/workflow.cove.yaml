@@ -5,8 +5,8 @@ platform:
   provider: phala
   runtime: dstack
 owners:
-  alice: https://cove-demo-attested-audit-alice-provisioning.covehub.io
-  bob: https://cove-demo-attested-audit-bob-provisioning.covehub.io
+  alice: https://demo-alice.covehub.io
+  bob: https://demo-bob.covehub.io
 ephemeral_keypairs:
   ratls_key:
     algorithm: ed25519
@@ -15,7 +15,7 @@ artifacts:
     type: static
     owner: alice
     hub_path: v1/artifacts/alice/alice_private_model/latest
-    plaintext_hash: sha256:6d8d4d1370b0974a71361e05584c6b1f034f0311ca5505e245c591842b722d89
+    plaintext_hash: sha256:771c87497a7f62dc30deaae676b6a201e55c693180e9ed897b0a76aabdb62410
   alice_private_serving_patch:
     type: static
     owner: alice
@@ -107,7 +107,7 @@ nodes:
           and:
           - ==:
             - var: inputs.alice_private_model.plaintext_hash
-            - sha256:6d8d4d1370b0974a71361e05584c6b1f034f0311ca5505e245c591842b722d89
+            - sha256:771c87497a7f62dc30deaae676b6a201e55c693180e9ed897b0a76aabdb62410
           - ==:
             - var: inputs.alice_private_serving_patch.plaintext_hash
             - sha256:72c2f128b088bd2521bdfd3e9e9a3b6f40455b091a17988084b9c7ad2c214e92
@@ -155,7 +155,7 @@ nodes:
           and:
           - ==:
             - var: inputs.alice_private_model.plaintext_hash
-            - sha256:6d8d4d1370b0974a71361e05584c6b1f034f0311ca5505e245c591842b722d89
+            - sha256:771c87497a7f62dc30deaae676b6a201e55c693180e9ed897b0a76aabdb62410
           - ==:
             - var: certificates.compile_serving_code.certificate_body.results.compile_serving_wheel.pass
             - true

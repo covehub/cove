@@ -210,7 +210,7 @@ def test_compile_rejects_legacy_owner_provisioning_fields(tmp_path) -> None:
             "\n".join(
                 [
                     "  alice:",
-                    "    provisioning_url: https://127.0.0.1:9001",
+                    "    provisioning_url: http://127.0.0.1:9001",
                     "    provisioning_tls_certificate: certs/alice.pem",
                 ]
             ),
@@ -672,7 +672,7 @@ def test_artifact_provisioner_decrypts_and_writes_metadata(tmp_path) -> None:
         hub_path=hub_path,
         artifact_id=artifact_id,
         owner_domain=LOCAL_OWNER_DOMAIN,
-        owner_url="https://127.0.0.1",
+        owner_url="http://127.0.0.1",
         plaintext_hash=plaintext_hash,
         ciphertext_hash=ciphertext_hash,
         content_type="text/plain",
@@ -685,8 +685,6 @@ def test_artifact_provisioner_decrypts_and_writes_metadata(tmp_path) -> None:
     with MockCovehubServer() as server, _running_provision_server(
         state=state,
         keys_dir=provision_paths.keys_dir,
-        cert_path=provision_paths.cert_path,
-        tls_key_path=provision_paths.tls_key_path,
     ) as provision_server:
         server.seed_artifact(hub_path, payload=ciphertext)
         alias_hub_path = f"v1/artifacts/alice/{artifact_id}/latest"
@@ -731,7 +729,7 @@ def test_artifact_provisioner_accepts_baked_owner_identity(tmp_path) -> None:
         hub_path=hub_path,
         artifact_id=artifact_id,
         owner_domain=LOCAL_OWNER_DOMAIN,
-        owner_url="https://127.0.0.1",
+        owner_url="http://127.0.0.1",
         plaintext_hash=plaintext_hash,
         ciphertext_hash=sha256_literal(ciphertext),
         content_type="text/plain",
@@ -742,12 +740,10 @@ def test_artifact_provisioner_accepts_baked_owner_identity(tmp_path) -> None:
     )
 
     port = _free_port()
-    owner_url = f"https://127.0.0.1:{port}"
+    owner_url = f"http://127.0.0.1:{port}"
     with MockCovehubServer() as server, _running_provision_server(
         state=state,
         keys_dir=provision_paths.keys_dir,
-        cert_path=provision_paths.cert_path,
-        tls_key_path=provision_paths.tls_key_path,
         port=port,
         owner_url=owner_url,
     ) as provision_server:
@@ -790,7 +786,7 @@ def test_artifact_provisioner_rejects_tampered_baked_owner_identity(tmp_path) ->
         hub_path=hub_path,
         artifact_id=artifact_id,
         owner_domain=LOCAL_OWNER_DOMAIN,
-        owner_url="https://127.0.0.1",
+        owner_url="http://127.0.0.1",
         plaintext_hash=sha256_literal(plaintext),
         ciphertext_hash=sha256_literal(ciphertext),
         content_type="text/plain",
@@ -801,12 +797,10 @@ def test_artifact_provisioner_rejects_tampered_baked_owner_identity(tmp_path) ->
     )
 
     port = _free_port()
-    owner_url = f"https://127.0.0.1:{port}"
+    owner_url = f"http://127.0.0.1:{port}"
     with MockCovehubServer() as server, _running_provision_server(
         state=state,
         keys_dir=provision_paths.keys_dir,
-        cert_path=provision_paths.cert_path,
-        tls_key_path=provision_paths.tls_key_path,
         port=port,
         owner_url=owner_url,
     ) as provision_server:
@@ -873,8 +867,6 @@ def test_artifact_provisioner_publishes_dynamic_output_and_writes_metadata(tmp_p
     with MockCovehubServer() as server, _running_provision_server(
         state=state,
         keys_dir=provision_paths.keys_dir,
-        cert_path=provision_paths.cert_path,
-        tls_key_path=provision_paths.tls_key_path,
     ) as provision_server:
         configured_hub_path = "runtime/hello_world/artifacts/alice_secret_word_transformed/latest"
         _ARTIFACT_PROVISIONER.run(
@@ -974,8 +966,6 @@ def test_artifact_provisioner_fetches_dynamic_input_from_producer_certificate(tm
     with MockCovehubServer() as server, _running_provision_server(
         state=state,
         keys_dir=provision_paths.keys_dir,
-        cert_path=provision_paths.cert_path,
-        tls_key_path=provision_paths.tls_key_path,
     ) as provision_server:
         server.seed_runtime_artifact(hub_path, payload=ciphertext)
         configured_hub_path = "runtime/hello_world/artifacts/alice_secret_word_transformed/latest"
@@ -1032,7 +1022,7 @@ def test_artifact_provisioner_rejects_ciphertext_hash_mismatch(tmp_path) -> None
         hub_path=hub_path,
         artifact_id=artifact_id,
         owner_domain=LOCAL_OWNER_DOMAIN,
-        owner_url="https://127.0.0.1",
+        owner_url="http://127.0.0.1",
         plaintext_hash=sha256_literal(plaintext),
         ciphertext_hash="sha256:" + "f" * 64,
         content_type="text/plain",
@@ -1045,8 +1035,6 @@ def test_artifact_provisioner_rejects_ciphertext_hash_mismatch(tmp_path) -> None
     with MockCovehubServer() as server, _running_provision_server(
         state=state,
         keys_dir=provision_paths.keys_dir,
-        cert_path=provision_paths.cert_path,
-        tls_key_path=provision_paths.tls_key_path,
     ) as provision_server:
         server.seed_artifact(hub_path, payload=ciphertext)
         try:
@@ -1152,8 +1140,6 @@ def test_provision_server_serves_public_key_identity_document(
     with _running_provision_server(
         state=state,
         keys_dir=provision_paths.keys_dir,
-        cert_path=provision_paths.cert_path,
-        tls_key_path=provision_paths.tls_key_path,
         owner_domain=ALICE_DOMAIN,
         owner_url=ALICE_OWNER_URL,
     ) as provision_server:
@@ -1174,10 +1160,8 @@ def test_provision_server_serves_public_key_identity_document(
             return original_getaddrinfo(host, port_arg, family, type, proto, flags)
 
         monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
-        context = ssl._create_unverified_context()
         with urllib_request.urlopen(
-            f"https://{ALICE_DOMAIN}:{port}/identity",
-            context=context,
+            f"http://{ALICE_DOMAIN}:{port}/identity",
             timeout=5,
         ) as response:
             identity_document = json.loads(response.read().decode("utf-8"))
@@ -1660,21 +1644,17 @@ class _running_provision_server:
         *,
         state: ProvisionState,
         keys_dir: Path,
-        cert_path: Path,
-        tls_key_path: Path,
         owner_domain: str = LOCAL_OWNER_DOMAIN,
         port: int = 0,
         owner_url: str | None = None,
     ) -> None:
         self.state = state
         self.keys_dir = keys_dir
-        self.cert_path = cert_path
-        self.tls_key_path = tls_key_path
         self.owner_domain = owner_domain
         if owner_url is None and port == 0:
             port = _free_port()
         self.port = port
-        self.owner_url = owner_url or f"https://127.0.0.1:{port}"
+        self.owner_url = owner_url or f"http://127.0.0.1:{port}"
         self.server = None
         self.thread = None
         self.url = ""
@@ -1684,8 +1664,6 @@ class _running_provision_server:
         self.server = create_provision_server(
             state=self.state,
             keys_dir=self.keys_dir,
-            cert_path=self.cert_path,
-            tls_key_path=self.tls_key_path,
             host="127.0.0.1",
             port=self.port,
             owner_domain=self.owner_domain,
@@ -1695,7 +1673,7 @@ class _running_provision_server:
         self.thread = Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         host, port = self.server.server_address
-        self.url = f"https://{host}:{port}"
+        self.url = f"http://{host}:{port}"
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:

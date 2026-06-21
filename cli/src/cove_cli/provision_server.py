@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import base64
 import json
-import ssl
 import sys
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -26,7 +25,7 @@ from .canonical_images import is_canonical_artifact_provisioner_digest
 from .artifact_crypto import ENCRYPTION_ALGORITHM, load_artifact_key
 from .provisioning_identity import (
     build_owner_identity_document,
-    ensure_owner_tls_material,
+    ensure_owner_signing_key_material,
     normalize_owner_server_url,
     owner_domain_from_url,
 )
@@ -349,8 +348,6 @@ def create_provision_server(
     *,
     state: ProvisionState,
     keys_dir: Path,
-    cert_path: Path,
-    tls_key_path: Path,
     owner_private_key_path: Path | None = None,
     owner_public_key_path: Path | None = None,
     host: str = "127.0.0.1",
@@ -369,14 +366,11 @@ def create_provision_server(
         raise ProvisionServerError(
             f"owner_domain {owner_domain!r} does not match owner URL domain {effective_owner_domain!r}"
         )
-    owner_private_key_path = owner_private_key_path or cert_path.parent / "owner-signing-private.pem"
-    owner_public_key_path = owner_public_key_path or cert_path.parent / "owner-signing-public.pem"
-    ensure_owner_tls_material(
-        cert_path=cert_path,
-        tls_key_path=tls_key_path,
-        owner_private_key_path=owner_private_key_path,
-        owner_public_key_path=owner_public_key_path,
-        owner_url=effective_server_url,
+    owner_private_key_path = owner_private_key_path or keys_dir.parent / "owner-signing-private.pem"
+    owner_public_key_path = owner_public_key_path or keys_dir.parent / "owner-signing-public.pem"
+    ensure_owner_signing_key_material(
+        private_key_path=owner_private_key_path,
+        public_key_path=owner_public_key_path,
     )
     owner_identity = build_owner_identity_document(
         owner_url=effective_server_url,
@@ -392,9 +386,6 @@ def create_provision_server(
         owner_identity,
         owner_private_key_path,
     )
-    ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    ssl_context.load_cert_chain(certfile=cert_path, keyfile=tls_key_path)
-    server.socket = ssl_context.wrap_socket(server.socket, server_side=True)
     return server
 
 
@@ -410,21 +401,6 @@ def _parse_digest_from_image_reference(image_reference: str) -> str:
     if not separator or not name or not digest.startswith("sha256:"):
         raise ValueError("artifact_provisioner_image must be digest-pinned")
     return digest
-
-
-def ensure_provision_tls_material(
-    *,
-    cert_path: Path,
-    tls_key_path: Path,
-    owner_url: str,
-) -> None:
-    ensure_owner_tls_material(
-        cert_path=cert_path,
-        tls_key_path=tls_key_path,
-        owner_private_key_path=cert_path.parent / "owner-signing-private.pem",
-        owner_public_key_path=cert_path.parent / "owner-signing-public.pem",
-        owner_url=owner_url,
-    )
 
 
 def _verify_key_release_attestation(

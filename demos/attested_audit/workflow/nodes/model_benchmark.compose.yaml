@@ -1,6 +1,6 @@
 services:
   benchmark_runner:
-    image: "hpmv/cove-demo-attested-audit-benchmark-runner@sha256:fc64f7a9e31502c71fb257742be3f3f635ff75f80ebda573e8c53b596741c345"
+    image: "hpmv/cove-demo-attested-audit-benchmark-runner@sha256:19c197ab7eec9f4a218d462ffec123f7f5f82843b05a80044dc6fad5cfdfec97"
     environment:
       EVAL_CODE_PATH: /workspace/input/bob_private_eval_code.py
       EVAL_DATA_PATH: /workspace/input/bob_private_eval_data.jsonl

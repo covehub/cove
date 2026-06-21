@@ -711,7 +711,7 @@ def test_allow_gated_key_release_supports_artifact_provisioner_sidecar(tmp_path)
         hub_path=hub_path,
         artifact_id=artifact_id,
         owner_domain=LOCAL_OWNER_DOMAIN,
-        owner_url="https://127.0.0.1",
+        owner_url="http://127.0.0.1",
         plaintext_hash=plaintext_hash,
         ciphertext_hash=ciphertext_hash,
         content_type="text/plain",
@@ -783,7 +783,7 @@ def test_allow_gated_key_release_rejects_mismatched_attestation_identity(
         hub_path=hub_path,
         artifact_id=artifact_id,
         owner_domain=LOCAL_OWNER_DOMAIN,
-        owner_url="https://127.0.0.1",
+        owner_url="http://127.0.0.1",
         plaintext_hash=sha256_literal(b"hello\n"),
         ciphertext_hash=sha256_literal(ciphertext),
         content_type="text/plain",
@@ -873,7 +873,7 @@ def test_allow_gated_key_release_rejects_missing_allow_rule(tmp_path) -> None:
         hub_path=hub_path,
         artifact_id=artifact_id,
         owner_domain=LOCAL_OWNER_DOMAIN,
-        owner_url="https://127.0.0.1",
+        owner_url="http://127.0.0.1",
         plaintext_hash=sha256_literal(plaintext),
         ciphertext_hash=sha256_literal(ciphertext),
         content_type="text/plain",
@@ -1019,17 +1019,15 @@ class _running_provision_server:
         self.server = create_provision_server(
             state=self.state,
             keys_dir=paths.keys_dir,
-            cert_path=paths.cert_path,
-            tls_key_path=paths.tls_key_path,
             port=port,
             owner_domain=self.owner_domain,
-            owner_url=f"https://127.0.0.1:{port}",
+            owner_url=f"http://127.0.0.1:{port}",
         )
         self.thread = Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         host, port = self.server.server_address
         self.info = {
-            "url": f"https://{host}:{port}",
+            "url": f"http://{host}:{port}",
             "identity": self.server.owner_identity,
         }
         return self.info

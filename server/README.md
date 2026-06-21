@@ -65,10 +65,9 @@ Response shape:
 
 Static artifacts, workflow bundles, and runtime resets are authorized by
 the owner URL domain in the route. Covehub fetches and verifies the current
-`<owner_url>/identity` document over ordinary HTTPS, confirms the request
-identity has the same owner public key and matching route domain, then checks an
-Ed25519 write signature with the served public key. Covehub does not pin or
-compare owner-service TLS certificates, and it does not require exact
+`<owner_url>/identity` document, confirms the request identity has the same
+owner public key and matching route domain, then checks an Ed25519 write
+signature with the served public key. Covehub does not require exact
 byte-for-byte equality between the request identity document and the current
 served document.
 
