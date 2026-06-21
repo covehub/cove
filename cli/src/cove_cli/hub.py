@@ -149,9 +149,12 @@ def _normalize_hub_path(hub_path: str) -> str:
     parts = normalized.split("/")
     if any(part in {"", ".", ".."} for part in parts):
         raise HubCommandError("hub path contains unsafe path traversal")
-    if _object_kind(normalized) == "unknown":
+    kind = _object_kind(normalized)
+    if kind == "unknown":
         raise HubCommandError("hub path is not a supported CoveHub typed object route")
     reference = parts[-1]
+    if kind == "static artifact" and reference == "latest":
+        raise HubCommandError("static artifact hub paths must use an exact sha256:<hex> reference")
     if reference != "latest" and HASH_RE.fullmatch(reference) is None:
         raise HubCommandError("hub path reference must be 'latest' or sha256:<hex>")
     return normalized

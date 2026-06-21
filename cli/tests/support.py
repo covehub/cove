@@ -117,7 +117,6 @@ class MockCovehubServer:
                     if session["kind"] == "artifacts":
                         created = session["relative_path"] not in state.artifacts
                         state.artifacts[session["relative_path"]] = payload_bytes
-                        state.artifacts[session["latest_path"]] = payload_bytes
                     else:
                         created = session["relative_path"] not in state.workflow_bundles
                         state.workflow_bundles[session["relative_path"]] = payload_bytes
@@ -375,10 +374,8 @@ class MockCovehubServer:
                         )
                         return
                     relative_path = f"v1/artifacts/{owner_domain}/{artifact_name}/{digest}"
-                    latest_path = f"v1/artifacts/{owner_domain}/{artifact_name}/latest"
                     created = relative_path not in state.artifacts
                     state.artifacts[relative_path] = payload
-                    state.artifacts[latest_path] = payload
                     self.send_response(
                         HTTPStatus.CREATED if created else HTTPStatus.OK
                     )

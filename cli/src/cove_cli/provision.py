@@ -117,28 +117,16 @@ def provision_artifact(
         transport_mode="encrypted",
         key_path=artifact_id,
     )
-    state.upsert_registered_artifact(
-        hub_path=upload_result.latest_hub_path,
-        artifact_id=artifact_id,
-        owner_domain=owner_domain,
-        owner_url=owner_url,
-        plaintext_hash=plaintext_hash,
-        ciphertext_hash=ciphertext_hash,
-        content_type=content_type,
-        source_path=str(local_file),
-        server_url=server_url,
-        transport_mode="encrypted",
-        key_path=artifact_id,
-    )
-
     action = "Created" if upload_result.status_code == 201 else "Updated"
     return "\n".join(
         [
             f"{action} named artifact '{upload_result.hub_path}'",
-            f"Latest artifact: {upload_result.latest_hub_path}",
             "Workflow snippet:",
-            f"hub_path: {upload_result.hub_path}",
+            "type: static",
+            "owner: <owner-handle>",
             f"plaintext_hash: {plaintext_hash}",
+            f"Owner domain: {owner_domain}",
+            f"Generated hub path: {upload_result.hub_path}",
             f"ciphertext_hash: {ciphertext_hash}",
             f"key_path: {artifact_id}",
         ]

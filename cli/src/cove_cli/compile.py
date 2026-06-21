@@ -10,10 +10,14 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
-from urllib.parse import urlparse
+from urllib import error as urllib_error
+from urllib import request as urllib_request
+from urllib.parse import urlencode, urlparse
 
 from .canonical_images import CanonicalImageError, canonical_container_ref
 from .config import ensure_local_config
+from .covehub import COVEHUB_USER_AGENT
+from .owner_identity import OwnerIdentityError, verify_owner_signed_response_payload
 from .provisioning_identity import fetch_owner_identity_document, owner_domain_from_url
 from .workflow import (
     CustomCertificateFieldDefinition,
@@ -23,6 +27,7 @@ from .workflow import (
     dump_normalized_workflow,
     load_workflow_definition,
     stable_topological_nodes,
+    workflow_with_generated_artifact_hub_paths,
 )
 from .security_policy import evaluate_workflow_security_policy
 from .yaml_support import dump_yaml
@@ -37,6 +42,9 @@ ROLE_IMAGE_NAMES = {
     "node_certificate_writer": "cove-node-certificate-writer",
 }
 _DIGEST_PINNED_IMAGE_RE = re.compile(r"^(?P<name>.+)@(?P<digest>sha256:[0-9a-f]{64})$")
+_STATIC_EXACT_HUB_PATH_RE = re.compile(
+    r"^v1/artifacts/(?P<owner>[^/]+)/(?P<artifact>[^/]+)/(?P<digest>sha256:[0-9a-f]{64})$"
+)
 _COMPOSE_ENV_RE = re.compile(r"\$\{(?P<name>[A-Za-z_][A-Za-z0-9_]*)(:-?(?P<default>[^}]*))?\}")
 _COMPOSE_HASH_PLACEHOLDER = "sha256:" + ("0" * 64)
 _COVE_RUNTIME_VOLUME = "cove_runtime"
@@ -50,6 +58,7 @@ class CompileCommandError(RuntimeError):
 class CompileArtifact:
     workflow_id: str
     workflow_path: Path
+    workflow: WorkflowDefinition
     build_dir: Path
     generated_nodes: list[Path]
     warnings: list[str]
@@ -128,6 +137,11 @@ def compile_workflow_artifact(
     }
     warnings = list(policy_report.warnings)
     resolved_owners = _resolve_owner_identities(workflow)
+    workflow = _workflow_with_generated_hub_paths(
+        workflow=workflow,
+        workflow_publisher=workflow_publisher_domain,
+        resolved_owners=resolved_owners,
+    )
 
     build_dir = workflow.workflow_dir / "build"
     if build_dir.exists():
@@ -160,6 +174,7 @@ def compile_workflow_artifact(
     return CompileArtifact(
         workflow_id=workflow.workflow_id,
         workflow_path=workflow.path,
+        workflow=workflow,
         build_dir=build_dir,
         generated_nodes=generated_nodes,
         warnings=warnings,
@@ -485,6 +500,142 @@ def _resolve_owner_identities(
             identity_document=identity_document,
         )
     return resolved
+
+
+def _workflow_with_generated_hub_paths(
+    *,
+    workflow: WorkflowDefinition,
+    workflow_publisher: str,
+    resolved_owners: dict[str, _ResolvedOwnerIdentity],
+) -> WorkflowDefinition:
+    hub_paths: dict[str, str] = {}
+    for artifact_name, artifact in workflow.artifacts.items():
+        if artifact.is_dynamic:
+            hub_paths[artifact_name] = (
+                f"v1/runtime/{workflow_publisher}/{workflow.workflow_id}/"
+                f"artifacts/{artifact_name}/latest"
+            )
+            continue
+
+        plaintext_hash = artifact.plaintext_hash
+        if plaintext_hash is None:  # pragma: no cover - validation guarantees this
+            raise CompileCommandError(f"static artifact '{artifact_name}' is missing plaintext_hash")
+        owner = resolved_owners[artifact.owner]
+        response = _fetch_owner_static_artifact_resolution(
+            owner=owner,
+            artifact_id=artifact_name,
+            plaintext_hash=plaintext_hash,
+        )
+        hub_path = _required_owner_response_string(response, "hub_path")
+        owner_domain = _required_owner_response_string(response, "owner_domain")
+        owner_url = _required_owner_response_string(response, "owner_url")
+        response_artifact_id = _required_owner_response_string(response, "artifact_id")
+        response_plaintext_hash = _required_owner_response_string(response, "plaintext_hash")
+        ciphertext_hash = _required_owner_response_string(response, "ciphertext_hash")
+        if owner_domain != owner.owner_domain:
+            raise CompileCommandError(
+                f"owner '{owner.name}' returned owner_domain {owner_domain!r}, "
+                f"expected {owner.owner_domain!r}"
+            )
+        if owner_url.rstrip("/") != owner.owner_url.rstrip("/"):
+            raise CompileCommandError(
+                f"owner '{owner.name}' returned owner_url {owner_url!r}, "
+                f"expected {owner.owner_url!r}"
+            )
+        if response_artifact_id != artifact_name:
+            raise CompileCommandError(
+                f"owner '{owner.name}' returned artifact_id {response_artifact_id!r}, "
+                f"expected {artifact_name!r}"
+            )
+        if response_plaintext_hash != plaintext_hash:
+            raise CompileCommandError(
+                f"owner '{owner.name}' returned plaintext_hash {response_plaintext_hash!r}, "
+                f"expected {plaintext_hash!r}"
+            )
+        match = _STATIC_EXACT_HUB_PATH_RE.fullmatch(hub_path)
+        if (
+            match is None
+            or match.group("owner") != owner.owner_domain
+            or match.group("artifact") != artifact_name
+            or match.group("digest") != ciphertext_hash
+        ):
+            raise CompileCommandError(
+                f"owner '{owner.name}' returned invalid static hub_path for {artifact_name}: {hub_path}"
+            )
+        hub_paths[artifact_name] = hub_path
+
+    return workflow_with_generated_artifact_hub_paths(workflow, hub_paths)
+
+
+def _fetch_owner_static_artifact_resolution(
+    *,
+    owner: _ResolvedOwnerIdentity,
+    artifact_id: str,
+    plaintext_hash: str,
+) -> dict[str, Any]:
+    query = urlencode({"artifact_id": artifact_id, "plaintext_hash": plaintext_hash})
+    url = f"{owner.owner_url.rstrip('/')}/v1/artifacts/by-id?{query}"
+    request = urllib_request.Request(
+        url,
+        headers={
+            "Accept": "application/json",
+            "User-Agent": COVEHUB_USER_AGENT,
+        },
+        method="GET",
+    )
+    try:
+        with urllib_request.urlopen(request, timeout=5.0) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except urllib_error.HTTPError as exc:
+        detail = _http_error_detail(exc)
+        raise CompileCommandError(
+            f"owner '{owner.name}' has no provisioned artifact {artifact_id!r} "
+            f"for plaintext hash {plaintext_hash}: HTTP {exc.code}: {detail}"
+        ) from exc
+    except urllib_error.URLError as exc:
+        raise CompileCommandError(
+            f"failed to reach owner '{owner.name}' at {url}: {exc.reason}"
+        ) from exc
+    except json.JSONDecodeError as exc:
+        raise CompileCommandError(
+            f"owner '{owner.name}' returned invalid JSON for artifact lookup"
+        ) from exc
+    if not isinstance(payload, dict):
+        raise CompileCommandError(
+            f"owner '{owner.name}' returned a non-object artifact lookup response"
+        )
+    try:
+        verified = verify_owner_signed_response_payload(
+            payload,
+            owner_identity=owner.identity_document,
+        )
+    except OwnerIdentityError as exc:
+        raise CompileCommandError(
+            f"owner '{owner.name}' artifact lookup signature verification failed: {exc}"
+        ) from exc
+    return verified
+
+
+def _required_owner_response_string(payload: dict[str, Any], key: str) -> str:
+    value = payload.get(key)
+    if not isinstance(value, str) or not value:
+        raise CompileCommandError(f"owner artifact lookup response field {key!r} must be a non-empty string")
+    return value
+
+
+def _http_error_detail(exc: urllib_error.HTTPError) -> str:
+    try:
+        body = exc.read().decode("utf-8")
+    except Exception:  # pragma: no cover - defensive
+        return str(exc.reason)
+    try:
+        payload = json.loads(body)
+    except json.JSONDecodeError:
+        return body or str(exc.reason)
+    detail = payload.get("detail")
+    if isinstance(detail, str) and detail:
+        return detail
+    return body or str(exc.reason)
 
 
 def _add_owner_identity_config(

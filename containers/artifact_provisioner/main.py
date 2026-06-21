@@ -49,7 +49,7 @@ from cove_container_runtime.owner_identity import (
 _DIGEST_PINNED_IMAGE_RE = re.compile(r"^.+@sha256:[0-9a-f]{64}$")
 _STATIC_HUB_PATH_RE = re.compile(
     r"^v1/artifacts/(?P<owner>[^/]+)/(?P<artifact>[^/]+)/"
-    r"(?P<reference>latest|sha256:[0-9a-f]{64})$"
+    r"(?P<reference>sha256:[0-9a-f]{64})$"
 )
 
 
@@ -164,6 +164,11 @@ def _run_static_input(
         hub_path=hub_path,
         owner_config=owner_config,
     )
+    static_hub_match = _validate_static_hub_path(
+        hub_path=materialized_hub_path,
+        artifact_name=artifact_name,
+        owner_config=owner_config,
+    )
     expected_plaintext_hash = required_string(config, "expected_plaintext_hash")
     staged_plaintext_path = required_string(config, "staged_plaintext_path")
     metadata_path = required_string(config, "metadata_path")
@@ -182,6 +187,13 @@ def _run_static_input(
     encryption_algorithm = required_string(provision_response, "encryption_algorithm")
     key_bytes = decode_key_b64(required_string(provision_response, "key_b64"))
 
+    _verify_owner_response_binding(
+        provision_response,
+        owner_config=owner_config,
+        artifact_name=artifact_name,
+        hub_path=materialized_hub_path,
+        require_owner_url=True,
+    )
     if encryption_algorithm != "aes-256-gcm":
         raise RuntimeErrorBase(
             f"unsupported encryption algorithm for {artifact_name}: {encryption_algorithm}"
@@ -189,6 +201,10 @@ def _run_static_input(
     if plaintext_hash != expected_plaintext_hash:
         raise RuntimeErrorBase(
             f"plaintext hash mismatch for {artifact_name}: {plaintext_hash} != {expected_plaintext_hash}"
+        )
+    if static_hub_match.group("reference") != ciphertext_hash:
+        raise RuntimeErrorBase(
+            f"ciphertext hash path mismatch for {artifact_name}: {static_hub_match.group('reference')} != {ciphertext_hash}"
         )
 
     _materialize_encrypted_artifact(
@@ -253,6 +269,13 @@ def _run_dynamic_input(
         artifact_provisioner_image=artifact_provisioner_image,
         require_allow_rule=True,
     )
+    _verify_owner_response_binding(
+        provision_response,
+        owner_config=owner_config,
+        artifact_name=artifact_name,
+        hub_path=channel_hub_path,
+        require_owner_url=False,
+    )
     encryption_algorithm = required_string(provision_response, "encryption_algorithm")
     key_bytes = decode_key_b64(required_string(provision_response, "key_b64"))
     if encryption_algorithm != "aes-256-gcm":
@@ -307,6 +330,13 @@ def _run_dynamic_output(
         compose_hash=compose_hash,
         artifact_provisioner_image=artifact_provisioner_image,
         require_allow_rule=True,
+    )
+    _verify_owner_response_binding(
+        provision_response,
+        owner_config=owner_config,
+        artifact_name=artifact_name,
+        hub_path=materialized_hub_path,
+        require_owner_url=False,
     )
     encryption_algorithm = required_string(provision_response, "encryption_algorithm")
     key_bytes = decode_key_b64(required_string(provision_response, "key_b64"))
@@ -504,6 +534,8 @@ def _materialize_hub_path(
     if hub_path.startswith("runtime/"):
         workflow_publisher_domain = required_string(config, "workflow_publisher_domain")
         return f"v1/runtime/{workflow_publisher_domain}/{hub_path.removeprefix('runtime/')}"
+    if hub_path.startswith("v1/runtime/"):
+        return hub_path
 
     match = _STATIC_HUB_PATH_RE.fullmatch(hub_path)
     if match is None:
@@ -512,14 +544,59 @@ def _materialize_hub_path(
     path_owner = match.group("owner")
     if path_owner == owner_config.owner_domain:
         return hub_path
-    if path_owner != owner_config.name:
-        raise SidecarConfigError(
-            f"hub_path owner {path_owner!r} does not match configured owner {owner_config.name!r}"
-        )
-    return (
-        f"v1/artifacts/{owner_config.owner_domain}/"
-        f"{match.group('artifact')}/{match.group('reference')}"
+    raise SidecarConfigError(
+        f"hub_path owner {path_owner!r} does not match verified owner domain {owner_config.owner_domain!r}"
     )
+
+
+def _validate_static_hub_path(
+    *,
+    hub_path: str,
+    artifact_name: str,
+    owner_config: _ResolvedOwnerConfig,
+) -> re.Match[str]:
+    match = _STATIC_HUB_PATH_RE.fullmatch(hub_path)
+    if match is None:
+        raise SidecarConfigError(
+            f"static artifact hub_path must be an exact v1/artifacts path: {hub_path}"
+        )
+    if match.group("owner") != owner_config.owner_domain:
+        raise SidecarConfigError(
+            f"static artifact hub_path owner {match.group('owner')!r} does not match verified owner domain {owner_config.owner_domain!r}"
+        )
+    if match.group("artifact") != artifact_name:
+        raise SidecarConfigError(
+            f"static artifact hub_path artifact {match.group('artifact')!r} does not match {artifact_name!r}"
+        )
+    return match
+
+
+def _verify_owner_response_binding(
+    response: dict[str, Any],
+    *,
+    owner_config: _ResolvedOwnerConfig,
+    artifact_name: str,
+    hub_path: str,
+    require_owner_url: bool,
+) -> None:
+    response_hub_path = required_string(response, "hub_path")
+    if response_hub_path != hub_path:
+        raise RuntimeErrorBase(
+            f"owner response hub_path mismatch for {artifact_name}: {response_hub_path} != {hub_path}"
+        )
+    response_owner_domain = required_string(response, "owner_domain")
+    if response_owner_domain != owner_config.owner_domain:
+        raise RuntimeErrorBase(
+            f"owner response owner_domain mismatch for {artifact_name}: "
+            f"{response_owner_domain} != {owner_config.owner_domain}"
+        )
+    if require_owner_url or response.get("owner_url") is not None:
+        response_owner_url = required_string(response, "owner_url").rstrip("/")
+        if response_owner_url != owner_config.owner_url.rstrip("/"):
+            raise RuntimeErrorBase(
+                f"owner response owner_url mismatch for {artifact_name}: "
+                f"{response_owner_url} != {owner_config.owner_url.rstrip('/')}"
+            )
 
 
 def _http_post_json_with_owner_identity(

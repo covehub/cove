@@ -113,6 +113,37 @@ def owner_response_signature_payload(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def verify_owner_signed_response_payload(
+    payload: dict[str, Any],
+    *,
+    owner_identity: dict[str, Any],
+) -> dict[str, Any]:
+    signature_algorithm = _required_string(payload, OWNER_RESPONSE_SIGNATURE_ALGORITHM_FIELD)
+    if signature_algorithm != "ed25519":
+        raise OwnerIdentityError("owner response signature algorithm must be ed25519")
+    try:
+        signature = base64.b64decode(
+            _required_string(payload, OWNER_RESPONSE_SIGNATURE_FIELD).encode("ascii"),
+            validate=True,
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        raise OwnerIdentityError("owner response signature is not valid base64") from exc
+
+    owner_public_key_pem = _required_string(owner_identity, "owner_public_key_pem")
+    public_key = load_pem_public_key(owner_public_key_pem.encode("utf-8"))
+    if not isinstance(public_key, ed25519.Ed25519PublicKey):
+        raise OwnerIdentityError("owner public key must be Ed25519")
+    try:
+        public_key.verify(signature, canonical_json_bytes(owner_response_signature_payload(payload)))
+    except Exception as exc:  # pragma: no cover - cryptography specifics vary
+        raise OwnerIdentityError("owner response signature verification failed") from exc
+    return {
+        key: value
+        for key, value in payload.items()
+        if key not in {OWNER_RESPONSE_SIGNATURE_ALGORITHM_FIELD, OWNER_RESPONSE_SIGNATURE_FIELD}
+    }
+
+
 def _required_string(payload: dict[str, Any], key: str) -> str:
     value = payload.get(key)
     if not isinstance(value, str) or not value.strip():
