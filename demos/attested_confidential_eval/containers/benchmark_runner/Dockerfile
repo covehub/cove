@@ -12,7 +12,7 @@ RUN python -m pip install --no-cache-dir \
     openai \
     "https://github.com/vllm-project/vllm/releases/download/v${VLLM_VERSION}/vllm-${VLLM_VERSION}+cpu-cp38-abi3-manylinux_2_35_x86_64.whl"
 
-COPY containers/common/attested_audit_common.py /app/attested_audit_common.py
+COPY containers/common/attested_confidential_eval_common.py /app/attested_confidential_eval_common.py
 COPY containers/benchmark_runner/main.py /app/main.py
 
 ENV PYTHONUNBUFFERED=1

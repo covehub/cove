@@ -1,6 +1,6 @@
 cove_version: 1
 workflow:
-  id: attested_audit
+  id: attested_confidential_eval
 platform:
   provider: phala
   runtime: dstack
@@ -14,27 +14,22 @@ artifacts:
   alice_private_model:
     type: static
     owner: alice
-    hub_path: v1/artifacts/alice/alice_private_model/latest
     plaintext_hash: sha256:771c87497a7f62dc30deaae676b6a201e55c693180e9ed897b0a76aabdb62410
   alice_private_serving_patch:
     type: static
     owner: alice
-    hub_path: v1/artifacts/alice/alice_private_serving_patch/latest
     plaintext_hash: sha256:72c2f128b088bd2521bdfd3e9e9a3b6f40455b091a17988084b9c7ad2c214e92
   bob_private_eval_code:
     type: static
     owner: bob
-    hub_path: v1/artifacts/bob/bob_private_eval_code/latest
     plaintext_hash: sha256:f2498543aa9e8fc44cec50ab986962eff79e35e8226abf710e29456316d9b484
   bob_private_eval_data:
     type: static
     owner: bob
-    hub_path: v1/artifacts/bob/bob_private_eval_data/latest
     plaintext_hash: sha256:c8e6e32e0883cc5e6ca6b14ff8767665608ef400075e0da2bffd4daf44267f4b
   compiled_serving_wheel:
     type: dynamic
     owner: alice
-    hub_path: runtime/attested_audit/artifacts/compiled_serving_wheel/latest
 nodes:
   audit_serving_code:
     compose: nodes/audit_serving_code.compose.yaml

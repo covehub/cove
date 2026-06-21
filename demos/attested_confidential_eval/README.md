@@ -1,12 +1,17 @@
-# `attested_audit`
+# `attested_confidential_eval`
 
-`attested_audit` is a five-node Cove workflow based on the attested model
+`attested_confidential_eval` is a five-node Cove workflow based on the attested model
 audit example from `139_Cove_Compositional_Multi_P.pdf`.
 
 The workflow models two mutually distrusting owners:
 
 - Alice provisions a private model archive and a private vLLM serving patch.
 - Bob provisions private evaluation code and private evaluation data.
+
+The checked-in node compose files remain pinned to the previously published
+`cove-demo-attested-audit-*` image digests so the demo keeps resolving until
+the renamed `cove-demo-attested-confidential-eval-*` workload images are built
+and pushed.
 
 The workflow DAG is:
 
@@ -41,7 +46,7 @@ Prepare the demo inputs locally:
 
 ```bash
 uv run --with datasets --with huggingface_hub --with pyyaml \
-  python demos/attested_audit/scripts/prepare_demo_inputs.py
+  python demos/attested_confidential_eval/scripts/prepare_demo_inputs.py
 ```
 
 This creates:
@@ -60,7 +65,7 @@ Build and push the workload images, then pin their repo digests into the
 compose files:
 
 ```bash
-./demos/attested_audit/scripts/build_all_containers.sh \
+./demos/attested_confidential_eval/scripts/build_all_containers.sh \
   --docker-namespace hpmv \
   --tag dev \
   --push

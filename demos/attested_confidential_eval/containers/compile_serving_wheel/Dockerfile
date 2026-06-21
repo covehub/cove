@@ -13,7 +13,7 @@ RUN mkdir -p /opt/wheels \
     && curl -L "https://github.com/vllm-project/vllm/releases/download/v${VLLM_VERSION}/vllm-${VLLM_VERSION}+cpu-cp38-abi3-manylinux_2_35_x86_64.whl" -o "/opt/wheels/vllm-${VLLM_VERSION}+cpu-cp38-abi3-manylinux_2_35_x86_64.whl" \
     && git clone --depth 1 --branch "v${VLLM_VERSION}" https://github.com/vllm-project/vllm /opt/vllm-src
 
-COPY containers/common/attested_audit_common.py /app/attested_audit_common.py
+COPY containers/common/attested_confidential_eval_common.py /app/attested_confidential_eval_common.py
 COPY containers/compile_serving_wheel/main.py /app/main.py
 
 ENV PYTHONUNBUFFERED=1

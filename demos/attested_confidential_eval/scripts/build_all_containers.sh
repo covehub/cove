@@ -92,29 +92,29 @@ PY
 }
 
 write_demo_canonical_json() {
-    local audit_tag="${DOCKER_NAMESPACE}/cove-demo-attested-audit-audit-agent:${DOCKER_TAG}"
-    local compile_tag="${DOCKER_NAMESPACE}/cove-demo-attested-audit-compile-serving-wheel:${DOCKER_TAG}"
-    local benchmark_tag="${DOCKER_NAMESPACE}/cove-demo-attested-audit-benchmark-runner:${DOCKER_TAG}"
-    local server_tag="${DOCKER_NAMESPACE}/cove-demo-attested-audit-model-server:${DOCKER_TAG}"
+    local audit_tag="${DOCKER_NAMESPACE}/cove-demo-attested-confidential-eval-audit-agent:${DOCKER_TAG}"
+    local compile_tag="${DOCKER_NAMESPACE}/cove-demo-attested-confidential-eval-compile-serving-wheel:${DOCKER_TAG}"
+    local benchmark_tag="${DOCKER_NAMESPACE}/cove-demo-attested-confidential-eval-benchmark-runner:${DOCKER_TAG}"
+    local server_tag="${DOCKER_NAMESPACE}/cove-demo-attested-confidential-eval-model-server:${DOCKER_TAG}"
 
     cat > "${DEMO_CANONICAL_CONTAINERS_JSON}" <<EOF
 {
   "containers": [
     {
-      "image_name": "cove-demo-attested-audit-audit-agent",
-      "canonical_ref": "$(repo_digest "${audit_tag}" "${DOCKER_NAMESPACE}/cove-demo-attested-audit-audit-agent")"
+      "image_name": "cove-demo-attested-confidential-eval-audit-agent",
+      "canonical_ref": "$(repo_digest "${audit_tag}" "${DOCKER_NAMESPACE}/cove-demo-attested-confidential-eval-audit-agent")"
     },
     {
-      "image_name": "cove-demo-attested-audit-compile-serving-wheel",
-      "canonical_ref": "$(repo_digest "${compile_tag}" "${DOCKER_NAMESPACE}/cove-demo-attested-audit-compile-serving-wheel")"
+      "image_name": "cove-demo-attested-confidential-eval-compile-serving-wheel",
+      "canonical_ref": "$(repo_digest "${compile_tag}" "${DOCKER_NAMESPACE}/cove-demo-attested-confidential-eval-compile-serving-wheel")"
     },
     {
-      "image_name": "cove-demo-attested-audit-benchmark-runner",
-      "canonical_ref": "$(repo_digest "${benchmark_tag}" "${DOCKER_NAMESPACE}/cove-demo-attested-audit-benchmark-runner")"
+      "image_name": "cove-demo-attested-confidential-eval-benchmark-runner",
+      "canonical_ref": "$(repo_digest "${benchmark_tag}" "${DOCKER_NAMESPACE}/cove-demo-attested-confidential-eval-benchmark-runner")"
     },
     {
-      "image_name": "cove-demo-attested-audit-model-server",
-      "canonical_ref": "$(repo_digest "${server_tag}" "${DOCKER_NAMESPACE}/cove-demo-attested-audit-model-server")"
+      "image_name": "cove-demo-attested-confidential-eval-model-server",
+      "canonical_ref": "$(repo_digest "${server_tag}" "${DOCKER_NAMESPACE}/cove-demo-attested-confidential-eval-model-server")"
     }
   ]
 }
@@ -122,18 +122,18 @@ EOF
 }
 
 update_workflow_node_compose_images() {
-    local audit_tag="${DOCKER_NAMESPACE}/cove-demo-attested-audit-audit-agent:${DOCKER_TAG}"
-    local compile_tag="${DOCKER_NAMESPACE}/cove-demo-attested-audit-compile-serving-wheel:${DOCKER_TAG}"
-    local benchmark_tag="${DOCKER_NAMESPACE}/cove-demo-attested-audit-benchmark-runner:${DOCKER_TAG}"
-    local server_tag="${DOCKER_NAMESPACE}/cove-demo-attested-audit-model-server:${DOCKER_TAG}"
+    local audit_tag="${DOCKER_NAMESPACE}/cove-demo-attested-confidential-eval-audit-agent:${DOCKER_TAG}"
+    local compile_tag="${DOCKER_NAMESPACE}/cove-demo-attested-confidential-eval-compile-serving-wheel:${DOCKER_TAG}"
+    local benchmark_tag="${DOCKER_NAMESPACE}/cove-demo-attested-confidential-eval-benchmark-runner:${DOCKER_TAG}"
+    local server_tag="${DOCKER_NAMESPACE}/cove-demo-attested-confidential-eval-model-server:${DOCKER_TAG}"
     local audit_ref
     local compile_ref
     local benchmark_ref
     local server_ref
-    audit_ref="$(repo_digest "${audit_tag}" "${DOCKER_NAMESPACE}/cove-demo-attested-audit-audit-agent")"
-    compile_ref="$(repo_digest "${compile_tag}" "${DOCKER_NAMESPACE}/cove-demo-attested-audit-compile-serving-wheel")"
-    benchmark_ref="$(repo_digest "${benchmark_tag}" "${DOCKER_NAMESPACE}/cove-demo-attested-audit-benchmark-runner")"
-    server_ref="$(repo_digest "${server_tag}" "${DOCKER_NAMESPACE}/cove-demo-attested-audit-model-server")"
+    audit_ref="$(repo_digest "${audit_tag}" "${DOCKER_NAMESPACE}/cove-demo-attested-confidential-eval-audit-agent")"
+    compile_ref="$(repo_digest "${compile_tag}" "${DOCKER_NAMESPACE}/cove-demo-attested-confidential-eval-compile-serving-wheel")"
+    benchmark_ref="$(repo_digest "${benchmark_tag}" "${DOCKER_NAMESPACE}/cove-demo-attested-confidential-eval-benchmark-runner")"
+    server_ref="$(repo_digest "${server_tag}" "${DOCKER_NAMESPACE}/cove-demo-attested-confidential-eval-model-server")"
 
     python3 - "${DEMO_ROOT}" "${audit_ref}" "${compile_ref}" "${benchmark_ref}" "${server_ref}" <<'PY'
 from pathlib import Path
@@ -160,10 +160,10 @@ for path, image_ref in updates.items():
 PY
 }
 
-build_image "cove-demo-attested-audit-audit-agent" "containers/audit_agent/Dockerfile"
-build_image "cove-demo-attested-audit-compile-serving-wheel" "containers/compile_serving_wheel/Dockerfile"
-build_image "cove-demo-attested-audit-benchmark-runner" "containers/benchmark_runner/Dockerfile"
-build_image "cove-demo-attested-audit-model-server" "containers/model_server/Dockerfile"
+build_image "cove-demo-attested-confidential-eval-audit-agent" "containers/audit_agent/Dockerfile"
+build_image "cove-demo-attested-confidential-eval-compile-serving-wheel" "containers/compile_serving_wheel/Dockerfile"
+build_image "cove-demo-attested-confidential-eval-benchmark-runner" "containers/benchmark_runner/Dockerfile"
+build_image "cove-demo-attested-confidential-eval-model-server" "containers/model_server/Dockerfile"
 
 if [[ "${PUSH_IMAGES}" == "1" ]]; then
     write_demo_canonical_json
@@ -171,4 +171,4 @@ if [[ "${PUSH_IMAGES}" == "1" ]]; then
 fi
 
 echo
-echo "Built attested_audit workload images with tag ${DOCKER_TAG}."
+echo "Built attested_confidential_eval workload images with tag ${DOCKER_TAG}."

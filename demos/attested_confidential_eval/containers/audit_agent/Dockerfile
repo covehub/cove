@@ -14,7 +14,7 @@ RUN python -m pip install --no-cache-dir \
     transformers \
     huggingface_hub
 
-COPY containers/common/attested_audit_common.py /app/attested_audit_common.py
+COPY containers/common/attested_confidential_eval_common.py /app/attested_confidential_eval_common.py
 COPY containers/audit_agent/main.py /app/main.py
 
 ENV AUDIT_MODEL_ID=${AUDIT_MODEL_ID}

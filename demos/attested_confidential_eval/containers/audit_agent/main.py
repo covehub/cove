@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 
-from attested_audit_common import (
+from attested_confidential_eval_common import (
     log,
     read_text,
     require_env,

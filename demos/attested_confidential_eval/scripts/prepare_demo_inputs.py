@@ -89,7 +89,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output-root",
         type=Path,
-        default=Path("demos/attested_audit/runtime_inputs"),
+        default=Path("demos/attested_confidential_eval/runtime_inputs"),
     )
     parser.add_argument(
         "--model-id",

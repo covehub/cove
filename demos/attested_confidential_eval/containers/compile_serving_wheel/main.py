@@ -6,7 +6,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from attested_audit_common import (
+from attested_confidential_eval_common import (
     copy_tree,
     log,
     require_env,
@@ -71,7 +71,7 @@ def main() -> int:
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dst)
 
-        build_info_path = wheel_tree / "vllm" / "attested_audit_build_info.json"
+        build_info_path = wheel_tree / "vllm" / "attested_confidential_eval_build_info.json"
         build_info_path.write_text(
             "{\n"
             f'  "build_mode": "python_overlay_on_native_cpu_wheel",\n'

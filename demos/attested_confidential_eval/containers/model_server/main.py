@@ -13,7 +13,7 @@ from http.client import HTTPConnection
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from attested_audit_common import (
+from attested_confidential_eval_common import (
     extract_tarball,
     find_first_existing,
     log,
