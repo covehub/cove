@@ -31,17 +31,19 @@ The checked-in `cove/compose.yaml` runs `covehub-api`, `covehub-ui`, and
 `cloudflared` as separate containers on a shared compose network. The UI
 mounts the API's data volume read-only.
 
-From the `cove/` directory, create a private `.env` and start the stack:
+From the `cove/` directory, create a private Compose environment file and
+start the stack:
 
 ```bash
 umask 077
 cp .env.example .env
-$EDITOR .env  # set CLOUDFLARED_TOKEN; optionally tune local ports/cache
+$EDITOR .env  # set the Cloudflare tunnel token; optionally tune local ports/cache
 docker compose up -d --build
 ```
 
-`cove/.env` must set `CLOUDFLARED_TOKEN`. Do not pass the token on the
-`docker run` command line and do not commit the real `.env` file.
+The private Compose environment must set the Cloudflare tunnel token. Do not
+pass the token on the `docker run` command line and do not commit the real env
+file.
 `COVEHUB_API_PORT` and `COVEHUB_UI_PORT` in `.env` control the local
 loopback ports used for smoke tests; the containers themselves listen on
 fixed internal ports `8000` (API) and `8080` (UI).
@@ -81,8 +83,8 @@ api.covehub.io    http://covehub-api:8000
 In the Cloudflare Zero Trust dashboard:
 
 1. **Networks → Tunnels** — create or select the tunnel for this host.
-2. Choose the Docker connector setup; copy the tunnel token into
-   `cove/.env` as `CLOUDFLARED_TOKEN`.
+2. Choose the Docker connector setup; copy the tunnel token into the private
+   Compose environment.
 3. Under the tunnel's public hostname routes, add the two routes above.
 
 If Cloudflare does not create the DNS records automatically, add proxied

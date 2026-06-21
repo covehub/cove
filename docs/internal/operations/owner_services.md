@@ -100,9 +100,8 @@ docker run --rm --network host --name <owner>-cloudflared \
   --token "${<OWNER>_CLOUDFLARED_TOKEN}"
 ```
 
-For the hello-world demo, `~/.cloudflare_parties_token` contains the full
-`cloudflared tunnel run ...` command for the split parties tunnel. Run that
-command once in its own tmux window. Configure the tunnel routes as:
+For the hello-world demo, run the split parties Cloudflare connector command
+supplied for the environment. Configure the tunnel routes as:
 
 ```text
 demo-alice.covehub.io -> http://127.0.0.1:9600
@@ -110,9 +109,8 @@ demo-bob.covehub.io   -> http://127.0.0.1:9601
 demo-carol.covehub.io -> http://127.0.0.1:9602
 ```
 
-The Covehub API/UI use their own Cloudflare tunnel token through the root
-Compose stack; do not add `api.covehub.io` or `covehub.io` to the parties
-tunnel.
+The Covehub API/UI use their own Cloudflare tunnel through the root Compose
+stack; do not add `api.covehub.io` or `covehub.io` to the parties tunnel.
 
 ## Workflow YAML
 

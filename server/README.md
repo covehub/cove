@@ -210,7 +210,7 @@ From `cove/`:
 
 ```bash
 cp .env.example .env
-$EDITOR .env  # set CLOUDFLARED_TOKEN
+$EDITOR .env  # set the Cloudflare tunnel token
 docker compose up -d --build
 ```
 

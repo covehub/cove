@@ -17,23 +17,24 @@ workflow on Phala. It assumes the repo is checked out at `/home/$USER/cove`.
 - Workflow ref: `demo-carol.covehub.io/hello_world`
 - Workflow file: `/home/$USER/cove/demos/hello_world/workflow/workflow.cove.yaml`
 
-`~/.cloudflare_parties_token` contains the full `cloudflared tunnel run ...`
-command for the Alice/Bob/Carol parties tunnel. The Covehub API/UI tunnel is
-separate and is configured through `CLOUDFLARED_TOKEN` in `/home/$USER/cove/.env`.
+The Alice/Bob/Carol parties tunnel and the Covehub API/UI tunnel are separate
+Cloudflare connectors. Keep their credentials separate and use the connector
+command or token provided by the operator for the environment you are running.
 
 ## 1. Start Covehub API/UI
 
-Use the first window in the `cove` tmux session:
+Start the root Compose stack in a long-running shell or process supervisor:
 
 ```bash
-tmux new-window -t cove -n covehub 'cd /home/$USER/cove && docker compose up --build'
+cd /home/$USER/cove
+docker compose up --build
 ```
 
 The root Compose stack runs:
 
 - `covehub-api` on local `127.0.0.1:3518`
 - `covehub-ui` on local `127.0.0.1:3517`
-- the Covehub API/UI `cloudflared` connector using `.env`
+- the Covehub API/UI `cloudflared` connector using the configured tunnel token
 
 For a fresh production reset, stop the stack and remove only the production
 Covehub volume:
@@ -56,13 +57,15 @@ curl -A 'cove-runtime/0.0.1' -fsS https://api.covehub.io/healthz
 curl -fsS https://covehub.io/
 ```
 
+The `covehub` Cloudflare tunnel should have exactly one active replica for this
+run. If another replica is attached, Cloudflare can send `api.covehub.io` and
+`covehub.io` traffic to different origins, which makes the UI and API appear
+out of sync. Stop old replicas or rotate the tunnel token before publishing.
+
 ## 2. Start Parties Tunnel
 
-Use the second window in the `cove` tmux session:
-
-```bash
-tmux new-window -t cove -n parties 'cd /home/$USER/cove && bash -lc "$(cat ~/.cloudflare_parties_token)"'
-```
+Start the parties Cloudflare connector command supplied for this environment
+in its own long-running shell or process supervisor.
 
 The parties tunnel must route:
 
@@ -78,6 +81,9 @@ the separate Covehub API/UI tunnel from the Compose stack.
 ## 3. Build And Install CLI
 
 After the release venv is active, use `cove`, `python`, and `pip` directly.
+Use a dedicated release venv for this run instead of `cli/.venv`; that verifies
+the rebuilt wheel exactly as an operator would install it, while `cli/.venv` is
+for local development.
 
 ```bash
 cd /home/$USER/cove
@@ -125,20 +131,30 @@ Bob Phala Cloud API key: leave blank
 Bob Docker credentials: leave blank
 
 Carol owner server URL: https://demo-carol.covehub.io
-Carol Phala Cloud API key: <phala-api-key>
-Carol Docker registry username: <dockerhub-username>
-Carol Docker registry access token: <dockerhub-read-token>
+Carol Phala Cloud API key: provide Carol's Phala Cloud API key
+Carol Docker registry username: covehub
+Carol Docker registry access token: provide the covehub Docker Hub access token
 Carol Docker registry: leave blank for Docker Hub
 ```
 
 ## 5. Start Owner Services
 
-Use separate tmux windows, not panes:
+Start each owner service in a separate long-running shell or process
+supervisor. Activate the release venv in each shell, then run one service:
 
 ```bash
-tmux new-window -t cove -n alice-owner 'source /home/$USER/.cove-cli-release/bin/activate && cove --cove-home /home/$USER/.alice_cove start 9600'
-tmux new-window -t cove -n bob-owner 'source /home/$USER/.cove-cli-release/bin/activate && cove --cove-home /home/$USER/.bob_cove start 9601'
-tmux new-window -t cove -n carol-owner 'source /home/$USER/.cove-cli-release/bin/activate && cove --cove-home /home/$USER/.carol_cove start 9602'
+source /home/$USER/.cove-cli-release/bin/activate
+cove --cove-home /home/$USER/.alice_cove start 9600
+```
+
+```bash
+source /home/$USER/.cove-cli-release/bin/activate
+cove --cove-home /home/$USER/.bob_cove start 9601
+```
+
+```bash
+source /home/$USER/.cove-cli-release/bin/activate
+cove --cove-home /home/$USER/.carol_cove start 9602
 ```
 
 Verify identity documents through the public routes:
@@ -292,5 +308,18 @@ cove hub inspect \
   --server-url https://api.covehub.io
 ```
 
-For dependency-certificate verification scripts and final RA-TLS verification,
-see [phala_deploy.md](phala_deploy.md).
+Get the final service endpoint from the final CVM status output and use the
+TLS-passthrough form by appending `s` to the `-18443` port segment:
+
+```bash
+FINAL_URL="https://<final-app-id>-18443.dstack-pha-prod5.phala.network"
+FINAL_URL="${FINAL_URL/-18443./-18443s.}"
+
+curl -kfsS "${FINAL_URL}/health"
+curl -kfsS "${FINAL_URL}/message"
+```
+
+`-k` is intentional for those curls: trust comes from matching the live
+certificate to the final node certificate and Phala/dstack quote, not from
+WebPKI. For the full certificate-matching script, see
+[phala_deploy.md](phala_deploy.md) section "Final Service RA-TLS Verification".

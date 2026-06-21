@@ -28,7 +28,7 @@ Each directory has its own README. Start there for package-level details.
 ## Top-Level Files
 
 - [compose.yaml](compose.yaml) — the canonical Covehub deployment: API, public UI, and Cloudflare Tunnel as a single Compose stack.
-- [.env.example](.env.example) — template for `cove/.env`. Copy to `.env`, set `CLOUDFLARED_TOKEN`, optionally tune local smoke ports. The real `.env` is gitignored.
+- [.env.example](.env.example) — template for the private Compose environment. Copy it locally, set the Cloudflare tunnel token, and optionally tune local smoke ports. The real env file is gitignored.
 
 ## Quick Start
 
@@ -40,7 +40,7 @@ If you only want to bring up Covehub itself (API + UI + tunnel):
 ```bash
 cd /path/to/cove
 cp .env.example .env
-$EDITOR .env  # set CLOUDFLARED_TOKEN
+$EDITOR .env  # set the Cloudflare tunnel token
 docker compose up -d --build
 ```
 

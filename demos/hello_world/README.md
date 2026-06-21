@@ -43,8 +43,7 @@ enclave-generated TLS keypair.
   expects `https://api.covehub.io` to reach `covehub-api` and
   `https://covehub.io` to reach the read-only browser UI through the Covehub
   Cloudflare Tunnel; see `docs/internal/operations/covehub_server.md`.
-- Run the separate parties Cloudflare tunnel command from
-  `~/.cloudflare_parties_token` for owner services:
+- Run the separate parties Cloudflare tunnel connector for owner services:
   `demo-alice.covehub.io -> 127.0.0.1:9600`,
   `demo-bob.covehub.io -> 127.0.0.1:9601`, and
   `demo-carol.covehub.io -> 127.0.0.1:9602`.

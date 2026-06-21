@@ -20,7 +20,7 @@ The canonical deployment is the Docker Compose stack from `cove/`:
 ```bash
 cd /home/$USER/cove
 cp .env.example .env
-$EDITOR .env  # set CLOUDFLARED_TOKEN
+$EDITOR .env  # set the Cloudflare tunnel token
 docker compose up -d --build
 ```
 
