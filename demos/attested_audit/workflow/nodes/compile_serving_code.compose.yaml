@@ -1,0 +1,7 @@
+services:
+  compile_serving_wheel:
+    image: "hpmv/cove-demo-attested-audit-compile-serving-wheel@sha256:c556884c8a847f4c5b8dd7e7a4d18f327f4c19a353bac844f8d82a9226fe1aa0"
+    environment:
+      OUTPUT_PATH: /workspace/output/compiled_serving_wheel.whl
+      PATCH_PATH: /workspace/input/alice_private_serving_patch.diff
+      RESULT_PATH: /workspace/output/compile_result.json

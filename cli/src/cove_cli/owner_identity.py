@@ -54,8 +54,8 @@ def verify_owner_identity_document(
 
     owner_domain = _required_string(document, "owner_domain")
     parsed_owner_url = urlparse(owner_url)
-    if parsed_owner_url.scheme != "https" or not parsed_owner_url.hostname:
-        raise OwnerIdentityError("owner identity owner_url must be an HTTPS origin URL")
+    if parsed_owner_url.scheme not in {"http", "https"} or not parsed_owner_url.hostname:
+        raise OwnerIdentityError("owner identity owner_url must be an HTTP or HTTPS origin URL")
     if parsed_owner_url.hostname.lower() != owner_domain:
         raise OwnerIdentityError(
             f"owner identity owner_url hostname {parsed_owner_url.hostname!r} does not match owner_domain {owner_domain!r}"

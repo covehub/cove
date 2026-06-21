@@ -38,8 +38,6 @@ class ProvisionPaths:
     database_path: Path
     owner_private_key_path: Path
     owner_public_key_path: Path
-    cert_path: Path
-    tls_key_path: Path
     materialized_workflows_dir: Path
 
 
@@ -223,8 +221,6 @@ def provision_paths_for_home(cove_home: str | Path | None = None) -> ProvisionPa
         database_path=resolved_home / "provision.sqlite3",
         owner_private_key_path=resolved_home / "owner-signing-private.pem",
         owner_public_key_path=resolved_home / "owner-signing-public.pem",
-        cert_path=resolved_home / "provision-cert.pem",
-        tls_key_path=resolved_home / "provision-key.pem",
         materialized_workflows_dir=resolved_home / "materialized_workflows",
     )
 

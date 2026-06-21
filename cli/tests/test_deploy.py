@@ -6,9 +6,16 @@ from pathlib import Path
 import pytest
 import yaml
 
+from cove_cli.common import RuntimeErrorBase
 from cove_cli.config import config_path_for_home
 from cove_cli.compile import reviewed_compose_hash
-from cove_cli.deploy import DeployCommandError, PhalaDeployOptions, deploy_workflow
+from cove_cli.deploy import (
+    DeployCommandError,
+    PhalaDeployOptions,
+    _deployment_name,
+    _wait_for_dependency_certificates,
+    deploy_workflow,
+)
 from cove_cli.publish import MaterializedNode, MaterializedWorkflowBundle, push_workflow
 from cove_cli.provisioning_identity import build_owner_identity_document
 
@@ -117,22 +124,32 @@ def test_deploy_pulls_bundle_before_submitting_and_orders_nodes_topologically(
         summary = deploy_workflow(
             f"{ALICE_DOMAIN}/hello_world",
             cove_home=cove_home,
-            phala_options=PhalaDeployOptions(instance_type="tdx.small"),
+            phala_options=PhalaDeployOptions(instance_type="tdx.small", staged_launch=False),
         )
 
     assert events[0] == "pull"
-    expected_prefix = "cove-cove-demo-hello-world-alice-provisioning-covehu"
+    expected_names = [
+        _deployment_name(
+            publisher=ALICE_DOMAIN,
+            workflow_id="hello_world",
+            node_id=node_id,
+        )
+        for node_id in [
+            "alice_word_length_checker",
+            "bob_word_length_checker",
+            "character_set_checker",
+            "final_server",
+        ]
+    ]
     assert [event for event in events[1:]] == [
-        f"provision:{expected_prefix}-3a65956cab",
-        f"provision:{expected_prefix}-7d5354c59e",
-        f"provision:{expected_prefix}-b4b07c35e6",
-        f"provision:{expected_prefix}-cdb32f354e",
+        f"provision:{name}"
+        for name in expected_names
     ]
     assert f"Deployed workflow '{ALICE_DOMAIN}/hello_world' to Phala" in summary
     assert "cvm_id=cvm-app-4" in summary
 
     final_payload = fake_client.provision_calls[-1]
-    assert final_payload["name"] == f"{expected_prefix}-cdb32f354e"
+    assert final_payload["name"] == expected_names[-1]
     assert final_payload["instance_type"] == "tdx.small"
     compose_file = final_payload["compose_file"]
     assert isinstance(compose_file, dict)
@@ -170,6 +187,210 @@ def test_deploy_pulls_bundle_before_submitting_and_orders_nodes_topologically(
         translated_payload["services"]["cove_dependency_certificate_fetcher"],
         "/var/run/dstack.sock",
     )
+
+
+def test_wait_for_dependency_certificates_retries_until_runtime_certificate_matches(
+    monkeypatch,
+) -> None:
+    calls: list[str] = []
+
+    def fake_http_get_json(*, url: str, timeout: float = 5.0):
+        del timeout
+        calls.append(url)
+        if len(calls) == 1:
+            raise RuntimeErrorBase("HTTP 404 for dependency")
+        return {
+            "certificate_body": {
+                "workflow_id": "demo",
+                "node_id": "upstream",
+                "generated_node_compose_hash": "sha256:upstream-compose",
+            }
+        }
+
+    monkeypatch.setattr("cove_cli.deploy.http_get_json", fake_http_get_json)
+    monkeypatch.setattr("cove_cli.deploy.time.sleep", lambda _seconds: None)
+
+    _wait_for_dependency_certificates(
+        covehub_server_url="https://api.example.test",
+        workflow_publisher_domain="alice.example.test",
+        workflow_id="demo",
+        node_id="downstream",
+        dependency_names=("upstream",),
+        dependency_compose_hashes={"upstream": "sha256:upstream-compose"},
+        timeout_seconds=5.0,
+        poll_interval_seconds=0.01,
+    )
+
+    assert calls == [
+        "https://api.example.test/v1/runtime/alice.example.test/demo/certificates/upstream/latest",
+        "https://api.example.test/v1/runtime/alice.example.test/demo/certificates/upstream/latest",
+    ]
+
+
+def test_deploy_staged_launch_waits_before_submitting_dependent_nodes(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workflow_dir = _copy_hello_world_workflow(tmp_path)
+    cove_home = tmp_path / ".alice_cove"
+    events: list[str] = []
+
+    class FakePhalaClient:
+        def __init__(self) -> None:
+            self.provision_calls: list[dict[str, object]] = []
+
+        def provision_cvm(self, payload: dict[str, object]):
+            name = payload["name"]
+            assert isinstance(name, str)
+            events.append(f"provision:{name}")
+            self.provision_calls.append(payload)
+            suffix = len(self.provision_calls)
+            return {"app_id": f"app-{suffix}", "compose_hash": f"compose-{suffix}"}
+
+        def commit_cvm_provision(self, payload: dict[str, object]):
+            app_id = payload["app_id"]
+            return {"id": f"cvm-{app_id}", "status": "pending"}
+
+        def close(self) -> None:
+            return None
+
+    fake_client = FakePhalaClient()
+
+    with MockCovehubServer() as server:
+        _write_config(
+            cove_home,
+            {
+                "covehub_server_url": server.url,
+                "owner_server_url": ALICE_OWNER_URL,
+                "phala_cloud_api_key": "phala-api-key",
+            },
+        )
+        push_workflow(workflow_dir / "workflow.cove.yaml", cove_home=cove_home)
+
+        original_pull = __import__("cove_cli.deploy", fromlist=["pull_workflow_bundle"]).pull_workflow_bundle
+
+        def wrapped_pull_workflow_bundle(**kwargs):
+            events.append("pull")
+            return original_pull(**kwargs)
+
+        def fake_wait_for_dependency_certificates(*, node_id: str, dependency_names: tuple[str, ...], **_kwargs):
+            if dependency_names:
+                events.append(f"wait:{node_id}:{','.join(dependency_names)}")
+
+        monkeypatch.setattr("cove_cli.deploy.pull_workflow_bundle", wrapped_pull_workflow_bundle)
+        monkeypatch.setattr(
+            "cove_cli.deploy._create_phala_client",
+            lambda api_key: _assert_api_key(api_key, fake_client),
+        )
+        monkeypatch.setattr(
+            "cove_cli.deploy._wait_for_dependency_certificates",
+            fake_wait_for_dependency_certificates,
+        )
+
+        deploy_workflow(
+            f"{ALICE_DOMAIN}/hello_world",
+            cove_home=cove_home,
+            phala_options=PhalaDeployOptions(instance_type="tdx.small"),
+        )
+
+    expected_names = [
+        _deployment_name(
+            publisher=ALICE_DOMAIN,
+            workflow_id="hello_world",
+            node_id=node_id,
+        )
+        for node_id in [
+            "alice_word_length_checker",
+            "bob_word_length_checker",
+            "character_set_checker",
+            "final_server",
+        ]
+    ]
+    assert events == [
+        "pull",
+        f"provision:{expected_names[0]}",
+        f"provision:{expected_names[1]}",
+        "wait:character_set_checker:alice_word_length_checker,bob_word_length_checker",
+        f"provision:{expected_names[2]}",
+        "wait:final_server:alice_word_length_checker,bob_word_length_checker,character_set_checker",
+        f"provision:{expected_names[3]}",
+    ]
+
+
+def test_deploy_workflow_node_launches_only_requested_node(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workflow_dir = _copy_hello_world_workflow(tmp_path)
+    cove_home = tmp_path / ".alice_cove"
+    wait_calls: list[tuple[str, tuple[str, ...]]] = []
+
+    class FakePhalaClient:
+        def __init__(self) -> None:
+            self.provision_calls: list[dict[str, object]] = []
+
+        def provision_cvm(self, payload: dict[str, object]):
+            self.provision_calls.append(payload)
+            return {"app_id": "app-1", "compose_hash": "compose-1"}
+
+        def commit_cvm_provision(self, payload: dict[str, object]):
+            return {"id": "cvm-app-1", "status": "pending"}
+
+        def close(self) -> None:
+            return None
+
+    fake_client = FakePhalaClient()
+
+    with MockCovehubServer() as server:
+        _write_config(
+            cove_home,
+            {
+                "covehub_server_url": server.url,
+                "owner_server_url": ALICE_OWNER_URL,
+                "phala_cloud_api_key": "phala-api-key",
+            },
+        )
+        push_workflow(workflow_dir / "workflow.cove.yaml", cove_home=cove_home)
+
+        monkeypatch.setattr(
+            "cove_cli.deploy._create_phala_client",
+            lambda api_key: _assert_api_key(api_key, fake_client),
+        )
+        monkeypatch.setattr(
+            "cove_cli.deploy._wait_for_dependency_certificates",
+            lambda *, node_id, dependency_names, **_kwargs: wait_calls.append(
+                (node_id, dependency_names)
+            ),
+        )
+
+        summary = deploy_workflow(
+            f"{ALICE_DOMAIN}/hello_world",
+            cove_home=cove_home,
+            phala_options=PhalaDeployOptions(
+                instance_type="tdx.small",
+                workflow_node_id="final_server",
+            ),
+        )
+
+    expected_name = _deployment_name(
+        publisher=ALICE_DOMAIN,
+        workflow_id="hello_world",
+        node_id="final_server",
+    )
+    assert wait_calls == [
+        (
+            "final_server",
+            (
+                "alice_word_length_checker",
+                "bob_word_length_checker",
+                "character_set_checker",
+            ),
+        )
+    ]
+    assert len(fake_client.provision_calls) == 1
+    assert fake_client.provision_calls[0]["name"] == expected_name
+    assert "- final_server:" in summary
+    assert "alice_word_length_checker" not in summary
 
 
 def test_deploy_requires_phala_cloud_api_key_in_local_config(tmp_path) -> None:
@@ -266,7 +487,7 @@ services:
 
     assert len(captured_payloads) == 1
     payload = captured_payloads[0]
-    assert payload["name"] == "cove-cove-demo-hello-world-alice-provisioning-covehu-8399dd9dde"
+    assert payload["name"] == "cove-demo-node-one-cove-demo-hello-world-alice-provi-b79ef66de7"
     assert payload["instance_type"] == "h200.small"
     assert payload["region"] == "us-west"
     assert payload["image"] == "dstack-0.5.9"

@@ -15,11 +15,10 @@ from .config import (
 from .provisioning_identity import (
     DEFAULT_COVEHUB_SERVER_URL,
     ensure_owner_signing_key_material,
-    ensure_owner_tls_material,
     normalize_owner_server_url,
     owner_domain_from_url,
 )
-from .provision_server import DEFAULT_PROVISION_PORT, ProvisionServerError
+from .provision_server import DEFAULT_PROVISION_PORT
 
 
 class InitCommandError(RuntimeError):
@@ -54,15 +53,6 @@ def initialize_cove_home(*, cove_home: str | None = None) -> str:
             private_key_path=provision_paths.owner_private_key_path,
             public_key_path=provision_paths.owner_public_key_path,
         )
-        ensure_owner_tls_material(
-            cert_path=provision_paths.cert_path,
-            tls_key_path=provision_paths.tls_key_path,
-            owner_private_key_path=provision_paths.owner_private_key_path,
-            owner_public_key_path=provision_paths.owner_public_key_path,
-            owner_url=owner_server_url,
-        )
-    except ProvisionServerError as exc:
-        raise InitCommandError(str(exc)) from exc
     except ValueError as exc:
         raise InitCommandError(str(exc)) from exc
 
@@ -91,7 +81,6 @@ def initialize_cove_home(*, cove_home: str | None = None) -> str:
             f"Config: {updated.path}",
             f"Owner server URL: {owner_server_url}",
             f"Owner public key: {provision_paths.owner_public_key_path}",
-            f"Owner local TLS certificate: {provision_paths.cert_path}",
             *_owner_runtime_lines(
                 owner_server_url=owner_server_url,
                 cove_home=updated.cove_home,
@@ -256,7 +245,7 @@ def _owner_runtime_lines(
     owner_server_url: str,
     cove_home: Path,
 ) -> list[str]:
-    local_url = f"https://127.0.0.1:{DEFAULT_PROVISION_PORT}"
+    local_url = f"http://127.0.0.1:{DEFAULT_PROVISION_PORT}"
     return [
         f"Cove server configured for: {owner_server_url}",
         f"Default local URL: {local_url}",

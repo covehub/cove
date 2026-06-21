@@ -176,8 +176,6 @@ def start_owner_service(
     server = create_provision_server(
         state=state,
         keys_dir=provision_paths.keys_dir,
-        cert_path=provision_paths.cert_path,
-        tls_key_path=provision_paths.tls_key_path,
         owner_private_key_path=provision_paths.owner_private_key_path,
         owner_public_key_path=provision_paths.owner_public_key_path,
         host="127.0.0.1",
@@ -191,7 +189,6 @@ def start_owner_service(
             owner_domain=owner_domain,
             local_provisioning_url=local_provisioning_url,
             owner_server_url=public_url,
-            cert_path=provision_paths.cert_path,
         )
     )
 
@@ -493,7 +490,7 @@ def _validate_port(port: int) -> None:
 
 
 def _local_provisioning_url(port: int) -> str:
-    return f"https://127.0.0.1:{port}"
+    return f"http://127.0.0.1:{port}"
 
 
 def _owner_server_url(config) -> str:
@@ -526,7 +523,6 @@ def _serve_provisioner_output(
     owner_domain: str,
     local_provisioning_url: str,
     owner_server_url: str,
-    cert_path: Path,
 ) -> str:
     snippet = "\n".join(
         [
@@ -538,7 +534,6 @@ def _serve_provisioner_output(
         f"Local owner service URL: {local_provisioning_url}",
         f"Owner identity URL: {owner_server_url.rstrip('/')}/identity",
         f"Public owner server URL: {owner_server_url}",
-        f"TLS certificate: {cert_path}",
     ]
     lines.extend(
         [

@@ -108,6 +108,10 @@ def run(argv: Sequence[str] | None = None) -> int:
                         docker_username=args.phala_docker_username,
                         docker_access_token=args.phala_docker_access_token,
                         docker_registry=args.phala_docker_registry,
+                        staged_launch=args.staged_launch,
+                        workflow_node_id=args.workflow_node,
+                        dependency_timeout_seconds=args.dependency_timeout_seconds,
+                        dependency_poll_interval_seconds=args.dependency_poll_interval_seconds,
                     ),
                 )
             )
@@ -312,6 +316,26 @@ def _build_parser() -> argparse.ArgumentParser:
     deploy_parser.add_argument(
         "published_ref",
         help="Published workflow ref in the form <publisher>/<workflow_id>",
+    )
+    deploy_parser.add_argument(
+        "--workflow-node",
+        help="Launch only the specified workflow node id instead of the full DAG",
+    )
+    deploy_parser.add_argument(
+        "--staged-launch",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Wait for upstream runtime certificates before launching dependent nodes",
+    )
+    deploy_parser.add_argument(
+        "--dependency-timeout-seconds",
+        type=float,
+        help="Maximum time to wait for upstream runtime certificates during staged launch",
+    )
+    deploy_parser.add_argument(
+        "--dependency-poll-interval-seconds",
+        type=float,
+        help="Polling interval for staged-launch dependency checks",
     )
     deploy_parser.add_argument(
         "--phala-instance-type",

@@ -245,8 +245,8 @@ owner's local service. Full procedure: [owner_services.md](owner_services.md).
 Cloudflare routes:
 
 ```text
-cove-demo-hello-world-alice-provisioning.covehub.io -> https://127.0.0.1:9000
-cove-demo-hello-world-bob-provisioning.covehub.io   -> https://127.0.0.1:9001
+cove-demo-hello-world-alice-provisioning.covehub.io -> http://127.0.0.1:9000
+cove-demo-hello-world-bob-provisioning.covehub.io   -> http://127.0.0.1:9001
 ```
 
 In Cloudflare Zero Trust, configure each owner tunnel under **Networks >
@@ -256,7 +256,7 @@ Alice:
 
 ```text
 Public hostname: cove-demo-hello-world-alice-provisioning.covehub.io
-Service type:    HTTPS
+Service type:    HTTP
 Service URL:     127.0.0.1:9000
 ```
 
@@ -264,15 +264,12 @@ Bob:
 
 ```text
 Public hostname: cove-demo-hello-world-bob-provisioning.covehub.io
-Service type:    HTTPS
+Service type:    HTTP
 Service URL:     127.0.0.1:9001
 ```
 
-For both public hostnames, open **Additional application settings → TLS** and
-enable **No TLS Verify**. The owner services intentionally serve local HTTPS
-with owner-generated certificates; if this setting is omitted, Cloudflare will
-return `502` with an origin error like `x509: certificate signed by unknown
-authority`.
+The owner tunnel origin is plain HTTP; do not enable HTTPS origin settings for
+these local owner-service routes.
 
 Initialize Alice and Bob:
 
@@ -333,7 +330,7 @@ curl -A 'cove-runtime/0.0.1' -fsS https://cove-demo-hello-world-bob-provisioning
 
 The `/identity` documents must include `version: 2`, `owner_url`,
 `owner_domain`, `owner_public_key_pem`, and `owner_public_key_sha256`, and
-must not include owner TLS certificate fields.
+must not include transport certificate fields.
 
 ## 8. Provision, Compile, Push
 

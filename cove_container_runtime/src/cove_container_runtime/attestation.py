@@ -60,16 +60,25 @@ def collect_attestation_bundle(
             "dstack_sdk is required for phala_dstack attestation mode"
         ) from exc
 
-    client = DstackClient()
+    client = DstackClient(timeout=30)
     quote = client.get_quote(report_data)
-    return {
+    bundle: dict[str, Any] = {
         "format": PHALA_DSTACK_ATTESTATION_FORMAT,
         "quote": quote.quote,
         "event_log": quote.event_log,
         "vm_config": quote.vm_config,
         "report_data": quote.report_data,
-        "info": client.info().model_dump(),
     }
+    try:
+        info = client.info()
+    except Exception as exc:
+        bundle["info_error"] = str(exc)
+    else:
+        if hasattr(info, "model_dump"):
+            bundle["info"] = info.model_dump()
+        else:  # pragma: no cover - compatibility fallback
+            bundle["info"] = info.dict()
+    return bundle
 
 
 def verify_attestation_bundle(

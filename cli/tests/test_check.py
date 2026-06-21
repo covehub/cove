@@ -417,7 +417,7 @@ def test_check_rejects_legacy_owner_provisioning_fields(tmp_path) -> None:
     assert not report.ok
     assert any("owners.alice.provisioning_url is no longer supported" in error for error in report.errors)
     assert any("owners.alice.provisioning_tls_certificate is no longer supported" in error for error in report.errors)
-    assert any("owners.alice must be an HTTPS owner URL string" in error for error in report.errors)
+    assert any("owners.alice must be an HTTP or HTTPS owner URL string" in error for error in report.errors)
 
 
 def test_check_requires_plaintext_hash_on_static_artifacts(tmp_path) -> None:

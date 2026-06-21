@@ -52,8 +52,8 @@ record runtime sidecars verify before sending any key-release request:
 }
 ```
 
-The document **must not** include owner TLS certificate fields. TLS keys are
-transport keys only; the owner signing key is the application identity.
+The document **must not** include transport certificate fields. The owner
+signing key is the application identity.
 
 Verify each owner identity with normal WebPKI (no `-k`):
 
@@ -68,18 +68,16 @@ Each owner port is exposed at a dedicated public hostname through the same
 ([covehub_server.md](covehub_server.md)). One tunnel can carry multiple
 hostnames; one container can run with one token.
 
-Add an HTTPS published-application route per owner. For example:
+Add a published-application route per owner. For example:
 
 ```text
 Hostname:  <your domain>
-Type:      HTTPS
+Type:      HTTP
 URL:       127.0.0.1:<owner-port>
 ```
 
-For owner-service routes, enable the Cloudflare Tunnel origin setting **No
-TLS Verify**, or install and trust the owner's local certificate inside the
-`cloudflared` container. The public client-facing URL still terminates at
-Cloudflare's WebPKI cert and must verify without `-k`.
+The public client-facing URL can still terminate TLS at Cloudflare and must
+verify without `-k`; the tunnel origin itself is plain HTTP.
 
 If Cloudflare does not create the DNS record automatically, add a proxied
 CNAME pointing at `<tunnel-id>.cfargotunnel.com`.
@@ -108,7 +106,7 @@ owners:
 `cove compile` fetches each declared URL, verifies the signed `/identity`,
 and bakes the owner public key into the generated sidecar config. Runtime
 sidecars verify signed key-release responses against that baked key, not
-against TLS metadata.
+against transport metadata.
 
 ## Operational Notes
 

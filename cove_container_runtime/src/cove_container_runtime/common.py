@@ -13,12 +13,15 @@ from urllib import error as urllib_error
 from urllib import parse as urllib_parse
 from urllib import request as urllib_request
 
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 
 ARTIFACT_KEY_BYTES = 32
 ARTIFACT_NONCE_BYTES = 12
+ARTIFACT_GCM_TAG_BYTES = 16
 COVE_RUNTIME_USER_AGENT = "cove-runtime/0.0.1"
+_HTTP_STREAM_CHUNK_SIZE_BYTES = 8 * 1024 * 1024
 _CHUNKED_UPLOAD_THRESHOLD_BYTES = 64 * 1024 * 1024
 _CHUNKED_UPLOAD_CHUNK_SIZE_BYTES = 8 * 1024 * 1024
 
@@ -40,6 +43,17 @@ class SidecarContext:
 
 def sha256_literal(payload: bytes) -> str:
     return f"sha256:{hashlib.sha256(payload).hexdigest()}"
+
+
+def sha256_file_literal(path: str | Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        while True:
+            chunk = handle.read(_HTTP_STREAM_CHUNK_SIZE_BYTES)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return f"sha256:{digest.hexdigest()}"
 
 
 def canonical_json_bytes(payload: dict[str, Any]) -> bytes:
@@ -121,6 +135,59 @@ def decrypt_ciphertext_bytes(*, ciphertext: bytes, key_bytes: bytes) -> bytes:
         raise RuntimeErrorBase("failed to decrypt ciphertext") from exc
 
 
+def decrypt_ciphertext_file(
+    *,
+    ciphertext_path: str | Path,
+    plaintext_path: str | Path,
+    key_bytes: bytes,
+) -> str:
+    if len(key_bytes) != ARTIFACT_KEY_BYTES:
+        raise RuntimeErrorBase(f"artifact key must be {ARTIFACT_KEY_BYTES} bytes")
+
+    source_path = Path(ciphertext_path)
+    ciphertext_size = source_path.stat().st_size
+    minimum_size = ARTIFACT_NONCE_BYTES + ARTIFACT_GCM_TAG_BYTES
+    if ciphertext_size <= minimum_size:
+        raise RuntimeErrorBase("ciphertext blob is too short")
+
+    digest = hashlib.sha256()
+    target_path = ensure_parent(plaintext_path)
+    try:
+        with source_path.open("rb") as source_handle:
+            nonce = source_handle.read(ARTIFACT_NONCE_BYTES)
+            source_handle.seek(ciphertext_size - ARTIFACT_GCM_TAG_BYTES)
+            tag = source_handle.read(ARTIFACT_GCM_TAG_BYTES)
+            source_handle.seek(ARTIFACT_NONCE_BYTES)
+
+            decryptor = Cipher(
+                algorithms.AES(key_bytes),
+                modes.GCM(nonce, tag),
+            ).decryptor()
+            remaining = ciphertext_size - minimum_size
+
+            with target_path.open("wb") as target_handle:
+                while remaining > 0:
+                    chunk = source_handle.read(min(_HTTP_STREAM_CHUNK_SIZE_BYTES, remaining))
+                    if not chunk:
+                        raise RuntimeErrorBase("ciphertext truncated during streaming decrypt")
+                    remaining -= len(chunk)
+                    plaintext_chunk = decryptor.update(chunk)
+                    if plaintext_chunk:
+                        target_handle.write(plaintext_chunk)
+                        digest.update(plaintext_chunk)
+
+                final_chunk = decryptor.finalize()
+                if final_chunk:
+                    target_handle.write(final_chunk)
+                    digest.update(final_chunk)
+    except RuntimeErrorBase:
+        raise
+    except Exception as exc:  # pragma: no cover - library exception details are not stable
+        raise RuntimeErrorBase("failed to decrypt ciphertext") from exc
+
+    return f"sha256:{digest.hexdigest()}"
+
+
 def encrypt_plaintext_bytes(*, plaintext: bytes, key_bytes: bytes) -> bytes:
     if len(key_bytes) != ARTIFACT_KEY_BYTES:
         raise RuntimeErrorBase(f"artifact key must be {ARTIFACT_KEY_BYTES} bytes")
@@ -145,7 +212,7 @@ def http_get_json(
     *,
     url: str,
     cafile: str | Path | None = None,
-    timeout: float = 5.0,
+    timeout: float = 60.0,
 ) -> dict[str, Any]:
     body = http_get_bytes(url=url, cafile=cafile, timeout=timeout)
     try:
@@ -162,7 +229,7 @@ def http_post_json(
     url: str,
     payload: dict[str, Any],
     cafile: str | Path | None = None,
-    timeout: float = 5.0,
+    timeout: float = 60.0,
 ) -> dict[str, Any]:
     request = urllib_request.Request(
         url,
@@ -186,7 +253,7 @@ def http_put_bytes(
     payload: bytes,
     headers: dict[str, str] | None = None,
     cafile: str | Path | None = None,
-    timeout: float = 5.0,
+    timeout: float = 60.0,
 ) -> bytes:
     request_headers = dict(headers or {})
     request = urllib_request.Request(
@@ -206,7 +273,7 @@ def http_put_bytes_resumable(
     session_create_headers: dict[str, str] | None = None,
     session_create_payload: dict[str, Any] | None = None,
     cafile: str | Path | None = None,
-    timeout: float = 5.0,
+    timeout: float = 60.0,
 ) -> bytes:
     if len(payload) < _CHUNKED_UPLOAD_THRESHOLD_BYTES:
         return http_put_bytes(
@@ -269,10 +336,48 @@ def http_get_bytes(
     *,
     url: str,
     cafile: str | Path | None = None,
-    timeout: float = 5.0,
+    timeout: float = 60.0,
 ) -> bytes:
     request = urllib_request.Request(url, method="GET")
     return _http_request_bytes(request=request, cafile=cafile, timeout=timeout)
+
+
+def http_get_to_file(
+    *,
+    url: str,
+    output_path: str | Path,
+    cafile: str | Path | None = None,
+    timeout: float = 60.0,
+) -> None:
+    request = urllib_request.Request(url, method="GET")
+    _ensure_default_headers(request)
+    context = None
+    if cafile is not None:
+        context = ssl.create_default_context(cafile=str(cafile))
+    try:
+        with urllib_request.urlopen(request, timeout=timeout, context=context) as response:
+            if response.status >= 400:  # pragma: no cover - defensive
+                raise urllib_error.HTTPError(
+                    request.full_url,
+                    response.status,
+                    response.reason,
+                    response.headers,
+                    None,
+                )
+            target_path = ensure_parent(output_path)
+            with target_path.open("wb") as handle:
+                while True:
+                    chunk = response.read(_HTTP_STREAM_CHUNK_SIZE_BYTES)
+                    if not chunk:
+                        break
+                    handle.write(chunk)
+    except urllib_error.HTTPError as exc:
+        detail = _extract_http_detail(exc)
+        raise RuntimeErrorBase(
+            f"HTTP {exc.code} when fetching {request.full_url}: {detail}"
+        ) from exc
+    except urllib_error.URLError as exc:
+        raise RuntimeErrorBase(f"failed to reach {request.full_url}: {exc.reason}") from exc
 
 
 def join_url(base_url: str, relative_path: str) -> str:
@@ -290,7 +395,7 @@ def _http_request_json(
     *,
     request: urllib_request.Request,
     cafile: str | Path | None = None,
-    timeout: float = 5.0,
+    timeout: float = 60.0,
 ) -> dict[str, Any]:
     body = _http_request_bytes(request=request, cafile=cafile, timeout=timeout)
     try:
@@ -332,7 +437,7 @@ def _http_request_bytes(
     *,
     request: urllib_request.Request,
     cafile: str | Path | None = None,
-    timeout: float = 5.0,
+    timeout: float = 60.0,
 ) -> bytes:
     _ensure_default_headers(request)
     context = None

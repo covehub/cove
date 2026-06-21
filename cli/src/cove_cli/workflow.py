@@ -598,9 +598,9 @@ def _validate_owners(
             for removed_key in ("provisioning_url", "provisioning_tls_certificate"):
                 if removed_key in owner:
                     errors.append(
-                        f"owners.{owner_name}.{removed_key} is no longer supported; set owners.{owner_name} to an HTTPS owner URL"
+                        f"owners.{owner_name}.{removed_key} is no longer supported; set owners.{owner_name} to an HTTP or HTTPS owner URL"
                     )
-            errors.append(f"owners.{owner_name} must be an HTTPS owner URL string")
+            errors.append(f"owners.{owner_name} must be an HTTP or HTTPS owner URL string")
             continue
         owner_url = _required_non_empty_string(
             raw_owner,
