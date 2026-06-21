@@ -1,9 +1,9 @@
 # Cove Operations Runbooks
 
 The operations layer is the "how to actually run this" side of the Cove
-internal docs. Each runbook here covers one focused operational task; the
-[end-to-end runbook](end_to_end.md) is the orchestrating walkthrough that
-exercises all of them in sequence for the hello-world demo.
+internal docs. Each runbook here covers one focused operational task. The
+hello-world orchestrating walkthrough now lives in
+[../hello_world.md](../hello_world.md).
 
 For the conceptual layer (architecture, security model, the demo
 walkthrough mapped to primitives), start at the
@@ -13,7 +13,7 @@ walkthrough mapped to primitives), start at the
 
 | If you want to … | Read |
 | --- | --- |
-| Stand up the full hello-world deploy from scratch | [end_to_end.md](end_to_end.md) |
+| Stand up the full hello-world deploy from scratch | [../hello_world.md](../hello_world.md) |
 | Run the Docker Compose Covehub API + UI stack and route it through Cloudflare | [covehub_server.md](covehub_server.md) |
 | Understand the public Covehub browser UI: API surface, screens, env vars, tests | [ui.md](ui.md) |
 | Run an owner service and publish a signed `/identity` | [owner_services.md](owner_services.md) |
@@ -28,9 +28,8 @@ These match the conventions in the [internal docs index](../README.md):
 - Hello-world docs use concrete CoveHub-controlled demo hostnames. Generic
   owner-service runbooks use `<your domain>` only where the operator must
   supply their own public hostname.
-- Personas (Alice, Bob) appear only in the hello-world walkthrough
-  ([../hello_world.md](../hello_world.md)) and the
-  [end-to-end runbook](end_to_end.md). Other runbooks use generic roles
+- Personas (Alice, Bob) appear in concrete demo runbooks such as
+  [../hello_world.md](../hello_world.md). Other runbooks use generic roles
   (operator, owner, publisher).
 - The canonical container digests live in
   `cove/containers/canonical_container_digests.json` and travel with the

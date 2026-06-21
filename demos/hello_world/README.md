@@ -17,11 +17,9 @@ enclave-generated TLS keypair.
 
 - `docs/internal/architecture.md` — architecture, trust model, workflow
   lifecycle, sidecars, certificates, and verification.
-- `docs/internal/hello_world.md` — full per-node walkthrough with the
-  sidecar inventory and the hash chain from secret-word ingestion to
-  RA-TLS.
-- `docs/internal/operations/end_to_end.md` — the operational runbook for
-  bringing this demo up against Phala Cloud.
+- `docs/internal/hello_world.md` — the operational runbook for bringing this
+  demo up against Phala Cloud, including the sidecar inventory and the hash
+  chain from secret-word ingestion to RA-TLS.
 - `docs/internal/todos.md` — known engineering follow-ups.
 
 ## Key Files
