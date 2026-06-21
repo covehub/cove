@@ -1,0 +1,30 @@
+services:
+  serve:
+    image: "covehub/cove-demo-attested-confidential-eval-vllm-model-server@sha256:d1ebc9c5ef7f960a7228382253353e40a7bc488d26cccb036bd228cc8dcb9a11"
+    environment:
+      HOST: 0.0.0.0
+      MODEL_NAME: CoveDemoModel
+      MODEL_ARCHIVE_PATH: /workspace/input/alice_private_model.tar
+      PORT: "8443"
+      SERVING_WHEEL_PATH: /workspace/input/compiled_serving_wheel.whl
+      TLS_CERT_PATH: /cove/ephemeral_keypairs/ratls_key/certificate.pem
+      TLS_KEY_PATH: /cove/ephemeral_keypairs/ratls_key/private.pem
+    ports:
+      - "18443:8443"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - |
+          import json
+          import ssl
+          import urllib.request
+          context = ssl._create_unverified_context()
+          with urllib.request.urlopen("https://127.0.0.1:8443/health", timeout=5, context=context) as response:
+              payload = json.loads(response.read().decode("utf-8"))
+          assert payload["status"] == "ok"
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 180s

@@ -1,7 +1,0 @@
-services:
-  audit_agent:
-    image: "hpmv/cove-demo-attested-audit-audit-agent@sha256:455c83ba1e5c42e867da4d9bc380e4edeb4d040db517cdcfab0846582d2b0380"
-    environment:
-      AUDIT_KIND: serving_patch
-      INPUT_PATH: /workspace/input/alice_private_serving_patch.diff
-      RESULT_PATH: /workspace/output/audit_serving_result.json
