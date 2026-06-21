@@ -50,10 +50,14 @@ from cove_cli.provision_state import ProvisionState
 from .support import MockCovehubServer, build_test_owner_identity, load_container_main_module, write_test_certificate
 
 
-ALICE_DOMAIN = "cove-demo-hello-world-alice-provisioning.covehub.io"
+ALICE_DOMAIN = "alice.cove-demo-parties.covehub.io"
 ALICE_OWNER_URL = f"https://{ALICE_DOMAIN}"
-BOB_DOMAIN = "cove-demo-hello-world-bob-provisioning.covehub.io"
+BOB_DOMAIN = "bob.cove-demo-parties.covehub.io"
 BOB_OWNER_URL = f"https://{BOB_DOMAIN}"
+CAROL_DOMAIN = "carol.cove-demo-parties.covehub.io"
+CAROL_OWNER_URL = f"https://{CAROL_DOMAIN}"
+PUBLISHER_DOMAIN = CAROL_DOMAIN
+PUBLISHER_OWNER_URL = CAROL_OWNER_URL
 LOCAL_OWNER_DOMAIN = "127.0.0.1"
 
 _ARTIFACT_PROVISIONER = load_container_main_module("artifact_provisioner")
@@ -148,6 +152,24 @@ def _stub_owner_identity_resolution(monkeypatch):
         fake_fetch_owner_identity_document,
     )
 
+    def fake_static_resolution(*, owner, artifact_id: str, plaintext_hash: str):
+        ciphertext_hash = sha256_literal(
+            f"{owner.owner_domain}:{artifact_id}:{plaintext_hash}".encode("utf-8")
+        )
+        return {
+            "hub_path": f"v1/artifacts/{owner.owner_domain}/{artifact_id}/{ciphertext_hash}",
+            "artifact_id": artifact_id,
+            "owner_domain": owner.owner_domain,
+            "owner_url": owner.owner_url,
+            "plaintext_hash": plaintext_hash,
+            "ciphertext_hash": ciphertext_hash,
+        }
+
+    monkeypatch.setattr(
+        "cove_cli.compile._fetch_owner_static_artifact_resolution",
+        fake_static_resolution,
+    )
+
 
 def test_compile_uses_default_workflow_path(tmp_path, monkeypatch, capsys) -> None:
     workflow_dir = _copy_hello_world_workflow(tmp_path)
@@ -165,11 +187,18 @@ def test_compile_uses_default_workflow_path(tmp_path, monkeypatch, capsys) -> No
     assert normalized["owners"] == {
         "alice": ALICE_OWNER_URL,
         "bob": BOB_OWNER_URL,
+        "carol": CAROL_OWNER_URL,
     }
     assert normalized["artifacts"]["alice_secret_word"]["owner"] == "alice"
+    expected_ciphertext_hash = sha256_literal(
+        f"{ALICE_DOMAIN}:alice_secret_word:{normalized['artifacts']['alice_secret_word']['plaintext_hash']}".encode("utf-8")
+    )
     assert (
         normalized["artifacts"]["alice_secret_word"]["hub_path"]
-        == "v1/artifacts/alice/alice_secret_word/latest"
+        == f"v1/artifacts/{ALICE_DOMAIN}/alice_secret_word/{expected_ciphertext_hash}"
+    )
+    assert normalized["artifacts"]["alice_secret_word_transformed"]["hub_path"] == (
+        f"v1/runtime/{PUBLISHER_DOMAIN}/hello_world/artifacts/alice_secret_word_transformed/latest"
     )
 
 
@@ -206,7 +235,7 @@ def test_compile_rejects_legacy_owner_provisioning_fields(tmp_path) -> None:
     workflow_path = workflow_dir / "workflow.cove.yaml"
     workflow_path.write_text(
         workflow_path.read_text(encoding="utf-8").replace(
-            "  alice: https://cove-demo-hello-world-alice-provisioning.covehub.io",
+            f"  alice: {ALICE_OWNER_URL}",
             "\n".join(
                 [
                     "  alice:",
@@ -383,7 +412,7 @@ def test_compile_emits_generated_compose_hash_and_sidecars(tmp_path) -> None:
         "cove_node_certificate_writer",
     )
     assert node_certificate_writer_config["covehub_server_url"] == "http://127.0.0.1:8000"
-    assert node_certificate_writer_config["workflow_publisher_domain"] == ALICE_DOMAIN
+    assert node_certificate_writer_config["workflow_publisher_domain"] == PUBLISHER_DOMAIN
     assert "generated_node_compose_hash" not in node_certificate_writer_config
     assert node_certificate_writer_config["attestation"] == {
         "mode": "phala_dstack",
@@ -398,7 +427,7 @@ def test_compile_emits_generated_compose_hash_and_sidecars(tmp_path) -> None:
     assert artifact_provisioner_config["owner"] == "alice"
     assert artifact_provisioner_config["owners"] == {"alice": ALICE_OWNER_URL}
     assert artifact_provisioner_config["hub_path"] == (
-        "runtime/hello_world/artifacts/alice_secret_word_transformed/latest"
+        f"v1/runtime/{PUBLISHER_DOMAIN}/hello_world/artifacts/alice_secret_word_transformed/latest"
     )
     assert "owner_url" not in artifact_provisioner_config
     assert "owner_domain" not in artifact_provisioner_config
@@ -521,7 +550,9 @@ def test_compile_emits_generated_compose_hash_and_sidecars(tmp_path) -> None:
     assert alice_output_config["output_source_path"] == "/workspace/output/alice_secret_word_transformed.txt"
     assert alice_output_config["owner"] == "alice"
     assert alice_output_config["owners"] == {"alice": ALICE_OWNER_URL}
-    assert alice_output_config["hub_path"] == "runtime/hello_world/artifacts/alice_secret_word_transformed/latest"
+    assert alice_output_config["hub_path"] == (
+        f"v1/runtime/{PUBLISHER_DOMAIN}/hello_world/artifacts/alice_secret_word_transformed/latest"
+    )
     assert "owner_domain" not in alice_output_config
     assert "owner_url" not in alice_output_config
     assert alice_output_config["owner_identity"]["owner_domain"] == ALICE_DOMAIN
@@ -534,7 +565,12 @@ def test_compile_emits_generated_compose_hash_and_sidecars(tmp_path) -> None:
     )
     assert alice_input_config["owner"] == "alice"
     assert alice_input_config["owners"] == {"alice": ALICE_OWNER_URL}
-    assert alice_input_config["hub_path"] == "v1/artifacts/alice/alice_secret_word/latest"
+    expected_ciphertext_hash = sha256_literal(
+        f"{ALICE_DOMAIN}:alice_secret_word:sha256:5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03".encode("utf-8")
+    )
+    assert alice_input_config["hub_path"] == (
+        f"v1/artifacts/{ALICE_DOMAIN}/alice_secret_word/{expected_ciphertext_hash}"
+    )
 
 
 def test_compile_orders_generated_nodes_topologically_and_stably(tmp_path) -> None:
@@ -640,7 +676,7 @@ def test_compile_rejects_removed_attestation_mode_config_field(tmp_path) -> None
         "\n".join(
             [
                 "covehub_server_url: http://127.0.0.1:8000",
-                f"owner_server_url: {ALICE_OWNER_URL}",
+                f"owner_server_url: {PUBLISHER_OWNER_URL}",
                 "attestation_mode: mock",
             ]
         )
@@ -661,18 +697,20 @@ def test_artifact_provisioner_decrypts_and_writes_metadata(tmp_path) -> None:
     plaintext = b"hello\n"
     plaintext_hash = sha256_literal(plaintext)
     artifact_id = "alice_secret_word"
-    hub_path = f"v1/artifacts/{LOCAL_OWNER_DOMAIN}/{artifact_id}/latest"
     _key_path, key_bytes = ensure_artifact_key(
         keys_dir=provision_paths.keys_dir,
         artifact_id=artifact_id,
     )
     ciphertext = encrypt_artifact_bytes(plaintext=plaintext, key_bytes=key_bytes)
     ciphertext_hash = sha256_literal(ciphertext)
+    hub_path = f"v1/artifacts/{LOCAL_OWNER_DOMAIN}/{artifact_id}/{ciphertext_hash}"
+    port = _free_port()
+    owner_url = f"http://127.0.0.1:{port}"
     state.upsert_registered_artifact(
         hub_path=hub_path,
         artifact_id=artifact_id,
         owner_domain=LOCAL_OWNER_DOMAIN,
-        owner_url="http://127.0.0.1",
+        owner_url=owner_url,
         plaintext_hash=plaintext_hash,
         ciphertext_hash=ciphertext_hash,
         content_type="text/plain",
@@ -685,15 +723,16 @@ def test_artifact_provisioner_decrypts_and_writes_metadata(tmp_path) -> None:
     with MockCovehubServer() as server, _running_provision_server(
         state=state,
         keys_dir=provision_paths.keys_dir,
+        port=port,
+        owner_url=owner_url,
     ) as provision_server:
         server.seed_artifact(hub_path, payload=ciphertext)
-        alias_hub_path = f"v1/artifacts/alice/{artifact_id}/latest"
         staged_plaintext_path = tmp_path / "runtime" / "cove" / "inputs" / artifact_id / artifact_id
         metadata_path = tmp_path / "runtime" / "cove" / "inputs" / artifact_id / "metadata.json"
         _ARTIFACT_PROVISIONER.run(
             {
                 "artifact_name": artifact_id,
-                "hub_path": alias_hub_path,
+                "hub_path": hub_path,
                 "owner": "alice",
                 "owners": {"alice": provision_server.url},
                 "covehub_server_url": server.url,
@@ -719,19 +758,22 @@ def test_artifact_provisioner_accepts_baked_owner_identity(tmp_path) -> None:
     plaintext = b"hello\n"
     plaintext_hash = sha256_literal(plaintext)
     artifact_id = "alice_secret_word"
-    hub_path = f"v1/artifacts/{LOCAL_OWNER_DOMAIN}/{artifact_id}/latest"
     _key_path, key_bytes = ensure_artifact_key(
         keys_dir=provision_paths.keys_dir,
         artifact_id=artifact_id,
     )
     ciphertext = encrypt_artifact_bytes(plaintext=plaintext, key_bytes=key_bytes)
+    ciphertext_hash = sha256_literal(ciphertext)
+    hub_path = f"v1/artifacts/{LOCAL_OWNER_DOMAIN}/{artifact_id}/{ciphertext_hash}"
+    port = _free_port()
+    owner_url = f"http://127.0.0.1:{port}"
     state.upsert_registered_artifact(
         hub_path=hub_path,
         artifact_id=artifact_id,
         owner_domain=LOCAL_OWNER_DOMAIN,
-        owner_url="http://127.0.0.1",
+        owner_url=owner_url,
         plaintext_hash=plaintext_hash,
-        ciphertext_hash=sha256_literal(ciphertext),
+        ciphertext_hash=ciphertext_hash,
         content_type="text/plain",
         source_path=str(tmp_path / "fixture.txt"),
         server_url="http://unused",
@@ -739,8 +781,6 @@ def test_artifact_provisioner_accepts_baked_owner_identity(tmp_path) -> None:
         key_path=artifact_id,
     )
 
-    port = _free_port()
-    owner_url = f"http://127.0.0.1:{port}"
     with MockCovehubServer() as server, _running_provision_server(
         state=state,
         keys_dir=provision_paths.keys_dir,
@@ -748,13 +788,12 @@ def test_artifact_provisioner_accepts_baked_owner_identity(tmp_path) -> None:
         owner_url=owner_url,
     ) as provision_server:
         server.seed_artifact(hub_path, payload=ciphertext)
-        alias_hub_path = f"v1/artifacts/alice/{artifact_id}/latest"
         staged_plaintext_path = tmp_path / "runtime" / "cove" / "inputs" / artifact_id / artifact_id
         metadata_path = tmp_path / "runtime" / "cove" / "inputs" / artifact_id / "metadata.json"
         _ARTIFACT_PROVISIONER.run(
             {
                 "artifact_name": artifact_id,
-                "hub_path": alias_hub_path,
+                "hub_path": hub_path,
                 "owner": "alice",
                 "owners": {"alice": owner_url},
                 "covehub_server_url": server.url,
@@ -776,19 +815,22 @@ def test_artifact_provisioner_rejects_tampered_baked_owner_identity(tmp_path) ->
 
     plaintext = b"hello\n"
     artifact_id = "alice_secret_word"
-    hub_path = f"v1/artifacts/{LOCAL_OWNER_DOMAIN}/{artifact_id}/latest"
     _key_path, key_bytes = ensure_artifact_key(
         keys_dir=provision_paths.keys_dir,
         artifact_id=artifact_id,
     )
     ciphertext = encrypt_artifact_bytes(plaintext=plaintext, key_bytes=key_bytes)
+    ciphertext_hash = sha256_literal(ciphertext)
+    hub_path = f"v1/artifacts/{LOCAL_OWNER_DOMAIN}/{artifact_id}/{ciphertext_hash}"
+    port = _free_port()
+    owner_url = f"http://127.0.0.1:{port}"
     state.upsert_registered_artifact(
         hub_path=hub_path,
         artifact_id=artifact_id,
         owner_domain=LOCAL_OWNER_DOMAIN,
-        owner_url="http://127.0.0.1",
+        owner_url=owner_url,
         plaintext_hash=sha256_literal(plaintext),
-        ciphertext_hash=sha256_literal(ciphertext),
+        ciphertext_hash=ciphertext_hash,
         content_type="text/plain",
         source_path=str(tmp_path / "fixture.txt"),
         server_url="http://unused",
@@ -796,8 +838,6 @@ def test_artifact_provisioner_rejects_tampered_baked_owner_identity(tmp_path) ->
         key_path=artifact_id,
     )
 
-    port = _free_port()
-    owner_url = f"http://127.0.0.1:{port}"
     with MockCovehubServer() as server, _running_provision_server(
         state=state,
         keys_dir=provision_paths.keys_dir,
@@ -805,14 +845,13 @@ def test_artifact_provisioner_rejects_tampered_baked_owner_identity(tmp_path) ->
         owner_url=owner_url,
     ) as provision_server:
         server.seed_artifact(hub_path, payload=ciphertext)
-        alias_hub_path = f"v1/artifacts/alice/{artifact_id}/latest"
         tampered_identity = dict(provision_server.server.owner_identity)
         tampered_identity["owner_url"] = "https://alice.example.com"
         with pytest.raises(ContainerRuntimeErrorBase, match="invalid owner_identity"):
             _ARTIFACT_PROVISIONER.run(
                 {
                     "artifact_name": artifact_id,
-                    "hub_path": alias_hub_path,
+                    "hub_path": hub_path,
                     "owner": "alice",
                     "owners": {"alice": owner_url},
                     "covehub_server_url": server.url,
@@ -1012,19 +1051,22 @@ def test_artifact_provisioner_rejects_ciphertext_hash_mismatch(tmp_path) -> None
 
     plaintext = b"hello\n"
     artifact_id = "alice_secret_word"
-    hub_path = f"v1/artifacts/{LOCAL_OWNER_DOMAIN}/{artifact_id}/latest"
+    expected_ciphertext_hash = "sha256:" + "f" * 64
+    hub_path = f"v1/artifacts/{LOCAL_OWNER_DOMAIN}/{artifact_id}/{expected_ciphertext_hash}"
     _key_path, key_bytes = ensure_artifact_key(
         keys_dir=provision_paths.keys_dir,
         artifact_id=artifact_id,
     )
     ciphertext = encrypt_artifact_bytes(plaintext=plaintext, key_bytes=key_bytes)
+    port = _free_port()
+    owner_url = f"http://127.0.0.1:{port}"
     state.upsert_registered_artifact(
         hub_path=hub_path,
         artifact_id=artifact_id,
         owner_domain=LOCAL_OWNER_DOMAIN,
-        owner_url="http://127.0.0.1",
+        owner_url=owner_url,
         plaintext_hash=sha256_literal(plaintext),
-        ciphertext_hash="sha256:" + "f" * 64,
+        ciphertext_hash=expected_ciphertext_hash,
         content_type="text/plain",
         source_path=str(tmp_path / "fixture.txt"),
         server_url="http://unused",
@@ -1035,6 +1077,8 @@ def test_artifact_provisioner_rejects_ciphertext_hash_mismatch(tmp_path) -> None
     with MockCovehubServer() as server, _running_provision_server(
         state=state,
         keys_dir=provision_paths.keys_dir,
+        port=port,
+        owner_url=owner_url,
     ) as provision_server:
         server.seed_artifact(hub_path, payload=ciphertext)
         try:
@@ -1148,7 +1192,7 @@ def test_provision_server_serves_public_key_identity_document(
         original_getaddrinfo = socket.getaddrinfo
 
         def fake_getaddrinfo(host, port_arg, family=0, type=0, proto=0, flags=0):
-            if host in {"cove-demo-hello-world-alice-provisioning.covehub.io", "wrong.example.test"}:
+            if host in {ALICE_DOMAIN, "wrong.example.test"}:
                 return original_getaddrinfo(
                     "127.0.0.1",
                     port_arg,
@@ -1566,7 +1610,7 @@ def _write_local_config(
         "\n".join(
             [
                 f"covehub_server_url: {server_url}",
-                f"owner_server_url: {ALICE_OWNER_URL}",
+                f"owner_server_url: {PUBLISHER_OWNER_URL}",
             ]
         )
         + "\n",

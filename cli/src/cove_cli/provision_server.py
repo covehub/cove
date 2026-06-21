@@ -316,6 +316,41 @@ class ProvisioningRequestHandler(BaseHTTPRequestHandler):
             )
             return
 
+        if parsed.path == "/v1/artifacts/by-id":
+            query = parse_qs(parsed.query)
+            artifact_id = query.get("artifact_id", [None])[0]
+            plaintext_hash = query.get("plaintext_hash", [None])[0]
+            if not isinstance(artifact_id, str) or not artifact_id:
+                self._write_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"detail": "artifact_id query parameter is required"},
+                )
+                return
+            if not isinstance(plaintext_hash, str) or not plaintext_hash:
+                self._write_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"detail": "plaintext_hash query parameter is required"},
+                )
+                return
+            artifact = self.server.state.get_registered_artifact_by_artifact_id_and_plaintext_hash(
+                artifact_id,
+                plaintext_hash,
+            )
+            if artifact is None:
+                self._write_json(
+                    HTTPStatus.NOT_FOUND,
+                    {"detail": "artifact not found"},
+                )
+                return
+            self._write_json(
+                HTTPStatus.OK,
+                _signed_key_release_payload(
+                    _artifact_resolution_payload(artifact),
+                    owner_private_key_path=self.server.owner_private_key_path,
+                ),
+            )
+            return
+
         self._write_json(HTTPStatus.NOT_FOUND, {"detail": "not found"})
 
     def log_message(self, format: str, *args) -> None:  # noqa: A003
@@ -461,6 +496,22 @@ def _key_release_payload(
             }
         )
     return payload
+
+
+def _artifact_resolution_payload(artifact) -> dict[str, object]:
+    return {
+        "hub_path": artifact.hub_path,
+        "artifact_id": artifact.artifact_id,
+        "owner_domain": artifact.owner_domain,
+        "owner_url": artifact.owner_url,
+        "plaintext_hash": artifact.plaintext_hash,
+        "ciphertext_hash": artifact.ciphertext_hash,
+        "content_type": artifact.content_type,
+        "source_path": artifact.source_path,
+        "server_url": artifact.server_url,
+        "transport_mode": artifact.transport_mode,
+        "updated_at": artifact.updated_at,
+    }
 
 
 def _signed_key_release_payload(

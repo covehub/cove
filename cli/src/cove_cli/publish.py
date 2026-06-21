@@ -47,7 +47,7 @@ GENERATED_COMPOSE_HASH_FILENAME = "compose.generated.sha256"
 _DIGEST_PINNED_IMAGE_RE = re.compile(r"^(?P<name>.+)@(?P<digest>sha256:[0-9a-f]{64})$")
 _STATIC_HUB_PATH_RE = re.compile(
     r"^v1/artifacts/(?P<owner>[^/]+)/(?P<artifact>[^/]+)/"
-    r"(?P<reference>latest|sha256:[0-9a-f]{64})$"
+    r"(?P<reference>sha256:[0-9a-f]{64})$"
 )
 
 
@@ -138,7 +138,7 @@ def push_workflow(
         ) from exc
 
     compile_artifact = compile_workflow_artifact(workflow_path, cove_home=cove_home)
-    workflow = _load_workflow_for_publish(compile_artifact.workflow_path)
+    workflow = compile_artifact.workflow
     with tempfile.TemporaryDirectory(prefix="cove-publish-") as temp_dir_name:
         bundle_root = Path(temp_dir_name) / "bundle"
         bundle = bundle_compiled_workflow(
@@ -450,6 +450,8 @@ def materialized_artifact_hub_path(
     bundle: MaterializedWorkflowBundle,
     artifact: MaterializedArtifact,
 ) -> str:
+    if artifact.hub_path.startswith("v1/runtime/"):
+        return artifact.hub_path
     if artifact.hub_path.startswith("runtime/"):
         return f"v1/runtime/{bundle.publisher}/{artifact.hub_path.removeprefix('runtime/')}"
 
@@ -459,14 +461,12 @@ def materialized_artifact_hub_path(
 
     owner_domain = materialized_artifact_owner_domain(bundle, artifact)
     path_owner = match.group("owner")
-    if path_owner == owner_domain:
-        return artifact.hub_path
-    if path_owner != artifact.owner:
-        return artifact.hub_path
-    return (
-        f"v1/artifacts/{owner_domain}/"
-        f"{match.group('artifact')}/{match.group('reference')}"
-    )
+    if path_owner != owner_domain:
+        raise PublishCommandError(
+            f"artifact {artifact.name!r} hub_path owner {path_owner!r} "
+            f"does not match owner domain {owner_domain!r}"
+        )
+    return artifact.hub_path
 
 
 def parse_published_ref(published_ref: str) -> PublishedWorkflowRef:

@@ -43,14 +43,14 @@ def test_hub_get_downloads_exact_object_and_checks_digest(tmp_path, capsys) -> N
     assert f"Observed digest: {digest}" in output
 
 
-def test_hub_get_latest_reports_observed_exact_path(tmp_path, capsys) -> None:
+def test_hub_get_runtime_latest_reports_observed_exact_path(tmp_path, capsys) -> None:
     payload = b"latest bytes"
     digest = _sha256_literal(payload)
     cove_home = tmp_path / ".cove"
     output_path = tmp_path / "latest.bin"
 
     with MockCovehubServer() as server:
-        server.seed_artifact(f"v1/artifacts/{ALICE_DOMAIN}/model/latest", payload=payload)
+        server.seed_runtime_artifact(f"v1/runtime/{ALICE_DOMAIN}/demo/artifacts/model/latest", payload=payload)
         _write_config(cove_home, {"covehub_server_url": server.url})
 
         exit_code = run(
@@ -59,7 +59,7 @@ def test_hub_get_latest_reports_observed_exact_path(tmp_path, capsys) -> None:
                 str(cove_home),
                 "hub",
                 "get",
-                f"v1/artifacts/{ALICE_DOMAIN}/model/latest",
+                f"v1/runtime/{ALICE_DOMAIN}/demo/artifacts/model/latest",
                 "--output",
                 str(output_path),
             ]
@@ -69,7 +69,7 @@ def test_hub_get_latest_reports_observed_exact_path(tmp_path, capsys) -> None:
     assert exit_code == 0
     assert output_path.read_bytes() == payload
     assert "WARNING: 'latest' is a mutable convenience alias" in output
-    assert f"Observed exact path: v1/artifacts/{ALICE_DOMAIN}/model/{digest}" in output
+    assert f"Observed exact path: v1/runtime/{ALICE_DOMAIN}/demo/artifacts/model/{digest}" in output
 
 
 def test_hub_inspect_summarizes_workflow_bundle(capsys) -> None:
@@ -196,6 +196,7 @@ def test_chunked_artifact_and_workflow_uploads_use_session_api(tmp_path, monkeyp
     assert artifact_result.status_code == 201
     assert workflow_result.status_code == 201
     assert server.state.artifacts[f"v1/artifacts/{ALICE_DOMAIN}/model/{artifact_digest}"] == artifact_payload
+    assert f"v1/artifacts/{ALICE_DOMAIN}/model/latest" not in server.state.artifacts
     assert server.state.workflow_bundles[f"v1/workflows/{ALICE_DOMAIN}/hello_world/{workflow_digest}"] == workflow_payload
 
 
@@ -221,13 +222,31 @@ def test_hub_get_rejects_digest_mismatch(capsys) -> None:
     assert "downloaded payload digest mismatch" in output
 
 
+def test_hub_get_rejects_static_latest_alias(capsys) -> None:
+    with MockCovehubServer() as server:
+        exit_code = run(
+            [
+                "hub",
+                "get",
+                f"v1/artifacts/{ALICE_DOMAIN}/model/latest",
+                "--server-url",
+                server.url,
+            ]
+        )
+
+    output = capsys.readouterr().out
+    assert exit_code == 1
+    assert "static artifact hub paths must use an exact sha256" in output
+
+
 def test_hub_inspect_reports_missing_object(capsys) -> None:
+    digest = "sha256:" + "1" * 64
     with MockCovehubServer() as server:
         exit_code = run(
             [
                 "hub",
                 "inspect",
-                f"v1/artifacts/{ALICE_DOMAIN}/missing/latest",
+                f"v1/artifacts/{ALICE_DOMAIN}/missing/{digest}",
                 "--server-url",
                 server.url,
             ]

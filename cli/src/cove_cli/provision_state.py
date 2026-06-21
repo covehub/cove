@@ -287,6 +287,36 @@ class ProvisionState:
             ).fetchone()
         return _registered_artifact_from_row(row)
 
+    def get_registered_artifact_by_artifact_id_and_plaintext_hash(
+        self,
+        artifact_id: str,
+        plaintext_hash: str,
+    ) -> RegisteredArtifact | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT
+                    hub_path,
+                    artifact_id,
+                    owner_domain,
+                    owner_url,
+                    plaintext_hash,
+                    ciphertext_hash,
+                    content_type,
+                    source_path,
+                    server_url,
+                    transport_mode,
+                    key_path,
+                    updated_at
+                FROM registered_artifacts
+                WHERE artifact_id = ? AND plaintext_hash = ?
+                ORDER BY updated_at DESC
+                LIMIT 1
+                """,
+                (artifact_id, plaintext_hash),
+            ).fetchone()
+        return _registered_artifact_from_row(row)
+
     def list_registered_artifacts(self) -> list[RegisteredArtifact]:
         with self._connect() as connection:
             rows = connection.execute(

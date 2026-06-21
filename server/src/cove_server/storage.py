@@ -186,7 +186,12 @@ class LocalStorage:
         self._write_upload_session(updated)
         return updated
 
-    def complete_upload_session(self, session_id: str) -> tuple[UploadSession, WriteResult]:
+    def complete_upload_session(
+        self,
+        session_id: str,
+        *,
+        update_latest: bool = True,
+    ) -> tuple[UploadSession, WriteResult]:
         session = self._read_upload_session(session_id)
         if session.completed:
             raise UploadSessionConflictError("upload session is already completed")
@@ -210,6 +215,7 @@ class LocalStorage:
             session.namespace_parts,
             session.digest_segment,
             data_path,
+            update_latest=update_latest,
         )
         completed = UploadSession(
             session_id=session.session_id,

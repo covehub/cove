@@ -10,6 +10,7 @@ platform:
 owners:
   alice: https://demo-alice.covehub.io
   bob: https://demo-bob.covehub.io
+  carol: https://demo-carol.covehub.io
 
 ephemeral_keypairs:
   session_key:
@@ -19,21 +20,17 @@ artifacts:
   alice_secret_word:
     type: static
     owner: alice
-    hub_path: v1/artifacts/alice/alice_secret_word/latest
     plaintext_hash: "sha256:5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03"
   bob_secret_word:
     type: static
     owner: bob
-    hub_path: v1/artifacts/bob/bob_secret_word/latest
     plaintext_hash: "sha256:e258d248fda94c63753607f7c4494ee0fcbe92f1a76bfdac795c9d84101eb317"
   alice_secret_word_transformed:
     type: dynamic
     owner: alice
-    hub_path: runtime/hello_world/artifacts/alice_secret_word_transformed/latest
   bob_secret_word_transformed:
     type: dynamic
     owner: bob
-    hub_path: runtime/hello_world/artifacts/bob_secret_word_transformed/latest
 
 nodes:
   alice_word_length_checker:

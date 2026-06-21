@@ -29,8 +29,10 @@ External tools used by the CLI:
 `cove deploy` additionally requires:
 
 - A public HTTPS Covehub URL configured in `<cove_home>/config.yaml`.
-- A Phala-reachable HTTPS owner service URL declared per owner in the
-  workflow YAML and published through Cloudflare Tunnel (or equivalent).
+- A Phala-reachable owner service URL declared per owner in the workflow YAML
+  and published through Cloudflare Tunnel (or equivalent). The local owner
+  service is HTTP; the public domain layer is responsible for transport
+  security.
   See `docs/internal/operations/owner_services.md`.
 - A Phala Cloud API key stored in `<cove_home>/config.yaml` by `cove init`.
 - A Docker Hub access token (read-only is sufficient) so the deploy
@@ -89,9 +91,9 @@ Cove home contains `username` or `access_token`, delete that home and run
 ## Authored Workflow Surface
 
 - `artifacts` are either `static` or `dynamic`.
-- Each static artifact must declare `hub_path` and `plaintext_hash`.
-- Each dynamic artifact must declare an owner and a workflow-relative
-  `hub_path`, and must be produced by exactly one service output.
+- Each static artifact must declare an owner and `plaintext_hash`.
+- Each dynamic artifact must declare only an owner, and must be produced by
+  exactly one service output.
 - Dynamic artifact consumers must list the producer node in `dependencies`.
 - `services.inputs` may reference declared static or dynamic artifacts.
 - `services.outputs` must reference declared dynamic artifacts.
@@ -114,9 +116,9 @@ Cove home contains `username` or `access_token`, delete that home and run
 - Errors when a static input is not hash-anchored through an exact literal
   precondition: `inputs.<artifact>.plaintext_hash == "sha256:..."`.
 - Warnings on nodes with static inputs but no declared `preconditions`.
-- Owner URLs must be HTTPS origins. Their hostnames become the canonical
-  Covehub namespaces and must be lowercase DNS hostnames with at least one
-  dot, for example `alice.example.test`.
+- Owner URLs must be origins. Their hostnames become the canonical Covehub
+  namespaces and must be lowercase DNS hostnames with at least one dot, for
+  example `alice.example.test`.
 - `cove check` is syntax-only. Network identity and object discovery
   happen at compile, provision, push, pull, deploy, or runtime.
 
@@ -126,7 +128,6 @@ The CLI talks to Covehub through these typed object routes:
 
 ```
 v1/artifacts/<owner-domain>/<artifact_name>/sha256:<digest>
-v1/artifacts/<owner-domain>/<artifact_name>/latest
 v1/workflows/<publisher-domain>/<workflow_id>/sha256:<digest>
 v1/workflows/<publisher-domain>/<workflow_id>/latest
 v1/runtime/<publisher-domain>/<workflow_id>/certificates/<node_id>/sha256:<digest>
@@ -136,24 +137,27 @@ v1/runtime/<publisher-domain>/<workflow_id>/artifacts/<artifact_name>/latest
 ```
 
 Integrity comes from exact path naming and payload-hash verification at the
-server. Authored static artifacts carry the expected `plaintext_hash`, and
-`cove check` enforces literal precondition anchors against that value.
-Static artifact and workflow mutations are signed with the local owner key;
-the server verifies the current `<owner_url>/identity` document before it
-accepts the write.
+server. Authored static artifacts carry the expected `plaintext_hash`;
+`cove compile` asks the owner service to resolve that value to the exact
+generated ciphertext path and writes that review metadata into
+`workflow.normalized.cove.yaml`. `cove check` enforces literal precondition
+anchors against the plaintext hash. Static artifact and workflow mutations
+are signed with the local owner key; the server verifies the current
+`<owner_url>/identity` document before it accepts the write.
 
 The default public Covehub target is `https://api.covehub.io`.
 
 ## Provisioning And Encryption
 
 `cove provision` encrypts a static artifact locally with a stable
-per-artifact AES-256 key, prints both `plaintext_hash` and
-`ciphertext_hash`, and stores the key at `<cove_home>/keys/<artifact_id>`.
+per-artifact AES-256 key, uploads it to the exact ciphertext hash path,
+prints both `plaintext_hash` and `ciphertext_hash`, and stores the key at
+`<cove_home>/keys/<artifact_id>`.
 
 - `plaintext_hash` is the trust-critical workflow value enforced by
   `cove check` preconditions.
-- `ciphertext_hash` is owner-local metadata used by the local provisioner
-  and by artifact-provisioner sidecars.
+- `ciphertext_hash` is the immutable Covehub object address under
+  `v1/artifacts/<owner-domain>/<artifact_id>/<ciphertext_hash>`.
 
 The local provisioner returns the AES key as `key_b64`. Key release is
 gated by attested Phala/dstack quotes and the owner's allow rules; see
@@ -181,6 +185,13 @@ service:
 - `environment.COVE_CONFIG_JSON`
 - `environment.COVE_SERVICE_NAME`
 - `environment.COVE_COMPOSE_HASH`
+
+`cove compile` resolves each owner identity and each static artifact's exact
+owner-signed ciphertext path by `artifact_id + plaintext_hash`. Static
+artifacts must already be provisioned before compile so the generated
+normalized workflow and sidecar configs can pin exact paths. Dynamic artifact
+paths are generated as
+`v1/runtime/<publisher-domain>/<workflow_id>/artifacts/<artifact_id>/latest`.
 
 `cove compile` fails closed if any image cannot be resolved to an immutable
 digest-pinned reference. Generated sidecars use the canonical pinned refs
@@ -271,8 +282,9 @@ into the CLI tree and rebuilding the wheel
 hostname can be exposed through Cloudflare Tunnel
 (`docs/internal/operations/owner_services.md`).
 
-The runtime trust path is the signed `/identity` document, not the local
-transport.
+The runtime trust path is the signed `/identity` document and signed owner
+responses, not TLS on the local owner-service process. Public owner URLs may
+still be HTTPS through Cloudflare or another secured domain layer.
 
 Workflow YAML must declare each owner's URL explicitly:
 
@@ -281,7 +293,8 @@ owners:
   alice: https://alice.example.test
 ```
 
-`cove check` validates the shape offline. `cove compile` fetches
+`cove check` validates the shape offline and rejects authored
+`artifacts.*.hub_path`; paths are generated. `cove compile` fetches
 `<owner_url>/identity`, verifies the signed identity document, and bakes
 the resolved owner URL, owner domain, public key, public-key hash, and
 signature into generated sidecar config. The alias (`alice`) is
@@ -351,4 +364,3 @@ For the wheel-build flow and the release rule
 
 - workflow-level server URL configuration
 - workflow-output artifact channels
-- shared-edge TLS termination for owner URLs

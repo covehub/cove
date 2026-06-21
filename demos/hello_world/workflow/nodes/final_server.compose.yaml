@@ -1,6 +1,6 @@
 services:
   final_server:
-    image: "covehub/cove-demo-hello-world-final-server@sha256:ce5eda2897906bd0306de7d0fdd22bc5cc7efaa94e9944085e8c55fbd463a8fc"
+    image: "covehub/cove-demo-hello-world-final-server@sha256:88176b39d2f05aace17e1d64e505a816b30a4ce1ff208651b1c50e09e110478d"
     environment:
       ALICE_INPUT_PATH: /workspace/input/alice_secret_word_transformed.txt
       BOB_INPUT_PATH: /workspace/input/bob_secret_word_transformed.txt

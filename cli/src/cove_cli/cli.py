@@ -286,7 +286,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "get",
         help="Download one public CoveHub object by typed hub path",
     )
-    hub_get_parser.add_argument("hub_path", help="Typed path such as v1/workflows/alice/demo/latest")
+    hub_get_parser.add_argument("hub_path", help="Typed path such as v1/workflows/alice.example.test/demo/latest")
     hub_get_parser.add_argument(
         "--output",
         help="Destination file path. Defaults to a name derived from the object path.",

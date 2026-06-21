@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from cove_cli.artifact_crypto import sha256_literal
 from cove_cli.common import RuntimeErrorBase
 from cove_cli.config import config_path_for_home
 from cove_cli.compile import reviewed_compose_hash
@@ -22,8 +23,14 @@ from cove_cli.provisioning_identity import build_owner_identity_document
 from .support import MockCovehubServer, build_test_owner_identity, write_test_certificate
 
 
-ALICE_DOMAIN = "cove-demo-hello-world-alice-provisioning.covehub.io"
+ALICE_DOMAIN = "alice.cove-demo-parties.covehub.io"
 ALICE_OWNER_URL = f"https://{ALICE_DOMAIN}"
+BOB_DOMAIN = "bob.cove-demo-parties.covehub.io"
+BOB_OWNER_URL = f"https://{BOB_DOMAIN}"
+CAROL_DOMAIN = "carol.cove-demo-parties.covehub.io"
+CAROL_OWNER_URL = f"https://{CAROL_DOMAIN}"
+PUBLISHER_DOMAIN = CAROL_DOMAIN
+PUBLISHER_OWNER_URL = CAROL_OWNER_URL
 
 
 @pytest.fixture(autouse=True)
@@ -42,6 +49,24 @@ def _stub_owner_identity_resolution(monkeypatch):
     monkeypatch.setattr(
         "cove_cli.compile.fetch_owner_identity_document",
         fake_fetch_owner_identity_document,
+    )
+
+    def fake_static_resolution(*, owner, artifact_id: str, plaintext_hash: str):
+        ciphertext_hash = sha256_literal(
+            f"{owner.owner_domain}:{artifact_id}:{plaintext_hash}".encode("utf-8")
+        )
+        return {
+            "hub_path": f"v1/artifacts/{owner.owner_domain}/{artifact_id}/{ciphertext_hash}",
+            "artifact_id": artifact_id,
+            "owner_domain": owner.owner_domain,
+            "owner_url": owner.owner_url,
+            "plaintext_hash": plaintext_hash,
+            "ciphertext_hash": ciphertext_hash,
+        }
+
+    monkeypatch.setattr(
+        "cove_cli.compile._fetch_owner_static_artifact_resolution",
+        fake_static_resolution,
     )
 
     def fake_fetch_owner_identity_for_write(
@@ -69,7 +94,7 @@ def test_deploy_pulls_bundle_before_submitting_and_orders_nodes_topologically(
     monkeypatch,
 ) -> None:
     workflow_dir = _copy_hello_world_workflow(tmp_path)
-    cove_home = tmp_path / ".alice_cove"
+    cove_home = tmp_path / ".carol_cove"
     events: list[str] = []
 
     class FakePhalaClient:
@@ -103,7 +128,7 @@ def test_deploy_pulls_bundle_before_submitting_and_orders_nodes_topologically(
             cove_home,
             {
                 "covehub_server_url": server.url,
-                "owner_server_url": ALICE_OWNER_URL,
+                "owner_server_url": PUBLISHER_OWNER_URL,
                 "phala_cloud_api_key": "phala-api-key",
             },
         )
@@ -122,7 +147,7 @@ def test_deploy_pulls_bundle_before_submitting_and_orders_nodes_topologically(
         )
 
         summary = deploy_workflow(
-            f"{ALICE_DOMAIN}/hello_world",
+            f"{PUBLISHER_DOMAIN}/hello_world",
             cove_home=cove_home,
             phala_options=PhalaDeployOptions(instance_type="tdx.small", staged_launch=False),
         )
@@ -130,7 +155,7 @@ def test_deploy_pulls_bundle_before_submitting_and_orders_nodes_topologically(
     assert events[0] == "pull"
     expected_names = [
         _deployment_name(
-            publisher=ALICE_DOMAIN,
+            publisher=PUBLISHER_DOMAIN,
             workflow_id="hello_world",
             node_id=node_id,
         )
@@ -145,7 +170,7 @@ def test_deploy_pulls_bundle_before_submitting_and_orders_nodes_topologically(
         f"provision:{name}"
         for name in expected_names
     ]
-    assert f"Deployed workflow '{ALICE_DOMAIN}/hello_world' to Phala" in summary
+    assert f"Deployed workflow '{PUBLISHER_DOMAIN}/hello_world' to Phala" in summary
     assert "cvm_id=cvm-app-4" in summary
 
     final_payload = fake_client.provision_calls[-1]
@@ -232,7 +257,7 @@ def test_deploy_staged_launch_waits_before_submitting_dependent_nodes(
     monkeypatch,
 ) -> None:
     workflow_dir = _copy_hello_world_workflow(tmp_path)
-    cove_home = tmp_path / ".alice_cove"
+    cove_home = tmp_path / ".carol_cove"
     events: list[str] = []
 
     class FakePhalaClient:
@@ -261,7 +286,7 @@ def test_deploy_staged_launch_waits_before_submitting_dependent_nodes(
             cove_home,
             {
                 "covehub_server_url": server.url,
-                "owner_server_url": ALICE_OWNER_URL,
+                "owner_server_url": PUBLISHER_OWNER_URL,
                 "phala_cloud_api_key": "phala-api-key",
             },
         )
@@ -288,14 +313,14 @@ def test_deploy_staged_launch_waits_before_submitting_dependent_nodes(
         )
 
         deploy_workflow(
-            f"{ALICE_DOMAIN}/hello_world",
+            f"{PUBLISHER_DOMAIN}/hello_world",
             cove_home=cove_home,
             phala_options=PhalaDeployOptions(instance_type="tdx.small"),
         )
 
     expected_names = [
         _deployment_name(
-            publisher=ALICE_DOMAIN,
+            publisher=PUBLISHER_DOMAIN,
             workflow_id="hello_world",
             node_id=node_id,
         )
@@ -322,7 +347,7 @@ def test_deploy_workflow_node_launches_only_requested_node(
     monkeypatch,
 ) -> None:
     workflow_dir = _copy_hello_world_workflow(tmp_path)
-    cove_home = tmp_path / ".alice_cove"
+    cove_home = tmp_path / ".carol_cove"
     wait_calls: list[tuple[str, tuple[str, ...]]] = []
 
     class FakePhalaClient:
@@ -346,7 +371,7 @@ def test_deploy_workflow_node_launches_only_requested_node(
             cove_home,
             {
                 "covehub_server_url": server.url,
-                "owner_server_url": ALICE_OWNER_URL,
+                "owner_server_url": PUBLISHER_OWNER_URL,
                 "phala_cloud_api_key": "phala-api-key",
             },
         )
@@ -364,7 +389,7 @@ def test_deploy_workflow_node_launches_only_requested_node(
         )
 
         summary = deploy_workflow(
-            f"{ALICE_DOMAIN}/hello_world",
+            f"{PUBLISHER_DOMAIN}/hello_world",
             cove_home=cove_home,
             phala_options=PhalaDeployOptions(
                 instance_type="tdx.small",
@@ -373,7 +398,7 @@ def test_deploy_workflow_node_launches_only_requested_node(
         )
 
     expected_name = _deployment_name(
-        publisher=ALICE_DOMAIN,
+        publisher=PUBLISHER_DOMAIN,
         workflow_id="hello_world",
         node_id="final_server",
     )
@@ -471,7 +496,7 @@ services:
     )
 
     deploy_workflow(
-        f"{ALICE_DOMAIN}/demo",
+        f"{PUBLISHER_DOMAIN}/demo",
         cove_home=cove_home,
         phala_options=PhalaDeployOptions(
             instance_type="h200.small",
@@ -487,7 +512,11 @@ services:
 
     assert len(captured_payloads) == 1
     payload = captured_payloads[0]
-    assert payload["name"] == "cove-demo-node-one-cove-demo-hello-world-alice-provi-b79ef66de7"
+    assert payload["name"] == _deployment_name(
+        publisher=PUBLISHER_DOMAIN,
+        workflow_id="demo",
+        node_id="node_one",
+    )
     assert payload["instance_type"] == "h200.small"
     assert payload["region"] == "us-west"
     assert payload["image"] == "dstack-0.5.9"
@@ -971,11 +1000,11 @@ def _write_bundle_root(
     compose_path.write_text(compose_text, encoding="utf-8")
     (bundle_root / "workflow.normalized.cove.yaml").write_text(workflow_text, encoding="utf-8")
     return MaterializedWorkflowBundle(
-        publisher=ALICE_DOMAIN,
+        publisher=PUBLISHER_DOMAIN,
         workflow_id="demo",
         manifest_hash="sha256:" + ("0" * 64),
         root_path=bundle_root,
-        owners={"alice": ALICE_OWNER_URL},
+        owners={"carol": CAROL_OWNER_URL},
         files=[],
         nodes=[
             MaterializedNode(

@@ -33,11 +33,16 @@ from cove_cli.provisioning_identity import build_owner_identity_document
 from .support import MockCovehubServer, build_test_owner_identity, load_container_main_module, write_test_certificate
 
 
-ALICE_DOMAIN = "cove-demo-hello-world-alice-provisioning.covehub.io"
+ALICE_DOMAIN = "alice.cove-demo-parties.covehub.io"
 ALICE_OWNER_URL = f"https://{ALICE_DOMAIN}"
-BOB_DOMAIN = "cove-demo-hello-world-bob-provisioning.covehub.io"
+BOB_DOMAIN = "bob.cove-demo-parties.covehub.io"
 BOB_OWNER_URL = f"https://{BOB_DOMAIN}"
+CAROL_DOMAIN = "carol.cove-demo-parties.covehub.io"
+CAROL_OWNER_URL = f"https://{CAROL_DOMAIN}"
+PUBLISHER_DOMAIN = CAROL_DOMAIN
+PUBLISHER_OWNER_URL = CAROL_OWNER_URL
 LOCAL_OWNER_DOMAIN = "127.0.0.1"
+ALICE_SECRET_WORD_PLAINTEXT_HASH = "sha256:5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03"
 
 _CANONICAL_DIGEST = next(
     parse_digest_from_image_reference(entry["canonical_ref"])
@@ -132,6 +137,30 @@ def _stub_owner_identity_resolution(monkeypatch):
     monkeypatch.setattr(
         "cove_cli.provision.fetch_owner_identity_for_write",
         fake_fetch_owner_identity_for_write,
+    )
+
+    def fake_static_resolution(*, owner, artifact_id: str, plaintext_hash: str):
+        ciphertext_hash = _generated_static_ciphertext_hash(
+            owner.owner_domain,
+            artifact_id,
+            plaintext_hash,
+        )
+        return {
+            "hub_path": _generated_static_hub_path(
+                owner.owner_domain,
+                artifact_id,
+                plaintext_hash,
+            ),
+            "artifact_id": artifact_id,
+            "owner_domain": owner.owner_domain,
+            "owner_url": owner.owner_url,
+            "plaintext_hash": plaintext_hash,
+            "ciphertext_hash": ciphertext_hash,
+        }
+
+    monkeypatch.setattr(
+        "cove_cli.compile._fetch_owner_static_artifact_resolution",
+        fake_static_resolution,
     )
 
 
@@ -259,7 +288,7 @@ def test_resolve_image_reference_to_digest_fails_without_repo_digest(monkeypatch
 
 def test_push_and_pull_preserve_generated_digest_pinned_bundle(tmp_path, monkeypatch, capsys) -> None:
     workflow_dir = _copy_hello_world_workflow(tmp_path)
-    cove_home = tmp_path / ".alice_cove"
+    cove_home = tmp_path / ".carol_cove"
     observed_write_identity: dict[str, object] = {}
 
     def fake_fetch_owner_identity_for_write(
@@ -290,13 +319,13 @@ def test_push_and_pull_preserve_generated_digest_pinned_bundle(tmp_path, monkeyp
         push_output = capsys.readouterr().out
 
         pull_exit = run(
-            ["--cove-home", str(cove_home), "pull", f"{ALICE_DOMAIN}/hello_world"]
+            ["--cove-home", str(cove_home), "pull", f"{PUBLISHER_DOMAIN}/hello_world"]
         )
 
         pull_output = capsys.readouterr().out
     pulled_root = (
         provision_paths_for_home(cove_home).materialized_workflows_dir
-        / ALICE_DOMAIN
+        / PUBLISHER_DOMAIN
         / "hello_world"
     )
     bundle = load_workflow_bundle(pulled_root)
@@ -315,15 +344,16 @@ def test_push_and_pull_preserve_generated_digest_pinned_bundle(tmp_path, monkeyp
     assert push_exit == 0
     assert pull_exit == 0
     assert observed_write_identity == {
-        "owner_url": ALICE_OWNER_URL,
-        "expected_owner_domain": ALICE_DOMAIN,
+        "owner_url": PUBLISHER_OWNER_URL,
+        "expected_owner_domain": PUBLISHER_DOMAIN,
     }
-    assert f"Published workflow bundle '{ALICE_DOMAIN}/hello_world'" in push_output
-    assert f"Pulled workflow bundle '{ALICE_DOMAIN}/hello_world'" in pull_output
+    assert f"Published workflow bundle '{PUBLISHER_DOMAIN}/hello_world'" in push_output
+    assert f"Pulled workflow bundle '{PUBLISHER_DOMAIN}/hello_world'" in pull_output
     assert (pulled_root / "bundle.manifest.json").is_file()
     assert bundle.owners == {
         "alice": ALICE_OWNER_URL,
         "bob": BOB_OWNER_URL,
+        "carol": CAROL_OWNER_URL,
     }
     assert manifest["owners"] == bundle.owners
     assert final_compose_path.is_file()
@@ -345,7 +375,7 @@ def test_push_and_pull_preserve_generated_digest_pinned_bundle(tmp_path, monkeyp
     )
     assert not (pulled_root / "nodes" / "final_server" / "configs").exists()
     assert not (pulled_root / "nodes" / "final_server" / "runtime").exists()
-    assert final_provisioner_config["workflow_publisher_domain"] == ALICE_DOMAIN
+    assert final_provisioner_config["workflow_publisher_domain"] == PUBLISHER_DOMAIN
     assert final_provisioner_config["workflow_id"] == "hello_world"
     assert final_provisioner_config["mode"] == "dynamic_input"
     assert final_provisioner_config["producer_certificate_path"] == (
@@ -371,19 +401,19 @@ def test_push_and_pull_preserve_generated_digest_pinned_bundle(tmp_path, monkeyp
         (
             "alice_secret_word_transformed",
             "alice",
-            "runtime/hello_world/artifacts/alice_secret_word_transformed/latest",
+            f"v1/runtime/{PUBLISHER_DOMAIN}/hello_world/artifacts/alice_secret_word_transformed/latest",
         ),
         (
             "bob_secret_word_transformed",
             "bob",
-            "runtime/hello_world/artifacts/bob_secret_word_transformed/latest",
+            f"v1/runtime/{PUBLISHER_DOMAIN}/hello_world/artifacts/bob_secret_word_transformed/latest",
         ),
     ]
 
 
 def test_push_republishes_workflow_and_advances_latest(tmp_path, capsys) -> None:
     workflow_dir = _copy_hello_world_workflow(tmp_path)
-    cove_home = tmp_path / ".alice_cove"
+    cove_home = tmp_path / ".carol_cove"
 
     with MockCovehubServer() as server:
         _write_config(
@@ -399,13 +429,13 @@ def test_push_republishes_workflow_and_advances_latest(tmp_path, capsys) -> None
 
     output = capsys.readouterr().out
     assert exit_code == 0
-    assert output.count(f"Published workflow bundle '{ALICE_DOMAIN}/hello_world'") == 2
-    assert f"Latest workflow: v1/workflows/{ALICE_DOMAIN}/hello_world/latest" in output
+    assert output.count(f"Published workflow bundle '{PUBLISHER_DOMAIN}/hello_world'") == 2
+    assert f"Latest workflow: v1/workflows/{PUBLISHER_DOMAIN}/hello_world/latest" in output
 
 
 def test_push_overwrite_replaces_existing_workflow_slot(tmp_path, capsys) -> None:
     workflow_dir = _copy_hello_world_workflow(tmp_path)
-    cove_home = tmp_path / ".alice_cove"
+    cove_home = tmp_path / ".carol_cove"
 
     with MockCovehubServer() as server:
         _write_config(
@@ -429,7 +459,7 @@ def test_push_overwrite_replaces_existing_workflow_slot(tmp_path, capsys) -> Non
 
     output = capsys.readouterr().out
     assert exit_code == 0
-    assert f"Published workflow bundle '{ALICE_DOMAIN}/hello_world'" in output
+    assert f"Published workflow bundle '{PUBLISHER_DOMAIN}/hello_world'" in output
 
 
 def test_push_fails_when_images_cannot_be_digest_pinned(
@@ -438,7 +468,7 @@ def test_push_fails_when_images_cannot_be_digest_pinned(
     capsys,
 ) -> None:
     workflow_dir = _copy_hello_world_workflow(tmp_path)
-    cove_home = tmp_path / ".alice_cove"
+    cove_home = tmp_path / ".carol_cove"
 
     with MockCovehubServer() as server:
         _write_config(
@@ -477,7 +507,7 @@ def test_push_fails_when_artifact_provisioner_digest_is_not_canonical(
     capsys,
 ) -> None:
     workflow_dir = _copy_hello_world_workflow(tmp_path)
-    cove_home = tmp_path / ".alice_cove"
+    cove_home = tmp_path / ".carol_cove"
 
     with MockCovehubServer() as server:
         _write_config(
@@ -528,10 +558,10 @@ def test_provision_allow_records_rule_from_pulled_compose(tmp_path, capsys) -> N
     output = capsys.readouterr().out
     bundle = load_workflow_bundle(pulled_root)
     final_node = next(node for node in bundle.nodes if node.node_id == "final_server")
-    dynamic_hub_path = f"v1/runtime/{ALICE_DOMAIN}/hello_world/artifacts/alice_secret_word_transformed/latest"
+    dynamic_hub_path = f"v1/runtime/{PUBLISHER_DOMAIN}/hello_world/artifacts/alice_secret_word_transformed/latest"
     rule = state.get_allow_rule(
         hub_path=dynamic_hub_path,
-        publisher=ALICE_DOMAIN,
+        publisher=PUBLISHER_DOMAIN,
         workflow_id="hello_world",
         node_id="final_server",
         compose_hash=final_node.compose_hash,
@@ -542,7 +572,7 @@ def test_provision_allow_records_rule_from_pulled_compose(tmp_path, capsys) -> N
     assert exit_code == 0
     assert rule is not None
     assert channel is not None
-    assert channel.key_path == f"dynamic/{ALICE_DOMAIN}/hello_world/alice_secret_word_transformed"
+    assert channel.key_path == f"dynamic/{PUBLISHER_DOMAIN}/hello_world/alice_secret_word_transformed"
     assert "Allowed artifact 'alice_secret_word_transformed'" in output
 
 
@@ -554,25 +584,39 @@ def test_provision_inspect_pulls_bundle_and_only_allows_yes_nodes(
     workflow_dir = _copy_hello_world_workflow(tmp_path)
     cove_home = tmp_path / ".alice_cove"
     with MockCovehubServer() as server:
+        carol_home = tmp_path / ".carol_cove"
         _write_config(
-            cove_home,
+            carol_home,
             _owner_config(server.url),
         )
         assert run(
-            ["--cove-home", str(cove_home), "push", str(workflow_dir / "workflow.cove.yaml")]
+            ["--cove-home", str(carol_home), "push", str(workflow_dir / "workflow.cove.yaml")]
         ) == 0
         capsys.readouterr()
 
+        _write_config(
+            cove_home,
+            _owner_config(server.url, owner_server_url=ALICE_OWNER_URL),
+        )
         paths = provision_paths_for_home(cove_home)
         state = ProvisionState(paths.database_path)
         state.initialize()
+        static_hub_path = _generated_static_hub_path(
+            ALICE_DOMAIN,
+            "alice_secret_word",
+            ALICE_SECRET_WORD_PLAINTEXT_HASH,
+        )
         state.upsert_registered_artifact(
-            hub_path=f"v1/artifacts/{ALICE_DOMAIN}/alice_secret_word/latest",
+            hub_path=static_hub_path,
             artifact_id="alice_secret_word",
             owner_domain=ALICE_DOMAIN,
             owner_url=ALICE_OWNER_URL,
-            plaintext_hash="sha256:1",
-            ciphertext_hash="sha256:2",
+            plaintext_hash=ALICE_SECRET_WORD_PLAINTEXT_HASH,
+            ciphertext_hash=_generated_static_ciphertext_hash(
+                ALICE_DOMAIN,
+                "alice_secret_word",
+                ALICE_SECRET_WORD_PLAINTEXT_HASH,
+            ),
             content_type="text/plain",
             source_path=str(tmp_path / "alice.txt"),
             server_url=server.url,
@@ -588,14 +632,14 @@ def test_provision_inspect_pulls_bundle_and_only_allows_yes_nodes(
                 str(cove_home),
                 "provision",
                 "inspect",
-                f"{ALICE_DOMAIN}/hello_world",
+                f"{PUBLISHER_DOMAIN}/hello_world",
             ]
         )
 
     output = capsys.readouterr().out
     pulled_root = (
         provision_paths_for_home(cove_home).materialized_workflows_dir
-        / ALICE_DOMAIN
+        / PUBLISHER_DOMAIN
         / "hello_world"
     )
     bundle = load_workflow_bundle(pulled_root)
@@ -604,8 +648,8 @@ def test_provision_inspect_pulls_bundle_and_only_allows_yes_nodes(
         for node in bundle.nodes
         for rule in [
             state.get_allow_rule(
-                hub_path=f"v1/artifacts/{ALICE_DOMAIN}/alice_secret_word/latest",
-                publisher=ALICE_DOMAIN,
+                hub_path=static_hub_path,
+                publisher=PUBLISHER_DOMAIN,
                 workflow_id="hello_world",
                 node_id=node.node_id,
                 compose_hash=node.compose_hash,
@@ -619,8 +663,8 @@ def test_provision_inspect_pulls_bundle_and_only_allows_yes_nodes(
         for node in bundle.nodes
         for rule in [
             state.get_allow_rule(
-                hub_path=f"v1/runtime/{ALICE_DOMAIN}/hello_world/artifacts/alice_secret_word_transformed/latest",
-                publisher=ALICE_DOMAIN,
+                hub_path=f"v1/runtime/{PUBLISHER_DOMAIN}/hello_world/artifacts/alice_secret_word_transformed/latest",
+                publisher=PUBLISHER_DOMAIN,
                 workflow_id="hello_world",
                 node_id=node.node_id,
                 compose_hash=node.compose_hash,
@@ -630,7 +674,7 @@ def test_provision_inspect_pulls_bundle_and_only_allows_yes_nodes(
         if rule is not None
     )
     dynamic_channel = state.get_dynamic_artifact_channel(
-        f"v1/runtime/{ALICE_DOMAIN}/hello_world/artifacts/alice_secret_word_transformed/latest"
+        f"v1/runtime/{PUBLISHER_DOMAIN}/hello_world/artifacts/alice_secret_word_transformed/latest"
     )
 
     assert exit_code == 0
@@ -642,7 +686,7 @@ def test_provision_inspect_pulls_bundle_and_only_allows_yes_nodes(
 
 
 def test_reset_runtime_command_deletes_remote_artifacts_and_certificates(tmp_path, monkeypatch, capsys) -> None:
-    cove_home = tmp_path / ".alice_cove"
+    cove_home = tmp_path / ".carol_cove"
     observed_write_identity: dict[str, object] = {}
 
     def fake_fetch_owner_identity_for_write(
@@ -667,16 +711,16 @@ def test_reset_runtime_command_deletes_remote_artifacts_and_certificates(tmp_pat
             _owner_config(server.url),
         )
         server.seed_runtime_artifact(
-            f"v1/runtime/{ALICE_DOMAIN}/hello_world/artifacts/alice_secret_word_transformed/latest",
+            f"v1/runtime/{PUBLISHER_DOMAIN}/hello_world/artifacts/alice_secret_word_transformed/latest",
             payload=b"ciphertext",
         )
         server.seed_runtime_certificate(
-            f"v1/runtime/{ALICE_DOMAIN}/hello_world/certificates/final_server/latest",
+            f"v1/runtime/{PUBLISHER_DOMAIN}/hello_world/certificates/final_server/latest",
             payload=b"{}",
         )
 
         exit_code = run(
-            ["--cove-home", str(cove_home), "reset-runtime", f"{ALICE_DOMAIN}/hello_world"]
+            ["--cove-home", str(cove_home), "reset-runtime", f"{PUBLISHER_DOMAIN}/hello_world"]
         )
 
         assert server.state.runtime_artifacts == {}
@@ -685,10 +729,10 @@ def test_reset_runtime_command_deletes_remote_artifacts_and_certificates(tmp_pat
     output = capsys.readouterr().out
     assert exit_code == 0
     assert observed_write_identity == {
-        "owner_url": ALICE_OWNER_URL,
-        "expected_owner_domain": ALICE_DOMAIN,
+        "owner_url": PUBLISHER_OWNER_URL,
+        "expected_owner_domain": PUBLISHER_DOMAIN,
     }
-    assert f"Cleared runtime state for '{ALICE_DOMAIN}/hello_world'" in output
+    assert f"Cleared runtime state for '{PUBLISHER_DOMAIN}/hello_world'" in output
 
 
 def test_allow_gated_key_release_supports_artifact_provisioner_sidecar(tmp_path) -> None:
@@ -700,18 +744,20 @@ def test_allow_gated_key_release_supports_artifact_provisioner_sidecar(tmp_path)
     plaintext = b"hello\n"
     plaintext_hash = sha256_literal(plaintext)
     artifact_id = "alice_secret_word"
-    hub_path = f"v1/artifacts/{LOCAL_OWNER_DOMAIN}/{artifact_id}/latest"
     _key_path, key_bytes = ensure_artifact_key(
         keys_dir=paths.keys_dir,
         artifact_id=artifact_id,
     )
     ciphertext = encrypt_artifact_bytes(plaintext=plaintext, key_bytes=key_bytes)
     ciphertext_hash = sha256_literal(ciphertext)
+    hub_path = f"v1/artifacts/{LOCAL_OWNER_DOMAIN}/{artifact_id}/{ciphertext_hash}"
+    port = _free_port()
+    owner_url = f"http://127.0.0.1:{port}"
     state.upsert_registered_artifact(
         hub_path=hub_path,
         artifact_id=artifact_id,
         owner_domain=LOCAL_OWNER_DOMAIN,
-        owner_url="http://127.0.0.1",
+        owner_url=owner_url,
         plaintext_hash=plaintext_hash,
         ciphertext_hash=ciphertext_hash,
         content_type="text/plain",
@@ -734,15 +780,16 @@ def test_allow_gated_key_release_supports_artifact_provisioner_sidecar(tmp_path)
         state=state,
         cove_home=cove_home,
         owner_domain=LOCAL_OWNER_DOMAIN,
+        port=port,
+        owner_url=owner_url,
     ) as provision_server:
         server.seed_artifact(hub_path, payload=ciphertext)
-        alias_hub_path = f"v1/artifacts/alice/{artifact_id}/latest"
         staged_plaintext_path = tmp_path / "runtime" / "cove" / "inputs" / artifact_id / artifact_id
         metadata_path = tmp_path / "runtime" / "cove" / "inputs" / artifact_id / "metadata.json"
         _ARTIFACT_PROVISIONER.run(
             {
                 "artifact_name": artifact_id,
-                "hub_path": alias_hub_path,
+                "hub_path": hub_path,
                 "owner": "alice",
                 "owners": {"alice": provision_server["url"]},
                 "covehub_server_url": server.url,
@@ -773,19 +820,22 @@ def test_allow_gated_key_release_rejects_mismatched_attestation_identity(
     state.initialize()
 
     artifact_id = "alice_secret_word"
-    hub_path = f"v1/artifacts/{LOCAL_OWNER_DOMAIN}/{artifact_id}/latest"
     _key_path, key_bytes = ensure_artifact_key(
         keys_dir=paths.keys_dir,
         artifact_id=artifact_id,
     )
     ciphertext = encrypt_artifact_bytes(plaintext=b"hello\n", key_bytes=key_bytes)
+    ciphertext_hash = sha256_literal(ciphertext)
+    hub_path = f"v1/artifacts/{LOCAL_OWNER_DOMAIN}/{artifact_id}/{ciphertext_hash}"
+    port = _free_port()
+    owner_url = f"http://127.0.0.1:{port}"
     state.upsert_registered_artifact(
         hub_path=hub_path,
         artifact_id=artifact_id,
         owner_domain=LOCAL_OWNER_DOMAIN,
-        owner_url="http://127.0.0.1",
+        owner_url=owner_url,
         plaintext_hash=sha256_literal(b"hello\n"),
-        ciphertext_hash=sha256_literal(ciphertext),
+        ciphertext_hash=ciphertext_hash,
         content_type="text/plain",
         source_path=str(tmp_path / "fixture.txt"),
         server_url="http://unused",
@@ -863,19 +913,22 @@ def test_allow_gated_key_release_rejects_missing_allow_rule(tmp_path) -> None:
 
     plaintext = b"hello\n"
     artifact_id = "alice_secret_word"
-    hub_path = f"v1/artifacts/{LOCAL_OWNER_DOMAIN}/{artifact_id}/latest"
     _key_path, key_bytes = ensure_artifact_key(
         keys_dir=paths.keys_dir,
         artifact_id=artifact_id,
     )
     ciphertext = encrypt_artifact_bytes(plaintext=plaintext, key_bytes=key_bytes)
+    ciphertext_hash = sha256_literal(ciphertext)
+    hub_path = f"v1/artifacts/{LOCAL_OWNER_DOMAIN}/{artifact_id}/{ciphertext_hash}"
+    port = _free_port()
+    owner_url = f"http://127.0.0.1:{port}"
     state.upsert_registered_artifact(
         hub_path=hub_path,
         artifact_id=artifact_id,
         owner_domain=LOCAL_OWNER_DOMAIN,
-        owner_url="http://127.0.0.1",
+        owner_url=owner_url,
         plaintext_hash=sha256_literal(plaintext),
-        ciphertext_hash=sha256_literal(ciphertext),
+        ciphertext_hash=ciphertext_hash,
         content_type="text/plain",
         source_path=str(tmp_path / "fixture.txt"),
         server_url="http://unused",
@@ -887,14 +940,15 @@ def test_allow_gated_key_release_rejects_missing_allow_rule(tmp_path) -> None:
         state=state,
         cove_home=cove_home,
         owner_domain=LOCAL_OWNER_DOMAIN,
+        port=port,
+        owner_url=owner_url,
     ) as provision_server:
         server.seed_artifact(hub_path, payload=ciphertext)
-        alias_hub_path = f"v1/artifacts/alice/{artifact_id}/latest"
         try:
             _ARTIFACT_PROVISIONER.run(
                 {
                     "artifact_name": artifact_id,
-                    "hub_path": alias_hub_path,
+                    "hub_path": hub_path,
                     "owner": "alice",
                     "owners": {"alice": provision_server["url"]},
                     "covehub_server_url": server.url,
@@ -943,7 +997,7 @@ def _write_config(cove_home: Path, payload: dict[str, object]) -> None:
 def _owner_config(server_url: str, **overrides: object) -> dict[str, object]:
     return {
         "covehub_server_url": server_url,
-        "owner_server_url": ALICE_OWNER_URL,
+        "owner_server_url": PUBLISHER_OWNER_URL,
         **overrides,
     }
 
@@ -954,20 +1008,25 @@ def _push_and_pull_hello_world(
     workflow_dir: Path,
 ) -> Path:
     with MockCovehubServer() as server:
+        publisher_home = tmp_path / ".carol_cove"
         _write_config(
-            cove_home,
+            publisher_home,
             _owner_config(server.url),
         )
         assert run(
-            ["--cove-home", str(cove_home), "push", str(workflow_dir / "workflow.cove.yaml")]
+            ["--cove-home", str(publisher_home), "push", str(workflow_dir / "workflow.cove.yaml")]
         ) == 0
+        _write_config(
+            cove_home,
+            _owner_config(server.url, owner_server_url=ALICE_OWNER_URL),
+        )
         assert run(
-            ["--cove-home", str(cove_home), "pull", f"{ALICE_DOMAIN}/hello_world"]
+            ["--cove-home", str(cove_home), "pull", f"{PUBLISHER_DOMAIN}/hello_world"]
         ) == 0
 
     return (
         provision_paths_for_home(cove_home).materialized_workflows_dir
-        / ALICE_DOMAIN
+        / PUBLISHER_DOMAIN
         / "hello_world"
     )
 
@@ -982,6 +1041,15 @@ def _inline_service_config(services: dict[str, object], service_name: str) -> di
 
 def _raise_runtime_error(message: str):
     raise RuntimeErrorBase(message)
+
+
+def _generated_static_ciphertext_hash(owner_domain: str, artifact_id: str, plaintext_hash: str) -> str:
+    return sha256_literal(f"{owner_domain}:{artifact_id}:{plaintext_hash}".encode("utf-8"))
+
+
+def _generated_static_hub_path(owner_domain: str, artifact_id: str, plaintext_hash: str) -> str:
+    ciphertext_hash = _generated_static_ciphertext_hash(owner_domain, artifact_id, plaintext_hash)
+    return f"v1/artifacts/{owner_domain}/{artifact_id}/{ciphertext_hash}"
 
 
 def _local_write_identity(owner_url: str, owner_private_key_path: Path) -> dict[str, object]:
@@ -1005,23 +1073,26 @@ class _running_provision_server:
         state: ProvisionState,
         cove_home: Path,
         owner_domain: str,
+        port: int | None = None,
+        owner_url: str | None = None,
     ) -> None:
         self.state = state
         self.cove_home = cove_home
         self.owner_domain = owner_domain
+        self.port = port if port is not None else _free_port()
+        self.owner_url = owner_url or f"http://127.0.0.1:{self.port}"
         self.server = None
         self.thread = None
         self.info: dict[str, object] | None = None
 
     def __enter__(self) -> dict[str, object]:
         paths = provision_paths_for_home(self.cove_home)
-        port = _free_port()
         self.server = create_provision_server(
             state=self.state,
             keys_dir=paths.keys_dir,
-            port=port,
+            port=self.port,
             owner_domain=self.owner_domain,
-            owner_url=f"http://127.0.0.1:{port}",
+            owner_url=self.owner_url,
         )
         self.thread = Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()

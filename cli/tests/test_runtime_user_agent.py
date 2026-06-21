@@ -65,7 +65,7 @@ def test_artifact_provisioner_owner_identity_requests_send_runtime_user_agent(mo
 
     artifact_provisioner._http_bytes_with_owner_identity(
         request=urllib_request.Request(
-            "https://cove-demo-hello-world-alice-provisioning.covehub.io/v1/artifacts/key-release",
+            "https://alice.cove-demo-parties.covehub.io/v1/artifacts/key-release",
             method="POST",
         ),
         owner_identity={},

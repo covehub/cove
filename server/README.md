@@ -83,13 +83,12 @@ Required headers:
 ### Typed Objects
 
 Covehub stores typed, named objects. Exact object routes end in
-`sha256:<digest>` and are immutable. A successful exact upload also advances
-that namespace's mutable `latest` pointer.
+`sha256:<digest>` and are immutable. Workflow and runtime exact uploads also
+advance that namespace's mutable `latest` pointer; static artifacts do not
+have a `latest` alias.
 
 - Static artifact exact:
   `PUT`/`GET`/`HEAD /v1/artifacts/{owner}/{artifact_name}/sha256:{digest}`
-- Static artifact latest:
-  `GET`/`HEAD /v1/artifacts/{owner}/{artifact_name}/latest`
 - Workflow exact:
   `PUT`/`GET`/`HEAD /v1/workflows/{publisher}/{workflow_id}/sha256:{digest}`
 - Workflow latest:
@@ -105,7 +104,8 @@ Rules:
   proof for the owner or publisher domain.
 - `PUT` verifies that `sha256(payload)` matches the exact path segment.
 - Exact objects are immutable; identical repeat uploads return `200`.
-- `latest` is a convenience pointer, not a reproducibility guarantee.
+- `latest` exists only for workflows and runtime objects. It is a convenience
+  pointer, not a reproducibility guarantee.
 
 ### Runtime Objects
 
@@ -168,7 +168,6 @@ Published bytes are written under typed route-like namespaces:
 ```text
 data/
   artifacts/<owner>/<artifact_name>/sha256:<digest>
-  artifacts/<owner>/<artifact_name>/latest
   workflows/<publisher>/<workflow_id>/sha256:<digest>
   workflows/<publisher>/<workflow_id>/latest
   runtime/<publisher>/<workflow_id>/certificates/<node_id>/sha256:<digest>
@@ -211,7 +210,7 @@ From `cove/`:
 
 ```bash
 cp .env.example .env
-$EDITOR .env  # set CLOUDFLARED_TOKEN
+$EDITOR .env  # set the Cloudflare tunnel token
 docker compose up -d --build
 ```
 

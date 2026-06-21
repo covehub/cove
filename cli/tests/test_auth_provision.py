@@ -26,8 +26,8 @@ from cove_cli.provisioning_identity import (
 from .support import MockCovehubServer, build_test_owner_identity
 
 
-ALICE_OWNER_URL = "https://cove-demo-hello-world-alice-provisioning.covehub.io"
-ALICE_DOMAIN = "cove-demo-hello-world-alice-provisioning.covehub.io"
+ALICE_DOMAIN = "alice.cove-demo-parties.covehub.io"
+ALICE_OWNER_URL = f"https://{ALICE_DOMAIN}"
 
 
 def test_owner_domain_is_derived_from_https_owner_url() -> None:
@@ -210,6 +210,7 @@ def test_provision_upload_uses_domain_path_and_signed_headers(tmp_path, monkeypa
         "expected_owner_domain": ALICE_DOMAIN,
     }
     assert f"v1/artifacts/{ALICE_DOMAIN}/secret/" in output
+    assert f"v1/artifacts/{ALICE_DOMAIN}/secret/latest" not in output
 
 
 def _stub_owner_identity_response(monkeypatch, identity_document: dict[str, object]) -> None:

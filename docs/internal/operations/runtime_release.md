@@ -31,14 +31,14 @@ docker login
 Build and push the canonical first-party sidecars:
 
 ```bash
-cd /home/$USER/mats/cove/containers
+cd /home/$USER/cove/containers
 ./scripts/build_all_containers.sh --docker-namespace covehub --tag <tag> --push
 ```
 
 With `--push`, the build script pushes each sidecar image and rewrites:
 
 ```text
-/home/$USER/mats/cove/containers/canonical_container_digests.json
+/home/$USER/cove/containers/canonical_container_digests.json
 ```
 
 ## Copy The Digest Policy Into The CLI
@@ -47,7 +47,7 @@ After publishing sidecars, copy the emitted container digest policy into both
 CLI locations:
 
 ```bash
-cd /home/$USER/mats/cove
+cd /home/$USER/cove
 cp containers/canonical_container_digests.json cli/canonical_container_digests.json
 cp containers/canonical_container_digests.json cli/src/cove_cli/canonical_container_digests.json
 ```

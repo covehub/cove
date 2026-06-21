@@ -1,0 +1,50 @@
+{
+  "type": "object",
+  "required": [
+    "base_vllm_git_sha",
+    "base_wheel_sha256",
+    "build_mode",
+    "changed_files",
+    "compiled_wheel_sha256",
+    "pass",
+    "serving_patch_sha256",
+    "vllm_version"
+  ],
+  "properties": {
+    "base_wheel_filename": {
+      "type": "string"
+    },
+    "base_vllm_git_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "base_wheel_sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "build_mode": {
+      "type": "string"
+    },
+    "changed_files": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "compiled_wheel_sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "pass": {
+      "type": "boolean"
+    },
+    "serving_patch_sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "vllm_version": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": true
+}

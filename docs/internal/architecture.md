@@ -123,9 +123,11 @@ key-release requests, artifact envelopes, and certificate references.
 
 ### Owner URL And Domain Identity
 
-An owner's service is reached over TLS, but the TLS key is only a transport
-key. It is not the owner identity key and must not be reused for Cove
-application signatures.
+An owner's service is identified by its public owner URL. Local `cove start`
+serves plain HTTP; production deployments normally place that HTTP service
+behind Cloudflare Tunnel or an equivalent domain-secured layer. Transport keys
+are not owner identity keys and must not be reused for Cove application
+signatures.
 
 The owner URL is the identity root. Its normalized hostname is the canonical
 Covehub namespace for static artifacts, published workflows, runtime objects,
@@ -211,7 +213,8 @@ Each owner provisions every static artifact they control:
 
 1. Generate or reuse local symmetric key material.
 2. Encrypt the plaintext locally.
-3. Upload the ciphertext envelope to Covehub.
+3. Upload the ciphertext envelope to the exact Covehub path
+   `v1/artifacts/<owner-domain>/<artifact-id>/sha256:<ciphertext-digest>`.
 4. Keep the decryption key in the owner's local key store.
 5. Publish or refresh the owner-signed provisioning endpoint binding for the
    key-release service that controls that artifact.
@@ -331,11 +334,12 @@ The reference design uses:
 - Ed25519 for signatures and keypairs where applicable
 - TEE attestation with a 64-byte report-data field
 
-TLS private keys are purpose-limited to TLS transport authentication. Owner
-approvals, artifact-envelope signatures, owner identity documents, Covehub
-domain write proofs, and other Cove protocol signatures use owner signing keys
-over domain-separated canonical payloads. This separation prevents the TLS
-handshake from being treated as an application-signing oracle.
+Transport private keys are purpose-limited to connection security at the
+public domain layer. Owner approvals, artifact-envelope signatures, owner
+identity documents, Covehub domain write proofs, and other Cove protocol
+signatures use owner signing keys over domain-separated canonical payloads.
+This separation prevents the transport handshake from being treated as an
+application-signing oracle.
 
 Each Cove quote lays report data out as two concatenated SHA-256 hashes:
 
@@ -380,10 +384,11 @@ components, security goals, and residual risks, see
 
 ## Reference Example
 
-The checked-in example is `hello_world`: two owners, two static secret-word
-artifacts, two dynamic transformed-word artifacts, dependency-certificate
-preconditions, and a long-running final HTTPS service. It exercises the same
-core primitives end-to-end:
+The checked-in example is `hello_world`: Alice and Bob own two static
+secret-word artifacts, Carol publishes and deploys the workflow, the runtime
+produces two dynamic transformed-word artifacts, and the final service exposes
+a long-running RA-TLS endpoint. It exercises the same core primitives
+end-to-end:
 
 - owner-controlled private artifacts
 - deterministic node compilation

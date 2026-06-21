@@ -60,7 +60,7 @@ def test_tunnel_lease_route_is_removed(tmp_path) -> None:
         assert response.status_code == 404
 
 
-def test_static_artifact_exact_write_read_head_latest_and_storage(tmp_path, monkeypatch) -> None:
+def test_static_artifact_exact_write_read_head_and_storage(tmp_path, monkeypatch) -> None:
     with _client(tmp_path) as client:
         identity, private_key = _owner_identity(ALICE_DOMAIN)
         _stub_current_owner_identity(monkeypatch, identity)
@@ -102,8 +102,7 @@ def test_static_artifact_exact_write_read_head_latest_and_storage(tmp_path, monk
         assert second_put.status_code == 200
         assert get_response.status_code == 200
         assert get_response.content == payload
-        assert latest_response.status_code == 200
-        assert latest_response.content == payload
+        assert latest_response.status_code == 404
         assert head_response.status_code == 200
         assert head_response.headers["content-length"] == str(len(payload))
         assert (
@@ -166,7 +165,7 @@ def test_static_artifact_upload_session_appends_chunks_and_completes(tmp_path, m
         assert completed["created"] is True
 
         assert client.get(object_path).content == payload
-        assert client.get(f"/v1/artifacts/{ALICE_DOMAIN}/model_weights/latest").content == payload
+        assert client.get(f"/v1/artifacts/{ALICE_DOMAIN}/model_weights/latest").status_code == 404
 
 
 def test_static_artifact_upload_session_rejects_offset_conflicts_and_digest_mismatch(tmp_path, monkeypatch) -> None:
@@ -396,16 +395,16 @@ def test_workflow_exact_and_latest_routes_store_typed_object(tmp_path, monkeypat
 def test_runtime_certificate_upload_stores_typed_exact_and_latest_object(tmp_path) -> None:
     with _client(tmp_path) as client:
         certificate = _phala_runtime_certificate(
-            workflow_id="attested_audit_demo",
+            workflow_id="attested_confidential_eval_demo",
             node_id="node_a",
         )
         payload = json.dumps(certificate).encode("utf-8")
         digest = _sha256_literal(payload)
-        path = f"/v1/runtime/{ALICE_DOMAIN}/attested_audit_demo/certificates/node_a/{digest}"
+        path = f"/v1/runtime/{ALICE_DOMAIN}/attested_confidential_eval_demo/certificates/node_a/{digest}"
 
         put_response = client.put(path, content=payload, headers=_runtime_headers(certificate))
         get_response = client.get(path)
-        latest_response = client.get(f"/v1/runtime/{ALICE_DOMAIN}/attested_audit_demo/certificates/node_a/latest")
+        latest_response = client.get(f"/v1/runtime/{ALICE_DOMAIN}/attested_confidential_eval_demo/certificates/node_a/latest")
 
         assert put_response.status_code == 201
         assert get_response.status_code == 200
@@ -417,14 +416,14 @@ def test_runtime_certificate_upload_stores_typed_exact_and_latest_object(tmp_pat
 def test_runtime_certificate_rejects_mismatched_node_id_header(tmp_path) -> None:
     with _client(tmp_path) as client:
         certificate = _phala_runtime_certificate(
-            workflow_id="attested_audit_demo",
+            workflow_id="attested_confidential_eval_demo",
             node_id="node_a",
         )
         payload = json.dumps(certificate).encode("utf-8")
         digest = _sha256_digest(payload)
 
         response = client.put(
-            f"/v1/runtime/{ALICE_DOMAIN}/attested_audit_demo/certificates/node_a/{_sha256_literal(payload)}",
+            f"/v1/runtime/{ALICE_DOMAIN}/attested_confidential_eval_demo/certificates/node_a/{_sha256_literal(payload)}",
             content=payload,
             headers={
                 **_runtime_headers(certificate),
@@ -439,19 +438,19 @@ def test_runtime_artifact_upload_stores_typed_exact_and_latest_object(tmp_path) 
     with _client(tmp_path) as client:
         payload = b"ciphertext-envelope"
         digest = _sha256_literal(payload)
-        path = f"/v1/runtime/{ALICE_DOMAIN}/attested_audit_demo/artifacts/model_output/{digest}"
+        path = f"/v1/runtime/{ALICE_DOMAIN}/attested_confidential_eval_demo/artifacts/model_output/{digest}"
 
         put_response = client.put(
             path,
             content=payload,
             headers=_runtime_artifact_headers(
-                workflow_id="attested_audit_demo",
+                workflow_id="attested_confidential_eval_demo",
                 node_id="node_a",
                 artifact_name="model_output",
             ),
         )
         get_response = client.get(path)
-        latest_response = client.get(f"/v1/runtime/{ALICE_DOMAIN}/attested_audit_demo/artifacts/model_output/latest")
+        latest_response = client.get(f"/v1/runtime/{ALICE_DOMAIN}/attested_confidential_eval_demo/artifacts/model_output/latest")
 
         assert put_response.status_code == 201
         assert get_response.status_code == 200
@@ -465,13 +464,13 @@ def test_runtime_artifact_requires_workflow_and_artifact_headers(tmp_path) -> No
         payload = b"ciphertext-envelope"
         digest = _sha256_digest(payload)
         headers = _runtime_artifact_headers(
-            workflow_id="attested_audit_demo",
+            workflow_id="attested_confidential_eval_demo",
             node_id="node_a",
             artifact_name="model_output",
         )
 
         response = client.put(
-            f"/v1/runtime/{ALICE_DOMAIN}/attested_audit_demo/artifacts/model_output/{_sha256_literal(payload)}",
+            f"/v1/runtime/{ALICE_DOMAIN}/attested_confidential_eval_demo/artifacts/model_output/{_sha256_literal(payload)}",
             content=payload,
             headers={key: value for key, value in headers.items() if key != "X-Cove-Workflow-Id"},
         )
@@ -484,13 +483,13 @@ def test_runtime_artifact_rejects_report_data_for_different_artifact(tmp_path) -
         payload = b"ciphertext-envelope"
         digest = _sha256_digest(payload)
         headers = _runtime_artifact_headers(
-            workflow_id="attested_audit_demo",
+            workflow_id="attested_confidential_eval_demo",
             node_id="node_a",
             artifact_name="model_output",
         )
 
         response = client.put(
-            f"/v1/runtime/{ALICE_DOMAIN}/attested_audit_demo/artifacts/model_output/{_sha256_literal(payload)}",
+            f"/v1/runtime/{ALICE_DOMAIN}/attested_confidential_eval_demo/artifacts/model_output/{_sha256_literal(payload)}",
             content=payload,
             headers={**headers, "X-Cove-Artifact-Name": "other_output"},
         )

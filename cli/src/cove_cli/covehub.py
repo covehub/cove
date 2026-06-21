@@ -30,7 +30,7 @@ class ObjectUploadResult:
     status_code: int
     digest: str
     hub_path: str
-    latest_hub_path: str
+    latest_hub_path: str | None
 
 
 def upload_named_artifact(
@@ -46,7 +46,6 @@ def upload_named_artifact(
     del overwrite
     digest = _sha256_literal(payload)
     hub_path = f"v1/artifacts/{owner_domain}/{artifact_name}/{digest}"
-    latest_hub_path = f"v1/artifacts/{owner_domain}/{artifact_name}/latest"
     return _upload_typed_object(
         label="artifact",
         server_url=server_url,
@@ -55,7 +54,7 @@ def upload_named_artifact(
         owner_private_key_path=owner_private_key_path,
         payload=payload,
         hub_path=hub_path,
-        latest_hub_path=latest_hub_path,
+        latest_hub_path=None,
         content_type="application/octet-stream",
     )
 
@@ -146,7 +145,7 @@ def _upload_typed_object(
     owner_private_key_path: Path,
     payload: bytes,
     hub_path: str,
-    latest_hub_path: str,
+    latest_hub_path: str | None,
     content_type: str,
 ) -> ObjectUploadResult:
     try:

@@ -1,0 +1,8 @@
+services:
+  audit_agent:
+    image: "covehub/cove-demo-attested-confidential-eval-vllm-audit-agent@sha256:50032520c4cfc2bc5fed3711cac4c50689b9303a931021b00c9a8e0326ceded3"
+    environment:
+      AUDIT_KIND: eval_code
+      AUDIT_MODEL_ID: Qwen/Qwen3.5-9B
+      INPUT_PATH: /workspace/input/bob_private_eval_code.py
+      RESULT_PATH: /workspace/output/audit_eval_result.json

@@ -21,14 +21,14 @@ Each directory has its own README. Start there for package-level details.
 | [ui/](ui/) | The public read-only Covehub browser (`covehub.io`). React frontend + small FastAPI indexer. Convenience discovery, not an integrity oracle. |
 | [containers/](containers/) | First-party runtime sidecar images (`cove-base`, `cove-artifact-provisioner`, `cove-precondition-checker`, …) and the canonical digest set the CLI ships. |
 | [cove_container_runtime/](cove_container_runtime/) | Shared Python library used by the sidecar images for attestation, certificates, and the JsonLogic precondition subset. |
-| [demos/hello_world/](demos/hello_world/) | The reference workflow that exercises every primitive end-to-end: two owners, static and dynamic artifacts, dependency-certificate gating, JsonLogic preconditions, and a long-running RA-TLS service. |
+| [demos/hello_world/](demos/hello_world/) | The reference workflow that exercises every primitive end-to-end: Alice and Bob as data owners, Carol as publisher/deployer, static and dynamic artifacts, dependency-certificate gating, JsonLogic preconditions, and a long-running RA-TLS service. |
 | [docs/internal/](docs/internal/) | Internal-developer documentation: architecture, security model, operations runbooks, and the engineering TODO list. |
 | [scripts/](scripts/) | Top-level helper scripts. |
 
 ## Top-Level Files
 
 - [compose.yaml](compose.yaml) — the canonical Covehub deployment: API, public UI, and Cloudflare Tunnel as a single Compose stack.
-- [.env.example](.env.example) — template for `cove/.env`. Copy to `.env`, set `CLOUDFLARED_TOKEN`, optionally tune local smoke ports. The real `.env` is gitignored.
+- [.env.example](.env.example) — template for the private Compose environment. Copy it locally, set the Cloudflare tunnel token, and optionally tune local smoke ports. The real env file is gitignored.
 
 ## Quick Start
 
@@ -40,7 +40,7 @@ If you only want to bring up Covehub itself (API + UI + tunnel):
 ```bash
 cd /path/to/cove
 cp .env.example .env
-$EDITOR .env  # set CLOUDFLARED_TOKEN
+$EDITOR .env  # set the Cloudflare tunnel token
 docker compose up -d --build
 ```
 

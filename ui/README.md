@@ -17,9 +17,9 @@ for local download and inspection.
 Run the full API, UI, and Cloudflare Tunnel stack from `cove/`:
 
 ```bash
-cd /home/$USER/mats/cove
+cd /path/to/cove
 cp .env.example .env
-$EDITOR .env  # set CLOUDFLARED_TOKEN
+$EDITOR .env  # set the Cloudflare tunnel token
 docker compose up -d --build
 ```
 

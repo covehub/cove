@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Annotated, Any
+from typing import Annotated, Any, Sequence
 
 from cove_container_runtime.attestation import (
     build_node_certificate_report_data,
@@ -101,6 +101,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             namespace_parts=["artifacts", owner, artifact_name],
             hash_segment=hash_segment,
             payload=payload,
+            update_latest=False,
         )
 
     @app.post("/v1/artifacts/{owner}/{artifact_name}/{hash_segment}/upload-session")
@@ -452,7 +453,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         current_services: Services = Depends(_get_services),
     ) -> JSONResponse:
         try:
-            session, result = current_services.storage.complete_upload_session(session_id)
+            pending_session = current_services.storage.get_upload_session(session_id)
+            session, result = current_services.storage.complete_upload_session(
+                session_id,
+                update_latest=_namespace_updates_latest(pending_session.namespace_parts),
+            )
         except UploadSessionNotFoundError as exc:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -612,10 +617,16 @@ def _write_typed_object(
     namespace_parts: list[str],
     hash_segment: str,
     payload: bytes,
+    update_latest: bool = True,
 ) -> Response:
     _ensure_payload_hash_segment(hash_segment, payload)
     try:
-        result = services.storage.write_object(namespace_parts, hash_segment, payload)
+        result = services.storage.write_object(
+            namespace_parts,
+            hash_segment,
+            payload,
+            update_latest=update_latest,
+        )
     except PathConflictError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -625,6 +636,10 @@ def _write_typed_object(
         status_code=_write_status_code(result.created),
         media_type="application/octet-stream",
     )
+
+
+def _namespace_updates_latest(namespace_parts: Sequence[str]) -> bool:
+    return not namespace_parts or namespace_parts[0] != "artifacts"
 
 
 def _read_object_response(services: Services, path_parts: list[str]) -> Response:
