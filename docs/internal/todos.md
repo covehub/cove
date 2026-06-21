@@ -113,7 +113,7 @@ Required capabilities:
 - stream chunks to temporary storage without buffering full objects in memory;
 - finalize by assembling/verifying the exact SHA-256 digest server-side before
   making the object visible;
-- update `latest` only after finalization succeeds;
+- update mutable `latest` aliases only after finalization succeeds;
 - clean up abandoned or expired temporary chunk state;
 - support streamed downloads, and likely ranged downloads, for large reads.
 
@@ -176,8 +176,8 @@ Add CoveHub UI URLs to human-facing CLI output:
 
 - `cove push` should print UI URLs for the exact workflow object and latest
   workflow object alongside raw hub paths.
-- `cove provision` should print UI URLs for the exact artifact object and
-  latest artifact object after upload.
+- `cove provision` should print a UI URL for the exact static artifact object
+  after upload.
 - `cove provision inspect` should print a concise workflow UI URL and local
   pulled bundle path, and avoid overwhelming the terminal with long review
   text that is easier to inspect in the UI.

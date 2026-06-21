@@ -322,7 +322,7 @@ export PUBLISHER="<publisher>"
 export WORKFLOW_ID="<workflow_id>"
 export BUNDLE_ROOT="<cove-home>/materialized_workflows/${PUBLISHER}/${WORKFLOW_ID}"
 
-PYTHONPATH=/home/$USER/mats/cove/cove_container_runtime/src \
+PYTHONPATH=/home/$USER/cove/cove_container_runtime/src \
 /home/$USER/.cove-cli-release/bin/python - <<'PY'
 import json
 import os
@@ -408,7 +408,7 @@ section names this keypair (e.g. `session_key`); pass it via
 `FINAL_KEYPAIR_NAME` if it differs:
 
 ```bash
-PYTHONPATH=/home/$USER/mats/cove/cove_container_runtime/src \
+PYTHONPATH=/home/$USER/cove/cove_container_runtime/src \
 FINAL_URL="${FINAL_URL}" \
 /home/$USER/.cove-cli-release/bin/python - <<'PY'
 import hashlib

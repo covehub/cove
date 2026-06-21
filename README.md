@@ -21,7 +21,7 @@ Each directory has its own README. Start there for package-level details.
 | [ui/](ui/) | The public read-only Covehub browser (`covehub.io`). React frontend + small FastAPI indexer. Convenience discovery, not an integrity oracle. |
 | [containers/](containers/) | First-party runtime sidecar images (`cove-base`, `cove-artifact-provisioner`, `cove-precondition-checker`, …) and the canonical digest set the CLI ships. |
 | [cove_container_runtime/](cove_container_runtime/) | Shared Python library used by the sidecar images for attestation, certificates, and the JsonLogic precondition subset. |
-| [demos/hello_world/](demos/hello_world/) | The reference workflow that exercises every primitive end-to-end: two owners, static and dynamic artifacts, dependency-certificate gating, JsonLogic preconditions, and a long-running RA-TLS service. |
+| [demos/hello_world/](demos/hello_world/) | The reference workflow that exercises every primitive end-to-end: Alice and Bob as data owners, Carol as publisher/deployer, static and dynamic artifacts, dependency-certificate gating, JsonLogic preconditions, and a long-running RA-TLS service. |
 | [docs/internal/](docs/internal/) | Internal-developer documentation: architecture, security model, operations runbooks, and the engineering TODO list. |
 | [scripts/](scripts/) | Top-level helper scripts. |
 

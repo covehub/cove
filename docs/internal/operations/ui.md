@@ -18,7 +18,7 @@ routing.
 The canonical deployment is the Docker Compose stack from `cove/`:
 
 ```bash
-cd /home/$USER/mats/cove
+cd /home/$USER/cove
 cp .env.example .env
 $EDITOR .env  # set CLOUDFLARED_TOKEN
 docker compose up -d --build

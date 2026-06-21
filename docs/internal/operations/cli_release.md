@@ -26,7 +26,7 @@ code needed to compile, review, and deploy workflows.
 After publishing runtime containers:
 
 ```bash
-cd /home/$USER/mats/cove
+cd /home/$USER/cove
 cp containers/canonical_container_digests.json cli/canonical_container_digests.json
 cp containers/canonical_container_digests.json cli/src/cove_cli/canonical_container_digests.json
 ```
@@ -44,7 +44,7 @@ Build the CLI package into a local wheelhouse:
 rm -rf /tmp/cove-cli-wheelhouse
 mkdir -p /tmp/cove-cli-wheelhouse
 
-cd /home/$USER/mats/cove/cli
+cd /home/$USER/cove/cli
 uv build --out-dir /tmp/cove-cli-wheelhouse
 ```
 
@@ -59,22 +59,23 @@ Install from the local wheelhouse into a clean virtual environment:
 ```bash
 rm -rf ~/.cove-cli-release
 python3 -m venv ~/.cove-cli-release
-~/.cove-cli-release/bin/python -m pip install --upgrade pip
-~/.cove-cli-release/bin/python -m pip install /tmp/cove-cli-wheelhouse/cove_cli-*.whl
+source ~/.cove-cli-release/bin/activate
+python -m pip install --upgrade pip
+pip install /tmp/cove-cli-wheelhouse/cove_cli-*.whl
 ```
 
 Verify the installed executable:
 
 ```bash
-~/.cove-cli-release/bin/cove --help
+cove --help
 ```
 
 Use this installed binary for all operator workflows. The active Cove home
 is selected per-invocation by `--cove-home`:
 
 ```bash
-~/.cove-cli-release/bin/cove --cove-home <home> check   <workflow.cove.yaml>
-~/.cove-cli-release/bin/cove --cove-home <home> provision inspect <publisher>/<workflow_id>
+cove --cove-home <home> check <workflow.cove.yaml>
+cove --cove-home <home> provision inspect <publisher>/<workflow_id>
 ```
 
 ## Release Checklist

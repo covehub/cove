@@ -20,7 +20,7 @@ Each owner runs `cove start` against their own Cove home, choosing a local
 bind port:
 
 ```bash
-/path/to/cove --cove-home /home/$USER/.<owner>_cove start <port>
+cove --cove-home /home/$USER/.<owner>_cove start <port>
 ```
 
 The Cove home must already be initialized (`cove init`) and must declare the
@@ -32,6 +32,14 @@ owner_server_url: https://<your domain>
 
 If no port is provided, `cove start` defaults to `9000`. Pick distinct ports
 when running multiple owners on the same host.
+
+For the public hello-world demo on the shared parties tunnel, use:
+
+```bash
+cove --cove-home /home/$USER/.alice_cove start 9600
+cove --cove-home /home/$USER/.bob_cove start 9601
+cove --cove-home /home/$USER/.carol_cove start 9602
+```
 
 ## The `/identity` Document
 
@@ -91,6 +99,20 @@ docker run --rm --network host --name <owner>-cloudflared \
   cloudflare/cloudflared:latest tunnel --no-autoupdate run \
   --token "${<OWNER>_CLOUDFLARED_TOKEN}"
 ```
+
+For the hello-world demo, `~/.cloudflare_parties_token` contains the full
+`cloudflared tunnel run ...` command for the split parties tunnel. Run that
+command once in its own tmux window. Configure the tunnel routes as:
+
+```text
+alice.cove-demo-parties.covehub.io -> http://127.0.0.1:9600
+bob.cove-demo-parties.covehub.io   -> http://127.0.0.1:9601
+carol.cove-demo-parties.covehub.io -> http://127.0.0.1:9602
+```
+
+The Covehub API/UI use their own Cloudflare tunnel token through the root
+Compose stack; do not add `api.covehub.io` or `covehub.io` to the parties
+tunnel.
 
 ## Workflow YAML
 
