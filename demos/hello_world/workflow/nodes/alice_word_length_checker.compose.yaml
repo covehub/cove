@@ -1,6 +1,6 @@
 services:
   word_length_checker:
-    image: "covehub/cove-demo-hello-world-word-length-checker@sha256:6cdc22c80f9e102ab2b0da4edbeb96964179cda981a3c3d8f2786a710130e730"
+    image: "covehub/cove-demo-hello-world-word-length-checker@sha256:1c7d17a9d4593d855ff9e81ac37fe07f47235c65575c7f7f5e50755cfa3c0617"
     environment:
       INPUT_PATH: /workspace/input/alice_secret_word.txt
       RESULT_PATH: /workspace/output/alice_word_length_result.json
