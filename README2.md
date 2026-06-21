@@ -14,9 +14,11 @@ As Cove is a multi-party framework, how you use Cove depends on which party you 
     simultaneously.
 * For production:
   * **Workflow Publisher**: You design a Cove workflow, specifying the business logic and
-    the required inputs from other parties. It is your responsibility to publish the
-    workflow, solicit action from the other involved parties, and submit the workflow for
-    execution.
+    the required inputs from other parties. It is your responsibility to design the
+    workflow by discussing with artifact provisioners, author and publish the workflow,
+    and solicit approval from artifact provisioners from.
+    * Once workflows are published, anyone can execute them, but for simplicity, we will
+      assume that the workflow publisher will also execute the workflows they publish.
   * **Artifact Provisioner**: You are a party who provides private inputs to workflows,
     and may also expect the workflows to generate private outputs that only you can decrypt.
     For example, these private inputs may be proprietary model weights or serving code.
@@ -51,6 +53,9 @@ You will need:
 * **A Docker Registry**, as you will most likely need to publish custom Docker images. Only
   public images are needed, so a free DockerHub account is sufficient.
 
+You will also need a secure communication channel with artifact provisioners, as you will be
+working closely with them to design, publish, and run the workflow.
+
 #### Design the Workflow
 Your job as a workflow publisher is to design the workflow. Look at demos/ for starting
 examples. At a high level, the workflow includes:
@@ -58,6 +63,8 @@ examples. At a high level, the workflow includes:
 * A list of **private artifacts**, each belonging to an artifact provisioner (the artifact owner)
   * Each private artifact can be static or dynamic; static means that the owner already has the
     artifact as a known file, whereas dynamic means it will be the output of some intermediate node.
+  * Static artifacts require an artifact hash, which you'll need to obtain from the artifact's
+    provisioner.
 * A list of **nodes**, each representing a secure enclave. Each node includes
   * An optional list of dependency nodes that must complete before this node can start;
   * A Docker compose file that contains a list of **services** (containers) that shall be run in the enclave;
@@ -104,7 +111,11 @@ section. We will assume that the workflow has been approved by all artifact prov
 
 #### Run the Workflow
 
-Run the workflow with TODO: how to run?
+Run the workflow:
+
+```
+cove deploy <publisher-domain>/<workflow_id> --phala-instance-type <type>
+```
 
 ### Getting Started as an Artifact Provisioner
 
@@ -126,6 +137,24 @@ tasks:
   the requested encryption key to the enclave.
 
 To bring up the provisioning server, simply run `cove provision serve 12345`.
+
+#### Prepare Static Artifacts
+
+Coordinate with the workflow publisher to clarify the requirements for your static artifacts.
+For example, you may agree that the format of a "model weights" static artifact be a gzip
+file that extracts to exactly five `.safetensor` files. Or you may agree that the format of
+your "model serving code patch" artifact be a git diff on top of a specific vLLM commit.
+
+You will then build your static artifacts as agreed upon, register them with your artifact
+provisioner, and for each artifact, give the CoveHub path and artifact hash (printed by 
+the command) to the workflow publisher.
+
+```
+cove provision [--overwrite] <artifact_name> <file_path>
+```
+
+This command generates a new encryption key, encrypts your artifact, uploads the encrypted
+data to CoveHub, and registers the encryption key with your local key provisioner.
 
 #### Inspect and Approve the Workflow
 
@@ -164,19 +193,56 @@ Once you're confident that the workflow is correct, approve the workflow:
 cove provision approve <publisher-domain>/<workflow_id>
 ```
 
-#### Prepare Static Artifacts
+This command does the following: For each node (enclave) in the workflow, approve the concrete
+generated docker compose (what is actually being run in the enclave) for each private artifact
+owned by you in this node.
 
-To allow your provisioner to send private artifacts into actual enclaves, for each static
-input artifact you own, use the following command to generate an encryption key, encrypt
-the artifact, upload the encrypted artifact to CoveHub, and register the key and artifact
-with your provisioner:
+### Getting Started as an End User
+
+As an end user, you interact with a service running in an enclave. Let's use a basic confidential 
+inference example:
+* You wish to verify that the model used to serve the endpoint is one that passes certain
+  benchmarks (i.e. it is a capable model and they are not fooling you with a tiny one);
+* You wish to verify that your requests and responses are not logged.
+
+Your personal audit of the service endpoint involves two parts:
+1. Verifying that the service endpoint is indeed running the exact workflow expected, in a secure
+  enclave;
+2. Auditing that the preconditions and their dependency execution certificates satisfy your
+  semantic expectations.
+
+For the first part, the Cove CLI provides a client proxy. It serves the following purposes:
+* Transforms the remote HTTPS/TLS endpoint into a local HTTP/TCP endpoint for easy calling;
+* Verfies that the endpoint is
+  * Served with a HTTPS/TLS certificate generated and signed with the enclave, where
+  * the enclave is a genuine TEE that runs a trusted VM image parametered with the exact 
+    Docker Compose expected from the workflow; and that
+  * The workflow is signed by the workflow publisher.
 
 ```
-cove provision [--overwrite] <artifact_name> <file_path>
+cove client proxy \
+  --remote <service-url>
+  --local localhost:8080
+  --workflow <publisher-domain>/<workflow_id>
+  --write-workflow-to workflows/
 ```
 
+After verification, this command will also write the workflow to the output directory as
+specified. You should then inspect the workflow to make sure you understand it. Refer to
+the Inspect and Approve the Workflow section above. In this example, make sure that the
+model and code audits as well as the preconditions for the serving step correspond to
+what you expect: that the audits use reasonable models and prompts, and that the
+preconditions correctly connects the audit results to what is being served.
 
+Once you understand and are satisfied about the endpoint's security, you may use the
+local proxied endpoint to call the service and be confident that this goes directly to
+the trusted enclave.
 
+### Getting Started as a Registry Provider
 
-
+As a registry provider, your task is to run CoveHub. A very simple CoveHub server has
+been included in the compose.yaml at the root of the repository. All you need is to
+provide a Cloudflare Tunnel token to run it behind your domain. You can run the CoveHub
+server on any domain and on any server; just make sure it has enough space since
+artifacts can be quite large.
 
