@@ -36,6 +36,7 @@ For someone new to the project:
 | [attested_confidential_benchmark__vllm_cpu.md](attested_confidential_benchmark__vllm_cpu.md) | Attested confidential benchmark vLLM CPU end-to-end runbook and client verification flow. |
 | [todos.md](todos.md) | Engineering follow-ups not tracked in code. |
 | [operations/README.md](operations/README.md) | Map of the operations runbooks: which one to read for which task. |
+| [operations/dev_setup.md](operations/dev_setup.md) | Set up a personal Cloudflare tunnel and run the scripted hello-world demo. |
 | [operations/covehub_server.md](operations/covehub_server.md) | Run the Docker Compose Covehub API and public UI stack behind Cloudflare Tunnel. |
 | [operations/ui.md](operations/ui.md) | Public CoveHub browser UI: indexer surface, frontend views, env vars, tests. |
 | [operations/owner_services.md](operations/owner_services.md) | Run owner services and publish signed identities. |

@@ -352,7 +352,7 @@ docker compose -f ../demos/hello_world/workflow/build/nodes/final_server/compose
 
 For the full hello-world walkthrough — provisioning, compile, push, pull,
 review, deploy, and certificate verification — see
-`docs/internal/operations/end_to_end.md`.
+`docs/internal/hello_world.md`.
 
 ## Releasing The CLI
 

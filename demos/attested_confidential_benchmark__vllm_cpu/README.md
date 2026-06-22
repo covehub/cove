@@ -77,7 +77,7 @@ compose files:
 
 ```bash
 ./demos/attested_confidential_benchmark__vllm_cpu/scripts/build_all_containers.sh \
-  --docker-namespace hpmv \
+  --docker-namespace covehub \
   --tag dev \
   --push
 ```

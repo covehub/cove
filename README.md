@@ -33,7 +33,7 @@ Each directory has its own README. Start there for package-level details.
 ## Quick Start
 
 If you want to run the hello-world demo against Phala Cloud, the
-authoritative walkthrough is [docs/internal/operations/end_to_end.md](docs/internal/operations/end_to_end.md).
+authoritative walkthrough is [docs/internal/hello_world.md](docs/internal/hello_world.md).
 
 If you only want to bring up Covehub itself (API + UI + tunnel):
 

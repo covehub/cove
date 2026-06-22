@@ -36,15 +36,34 @@ enclave-generated TLS keypair.
 
 ## Demo Runtime Notes
 
-- Before provisioning artifacts, pushing the workflow, or deploying to Phala,
-  run the Docker Compose Covehub stack from `/home/$USER/cove`. The demo
-  expects `https://api.covehub.io` to reach `covehub-api` and
-  `https://covehub.io` to reach the read-only browser UI through the Covehub
-  Cloudflare Tunnel; see `docs/internal/operations/covehub_server.md`.
-- Run the separate parties Cloudflare tunnel connector for owner services:
-  `demo-alice.covehub.io -> 127.0.0.1:9600`,
-  `demo-bob.covehub.io -> 127.0.0.1:9601`, and
-  `demo-carol.covehub.io -> 127.0.0.1:9602`.
+- The scripted run starts Covehub API/UI, Alice, Bob, Carol, the client proxy,
+  and the Cloudflare connector from `demos/hello_world/scripts`.
+- Copy `scripts/.env.example` to `scripts/.env`, then fill in Carol's Phala
+  Cloud API key, the Docker Hub token for the `covehub` namespace, and the
+  Cloudflare tunnel token.
+- Configure the Cloudflare tunnel public hostname routes to the Compose service
+  origins. Production uses:
+
+```text
+covehub.io               -> http://covehub-ui:8080
+api.covehub.io           -> http://covehub-api:8000
+demo-alice.covehub.io    -> http://alice:9000
+demo-bob.covehub.io      -> http://bob:9000
+demo-carol.covehub.io    -> http://carol:9000
+```
+
+- For an individual dev tunnel, choose one coherent hostname set and update
+  both `scripts/.env` and the Cloudflare routes to match. Examples include
+  `orion-api.covehub.io` with `orion.covehub.io`,
+  `hpmv-api.covehub.io` with `hpmv.covehub.io`, or the equivalent `erika`
+  hostnames, plus matching owner hostnames for Alice, Bob, and Carol.
+- Start or reset the scripted run from `demos/hello_world/scripts`:
+
+```bash
+docker compose down -v  # if this is not the first run
+docker compose up --build
+```
+
 - The local demo flow does not rebuild first-party Cove sidecars. Pull
   them with the top-level `containers/scripts/pull_canonical_containers.sh`
   helper, and pull the demo workloads with this directory's
@@ -58,10 +77,9 @@ enclave-generated TLS keypair.
   `docs/internal/operations/phala_deploy.md` §"Docker Hub authentication
   is required".
 - Phala runs require a public HTTPS Covehub URL plus public owner URLs
-  reachable from Phala. The checked-in workflow declares
-  `https://demo-alice.covehub.io`,
-  `https://demo-bob.covehub.io`, and
-  `https://demo-carol.covehub.io`.
+  reachable from Phala. The checked-in workflow declares Alice and Bob at
+  `https://demo-alice.covehub.io` and `https://demo-bob.covehub.io`; Carol's
+  publisher URL comes from `CAROL_URL` in `scripts/.env`.
 - Authored workflows do not contain artifact `hub_path` fields. Static
   artifacts are pinned by `owner + artifact_id + plaintext_hash`; compile
   generates exact static ciphertext paths in `workflow.normalized.cove.yaml`.

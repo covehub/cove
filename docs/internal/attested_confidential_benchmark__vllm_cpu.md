@@ -53,17 +53,26 @@ available in the CPU vLLM wheel on Phala.
 
 ## 1. Start Covehub, Tunnels, CLI, And Owners
 
-Use the shared hello-world setup steps in [hello_world.md](hello_world.md):
+Use the same public hostnames and credential shape as the hello-world run in
+[hello_world.md](hello_world.md). Production uses:
 
-- start the root Covehub API/UI Compose stack,
-- start the parties Cloudflare tunnel,
-- build and install the release CLI wheel,
-- initialize Alice, Bob, and Carol Cove homes,
-- start Alice, Bob, and Carol owner services on ports `9600`, `9601`, and
-  `9602`.
+- Covehub API: `https://api.covehub.io`
+- Covehub UI: `https://covehub.io`
+- Alice owner URL: `https://demo-alice.covehub.io`
+- Bob owner URL: `https://demo-bob.covehub.io`
+- Carol owner/publisher URL: `https://demo-carol.covehub.io`
 
-Carol needs a Phala Cloud API key and Docker Hub credentials. Alice and Bob do
-not need deploy credentials.
+For an individual dev tunnel, choose one coherent hostname set and update both
+the demo `.env` file and Cloudflare routes to match. Examples include
+`orion-api.covehub.io` with `orion.covehub.io`, `hpmv-api.covehub.io` with
+`hpmv.covehub.io`, or the equivalent `erika` hostnames, plus matching owner
+hostnames for Alice, Bob, and Carol.
+
+For manual runs, start Covehub, route the three owner services, build/install
+the CLI, initialize Alice/Bob/Carol Cove homes, and keep the owner services
+running while Phala executes. Carol needs a Phala Cloud API key and Docker Hub
+credentials for the `covehub` namespace. Alice and Bob do not need deploy
+credentials.
 
 ## 2. Prepare Private Inputs
 
