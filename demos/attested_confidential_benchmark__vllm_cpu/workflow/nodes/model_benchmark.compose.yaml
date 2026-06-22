@@ -1,6 +1,6 @@
 services:
   benchmark_runner:
-    image: "covehub/cove-demo-attested-confidential-eval-vllm-benchmark-runner@sha256:dc3dfc8a5b8230e76378f45370ee3eb11a9f5ef77437daa9552786f4a3885fe9"
+    image: "covehub/cove-demo-attested-confidential-eval-vllm-benchmark-runner@sha256:4651c3fee03ec4dbaee5a70ee8784fba4460e50f5ed5cc8b51465a35feb87d48"
     environment:
       EVAL_CODE_PATH: /workspace/input/bob_private_eval_code.py
       EVAL_DATA_PATH: /workspace/input/bob_private_eval_data.jsonl

@@ -12,6 +12,7 @@ const PORT = Number(process.env.PORT || 5177);
 
 const DEFAULTS = {
   endpoint: process.env.COVE_DEMO_ENDPOINT || "",
+  apiBase: process.env.COVE_API_BASE || "https://api.covehub.io",
   publisher: process.env.COVE_PUBLISHER || "demo-carol.covehub.io",
   workflow: process.env.COVE_WORKFLOW_ID || "attested_confidential_benchmark__vllm_cpu",
   model: process.env.COVE_MODEL_NAME || "CoveDemoModel",
@@ -204,6 +205,7 @@ function inspectTls(endpoint) {
 async function handleCertificates(requestUrl, response) {
   const publisher = requestUrl.searchParams.get("publisher") || DEFAULTS.publisher;
   const workflow = requestUrl.searchParams.get("workflow") || DEFAULTS.workflow;
+  const apiBase = requestUrl.searchParams.get("apiBase") || DEFAULTS.apiBase;
   const certificates = {};
   const errors = {};
 
@@ -211,7 +213,7 @@ async function handleCertificates(requestUrl, response) {
     CERTIFICATE_NODES.map(async (node) => {
       const url = new URL(
         `/v1/runtime/${encodeURIComponent(publisher)}/${encodeURIComponent(workflow)}/certificates/${node}/latest`,
-        "https://api.covehub.io",
+        apiBase,
       );
       try {
         const result = await requestJson(url, { timeoutMs: 60_000 });
@@ -227,6 +229,7 @@ async function handleCertificates(requestUrl, response) {
   );
 
   sendJson(response, Object.keys(errors).length === 0 ? 200 : 207, {
+    apiBase,
     publisher,
     workflow,
     certificates,

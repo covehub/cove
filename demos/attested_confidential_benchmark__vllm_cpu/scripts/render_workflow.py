@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Refresh static artifact hashes in the attested benchmark workflow."""
 
 from __future__ import annotations
 

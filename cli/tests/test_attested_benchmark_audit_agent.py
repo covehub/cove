@@ -131,3 +131,5 @@ def test_audit_policy_allows_private_model_rename_and_checks_eval_exfiltration(
     assert "memory-corruption risk" in serving_policy
     assert "model weights" in eval_policy
     assert "external network calls" in eval_policy
+    assert "defines the Inspect benchmark task and scorer" in eval_policy
+    assert "public benchmark runner owns model endpoint calls" in eval_policy

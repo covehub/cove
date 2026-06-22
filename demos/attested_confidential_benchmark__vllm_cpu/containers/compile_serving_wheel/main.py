@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Compile Alice's audited private serving patch into a vLLM wheel."""
 
 from __future__ import annotations
 
@@ -62,6 +63,8 @@ def main() -> int:
             f"{observed_vllm_git_sha} != {expected_vllm_git_sha}"
         )
 
+    # Alice's private serving patch is applied inside this temporary checkout;
+    # the node then overlays only the changed Python files onto the vLLM wheel.
     changed_files = _changed_python_files(patch_path)
     with tempfile.TemporaryDirectory(prefix="cove-vllm-build-") as temp_dir:
         temp_root = Path(temp_dir)

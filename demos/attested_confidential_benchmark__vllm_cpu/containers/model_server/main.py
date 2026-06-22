@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Run the attested CoveDemoModel OpenAI-compatible model server."""
 
 from __future__ import annotations
 
@@ -168,6 +169,8 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="cove-model-server-") as temp_dir:
         temp_root = Path(temp_dir)
         installable_wheel_path = temp_root / f"vllm-{vllm_version}+cpu-cp38-abi3-linux_x86_64.whl"
+        # Alice's private compiled serving wheel is installed before exposing
+        # the attested model endpoint.
         shutil.copy2(serving_wheel_path, installable_wheel_path)
         run(
             [
@@ -181,6 +184,8 @@ def main() -> int:
             ]
         )
 
+        # Alice's private model archive is unpacked only inside this final
+        # serving node and loaded by the local vLLM process.
         model_root = extract_tarball(model_archive_path, temp_root / "model")
         model_dir = _resolve_model_dir(model_root)
         process = _start_vllm_server(model_dir, model_name)

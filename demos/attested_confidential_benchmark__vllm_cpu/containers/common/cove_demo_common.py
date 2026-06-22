@@ -1,3 +1,5 @@
+"""Shared helpers for attested confidential benchmark container entrypoints."""
+
 from __future__ import annotations
 
 import hashlib

@@ -288,6 +288,7 @@ run_carol() {
   if cove --cove-home "$cove_home" deploy "${carol_domain}/${WORKFLOW_REF_ID}" \
       --phala-instance-type "${PHALA_INSTANCE_TYPE:-tdx.medium}" \
       --phala-disk-size-gb "${PHALA_DISK_SIZE_GB:-40}" \
+      --dependency-timeout-seconds "${PHALA_DEPENDENCY_TIMEOUT_SECONDS:-7200}" \
       --phala-public-logs \
       --phala-public-sysinfo > "$deploy_json" 2> "$deploy_err"; then
     cat "$deploy_json"

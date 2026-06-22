@@ -14,15 +14,15 @@ artifacts:
   alice_private_model:
     type: static
     owner: alice
-    plaintext_hash: sha256:39c5defdf9f34dd973fe51f8cc1b1a4a52140637215cc2e403dbb87f91fc496c
+    plaintext_hash: sha256:c53d3b52e261b6d76c0138522af6255ac16936b4f18219900119175c555923c0
   alice_private_serving_patch:
     type: static
     owner: alice
-    plaintext_hash: sha256:0027c5d198148a4629f360acf3bc4c780977004a4b185224866a93aeacf3983e
+    plaintext_hash: sha256:25554ec3ba160cf4917e519c2cbed13874fb1875765ebedb3ebd56c03aa69c17
   bob_private_eval_code:
     type: static
     owner: bob
-    plaintext_hash: sha256:2c0e97fff7dd408bc16f5be985a7cd62b4a50225a6a9a421e8116b22201ccdae
+    plaintext_hash: sha256:c2dab0b9cee503f087bf8b312cf4496e365d5f9312e6536a76b10437d2719a80
   bob_private_eval_data:
     type: static
     owner: bob
@@ -43,9 +43,11 @@ nodes:
         preconditions:
           ==:
           - var: inputs.alice_private_serving_patch.plaintext_hash
-          - sha256:0027c5d198148a4629f360acf3bc4c780977004a4b185224866a93aeacf3983e
+          - sha256:25554ec3ba160cf4917e519c2cbed13874fb1875765ebedb3ebd56c03aa69c17
   audit_eval_code:
     compose: nodes/audit_eval_code.compose.yaml
+    dependencies:
+    - compile_serving_code
     services:
       audit_agent:
         inputs:
@@ -56,7 +58,7 @@ nodes:
         preconditions:
           ==:
           - var: inputs.bob_private_eval_code.plaintext_hash
-          - sha256:2c0e97fff7dd408bc16f5be985a7cd62b4a50225a6a9a421e8116b22201ccdae
+          - sha256:c2dab0b9cee503f087bf8b312cf4496e365d5f9312e6536a76b10437d2719a80
   compile_serving_code:
     compose: nodes/compile_serving_code.compose.yaml
     dependencies:
@@ -74,7 +76,7 @@ nodes:
           and:
           - ==:
             - var: inputs.alice_private_serving_patch.plaintext_hash
-            - sha256:0027c5d198148a4629f360acf3bc4c780977004a4b185224866a93aeacf3983e
+            - sha256:25554ec3ba160cf4917e519c2cbed13874fb1875765ebedb3ebd56c03aa69c17
           - ==:
             - var: certificates.audit_serving_code.certificate_body.results.audit_agent.llm_used
             - true
@@ -108,13 +110,13 @@ nodes:
           and:
           - ==:
             - var: inputs.alice_private_model.plaintext_hash
-            - sha256:39c5defdf9f34dd973fe51f8cc1b1a4a52140637215cc2e403dbb87f91fc496c
+            - sha256:c53d3b52e261b6d76c0138522af6255ac16936b4f18219900119175c555923c0
           - ==:
             - var: inputs.alice_private_serving_patch.plaintext_hash
-            - sha256:0027c5d198148a4629f360acf3bc4c780977004a4b185224866a93aeacf3983e
+            - sha256:25554ec3ba160cf4917e519c2cbed13874fb1875765ebedb3ebd56c03aa69c17
           - ==:
             - var: inputs.bob_private_eval_code.plaintext_hash
-            - sha256:2c0e97fff7dd408bc16f5be985a7cd62b4a50225a6a9a421e8116b22201ccdae
+            - sha256:c2dab0b9cee503f087bf8b312cf4496e365d5f9312e6536a76b10437d2719a80
           - ==:
             - var: inputs.bob_private_eval_data.plaintext_hash
             - sha256:6095f55533b63ada9b4d351aeeb3e33ff94450ac73c055cc463ed2d39b59d378
@@ -171,7 +173,7 @@ nodes:
           and:
           - ==:
             - var: inputs.alice_private_model.plaintext_hash
-            - sha256:39c5defdf9f34dd973fe51f8cc1b1a4a52140637215cc2e403dbb87f91fc496c
+            - sha256:c53d3b52e261b6d76c0138522af6255ac16936b4f18219900119175c555923c0
           - ==:
             - var: certificates.compile_serving_code.certificate_body.results.compile_serving_wheel.pass
             - true

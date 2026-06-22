@@ -10,10 +10,13 @@ RUN apt-get update \
 
 RUN python -m pip install --no-cache-dir \
     --extra-index-url https://download.pytorch.org/whl/cpu \
-    openai \
+    "openai>=1.99.1,<2.25.0" \
     prometheus-fastapi-instrumentator==7.1.0 \
-    "git+https://github.com/UKGovernmentBEIS/inspect_ai.git@${INSPECT_AI_GIT_SHA}" \
     "https://github.com/vllm-project/vllm/releases/download/v${VLLM_VERSION}/vllm-${VLLM_VERSION}+cpu-cp38-abi3-manylinux_2_35_x86_64.whl"
+
+RUN python -m pip install --no-cache-dir --upgrade \
+    "openai>=2.40.0" \
+    "git+https://github.com/UKGovernmentBEIS/inspect_ai.git@${INSPECT_AI_GIT_SHA}"
 
 COPY containers/common/cove_demo_common.py /app/cove_demo_common.py
 COPY containers/benchmark_runner/main.py /app/main.py

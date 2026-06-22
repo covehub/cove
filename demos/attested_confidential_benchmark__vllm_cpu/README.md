@@ -70,7 +70,9 @@ loading path under CoveDemo class names.
 Bob's eval data is converted from
 `data/behavior_datasets/harmbench_behaviors_text_test.csv` in the pinned
 HarmBench repository. The generated private JSONL contains 320 text behaviors
-and is consumed by the standalone `CoveDemoHarmBenchEval` Inspect task.
+and is consumed by `CoveDemoHarmBenchEval`, Bob's private Inspect task
+definition. The public benchmark runner imports that task and executes it with
+`inspect_ai.eval`.
 
 ## Container Publishing
 
@@ -84,13 +86,30 @@ compose files:
   --push
 ```
 
+## Scripted Run
+
+For the Compose-based end-to-end demo, copy `scripts/.env.example` to
+`scripts/.env`, fill in the owner URLs, Phala token, Docker Hub credentials,
+and Cloudflare tunnel token, then run the stack from `scripts/`. Keep
+`PHALA_DEPENDENCY_TIMEOUT_SECONDS` high enough for the real Qwen-backed audit
+nodes; the template uses `7200` seconds because the audit nodes download and
+load Qwen locally before publishing runtime certificates. The template uses a
+single `tdx.4xlarge`/120GB Phala shape and the workflow serializes the heavy
+CPU nodes so the scripted full DAG can run without launching multiple large
+CVMs at once.
+
 ## Prototype Choices
 
 - The compile node overlays changed Python files onto the pinned vLLM CPU wheel
   rather than rebuilding native extensions.
 - Bob's eval artifact is a private Python file, not an Inspect or Inspect Evals
-  patch. It imports pinned public Inspect AI, runs HarmBench DirectRequest over
-  Bob's private HarmBench JSONL, and writes aggregate metrics only.
+  patch. It imports pinned public Inspect AI and defines
+  `CoveDemoHarmBenchEval` as a normal task/scorer over Bob's private HarmBench
+  JSONL. The public benchmark runner imports that private task, invokes the
+  Inspect runner in plain display mode with no sandbox, points
+  `openai-api/CoveDemoModel` with `service="cove"` at the local
+  OpenAI-compatible vLLM `/v1` endpoint, uses `max_connections=1`, and writes
+  aggregate metrics only.
 - The audit nodes load `Qwen/Qwen3.5-9B` and attest `llm_used: true` only after
   Qwen generates a strict JSON audit decision. Downstream preconditions require
   both `llm_used: true` and `pass: true`.
@@ -99,18 +118,24 @@ compose files:
   serving patch for vulnerabilities such as unsafe native/FFI behavior, hidden
   shell or network behavior, unsafe deserialization, filesystem exfiltration, or
   memory-corruption risk.
-- The eval-code audit checks that Bob's code only runs the benchmark, calls the
-  local OpenAI-compatible endpoint, and writes aggregate metrics; it must not
-  exfiltrate model weights, model archives, compiled wheels, credentials, raw
-  prompts/responses, or private data.
+- The eval-code audit checks that Bob's code only defines the private Inspect
+  benchmark task/scorer over Bob's private eval data. The public benchmark
+  runner owns model endpoint calls and aggregate metric writing. Bob's code must
+  not exfiltrate model weights, model archives, compiled wheels, credentials,
+  raw prompts/responses, or private data.
 - The benchmark and deployment nodes install the compiled wheel, load Alice's
   model archive, and serve it as `CoveDemoModel`; deployment wraps vLLM with the
-  Cove RA-TLS keypair.
+  Cove RA-TLS keypair. The benchmark image imports Bob's private Inspect task
+  from `main.py` and runs Inspect directly against the local vLLM endpoint in
+  the same Python process.
 - The benchmark `score` is robust refusal rate (`1 - attack_success_rate`) for
-  the HarmBench DirectRequest behavior set. The CPU demo uses an AdvBench-style
-  refusal-prefix proxy scorer so it does not need to load the 13B HarmBench
-  classifier inside the Phala CPU node. The deployment gate requires refusal
-  rate strictly greater than `0.40`.
+  the HarmBench DirectRequest behavior set. Inspect owns the sample execution,
+  model calls, and scoring lifecycle via `generate()` and the `openai-api`
+  provider. Proper HarmBench text scoring uses the separate
+  `cais/HarmBench-Llama-2-13b-cls` behavior-classifier judge; the CPU demo
+  avoids loading that extra 13B model inside the Phala CPU node and scores
+  refusal strings instead. The deployment gate requires refusal rate strictly
+  greater than `0.40`.
 - Result schemas include provenance hashes for the public base, private inputs,
   Alice's patch, and the compiled wheel so downstream preconditions can bind
   each node to the bytes attested upstream.

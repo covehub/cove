@@ -61,9 +61,10 @@ rename is part of the private-model story, not a failure condition. It audits
 the serving patch for memory-corruption risk, unsafe native or FFI behavior,
 unsafe deserialization, hidden shell or network behavior, filesystem or artifact
 exfiltration, and other serving-code vulnerabilities. `audit_eval_code` checks
-that Bob's code only runs the benchmark against the local model endpoint and
-writes aggregate metrics; it must not exfiltrate model weights, model archives,
-compiled wheels, credentials, raw prompts/responses, or private data.
+that Bob's code only defines the private Inspect benchmark task/scorer over the
+private eval data; the public benchmark runner owns model endpoint calls and
+aggregate metric writing. Bob's code must not exfiltrate model weights, model
+archives, compiled wheels, credentials, raw prompts/responses, or private data.
 
 ## 1. Start Covehub, Tunnels, CLI, And Owners
 
@@ -86,7 +87,12 @@ For manual runs, start Covehub, route the three owner services, build/install
 the CLI, initialize Alice/Bob/Carol Cove homes, and keep the owner services
 running while Phala executes. Carol needs a Phala Cloud API key and Docker Hub
 credentials for the `covehub` namespace. Alice and Bob do not need deploy
-credentials.
+credentials. For the Compose-scripted run, keep
+`PHALA_DEPENDENCY_TIMEOUT_SECONDS=7200` in `scripts/.env` so Carol waits long
+enough for the real Qwen-backed audit nodes to publish their certificates. Use
+the template's `tdx.4xlarge`/120GB shape for the real Qwen audit path; the
+workflow serializes the heavyweight CPU nodes so the scripted full DAG only
+needs one large CVM at a time.
 
 ## 2. Prepare Private Inputs
 
@@ -118,8 +124,13 @@ data/behavior_datasets/harmbench_behaviors_text_test.csv
 ```
 
 The generated JSONL has 320 HarmBench text behaviors. Bob's eval code is one
-standalone Python file that imports Inspect AI and defines/runs
-`CoveDemoHarmBenchEval`; it does not depend on `inspect_evals`.
+standalone Python file that imports Inspect AI, defines `CoveDemoHarmBenchEval`,
+and contains the task/scorer definition only. The public benchmark runner imports
+that private task and invokes `inspect_ai.eval` in plain display mode with no
+sandbox. The task uses Inspect's `generate()` solver with
+`openai-api/CoveDemoModel` pointed at the local OpenAI-compatible vLLM `/v1`
+endpoint and `service="cove"` in model args. It does not depend on
+`inspect_evals`.
 
 Verify the workflow after generation:
 
@@ -307,6 +318,10 @@ Expected high-level outcomes:
 - benchmark `passes_threshold: true` from refusal rate strictly greater than
   `0.40`
 - benchmark `benchmark_name: CoveDemoHarmBenchEval`
+- benchmark `inspect_runner: true`
+- benchmark `max_connections: 1`
+- benchmark `model_provider: openai-api`
+- benchmark `model_service: cove`
 - benchmark `attack_success_rate` is the HarmBench-style DirectRequest ASR
 - benchmark `score` is robust refusal rate, equal to `1 - attack_success_rate`
 - benchmark `serving_wheel_sha256` equals compile `compiled_wheel_sha256`
@@ -392,6 +407,8 @@ inspects the RA-TLS certificate, and verifies:
   data, and compiled wheel,
 - deployment uses the same model and wheel attested by benchmark,
 - the HarmBench DirectRequest ASR/refusal-rate aggregate is displayed without
-  raw prompts or model generations,
+  raw prompts or model generations; the CPU demo uses refusal-string scoring
+  instead of loading the separate `cais/HarmBench-Llama-2-13b-cls` 13B
+  behavior-classifier judge,
 - the endpoint healthcheck passes,
 - the endpoint serves `CoveDemoModel`.

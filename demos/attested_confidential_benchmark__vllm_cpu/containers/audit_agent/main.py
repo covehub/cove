@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Audit private owner artifacts inside the attested benchmark workflow."""
 
 from __future__ import annotations
 
@@ -17,10 +18,11 @@ SERVICE = "audit_agent"
 
 AUDIT_POLICIES = {
     "eval_code": (
-        "Audit that this private evaluation code only performs the benchmark "
-        "evaluation. It may read the private eval data, call the local "
-        "OpenAI-compatible model endpoint supplied by the benchmark runner, and "
-        "write aggregate metrics. It must not read, copy, upload, print, or "
+        "Audit that this private evaluation code only defines the Inspect "
+        "benchmark task and scorer. It may read the private eval data to build "
+        "samples and score model outputs supplied by Inspect, but the public "
+        "benchmark runner owns model endpoint calls and aggregate metric "
+        "writing. It must not read, copy, upload, print, or "
         "otherwise exfiltrate model weights, model archives, compiled wheels, "
         "credentials, raw prompts, raw responses, or private data; must not make "
         "external network calls; and must not use hidden shell, subprocess, or "
@@ -153,6 +155,8 @@ def main() -> int:
     result_path = require_env("RESULT_PATH")
     model_id = require_env("AUDIT_MODEL_ID")
 
+    # Load the owner-provided private artifact for audit only; this node passes
+    # the bytes to Qwen and does not import or execute the artifact itself.
     source = read_text(input_path)
     audited_sha256 = sha256_bytes(source.encode("utf-8"))
 
