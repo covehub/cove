@@ -10,7 +10,6 @@ platform:
 owners:
   alice: https://demo-alice.covehub.io
   bob: https://demo-bob.covehub.io
-  carol: https://demo-carol.covehub.io
 
 ephemeral_keypairs:
   session_key:

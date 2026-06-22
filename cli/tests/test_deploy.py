@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import shutil
 from pathlib import Path
 
@@ -118,6 +119,12 @@ def test_deploy_pulls_bundle_before_submitting_and_orders_nodes_topologically(
             app_id = payload["app_id"]
             return {"id": f"cvm-{app_id}", "status": "pending"}
 
+        def get_cvm_list(self, request: dict[str, object]):
+            return _empty_cvm_list()
+
+        def delete_cvm(self, payload: dict[str, object]) -> None:
+            raise AssertionError(f"unexpected delete_cvm call: {payload}")
+
         def close(self) -> None:
             return None
 
@@ -146,7 +153,7 @@ def test_deploy_pulls_bundle_before_submitting_and_orders_nodes_topologically(
             lambda api_key: _assert_api_key(api_key, fake_client),
         )
 
-        summary = deploy_workflow(
+        output = deploy_workflow(
             f"{PUBLISHER_DOMAIN}/hello_world",
             cove_home=cove_home,
             phala_options=PhalaDeployOptions(instance_type="tdx.small", staged_launch=False),
@@ -170,8 +177,11 @@ def test_deploy_pulls_bundle_before_submitting_and_orders_nodes_topologically(
         f"provision:{name}"
         for name in expected_names
     ]
-    assert f"Deployed workflow '{PUBLISHER_DOMAIN}/hello_world' to Phala" in summary
-    assert "cvm_id=cvm-app-4" in summary
+    payload = json.loads(output)
+    assert payload["publisher"] == PUBLISHER_DOMAIN
+    assert payload["workflow_id"] == "hello_world"
+    assert [deployment["deployment_name"] for deployment in payload["deployments"]] == expected_names
+    assert payload["deployments"][-1]["cvm_id"] == "cvm-app-4"
 
     final_payload = fake_client.provision_calls[-1]
     assert final_payload["name"] == expected_names[-1]
@@ -252,6 +262,318 @@ def test_wait_for_dependency_certificates_retries_until_runtime_certificate_matc
     ]
 
 
+def test_deploy_returns_structured_json(tmp_path, monkeypatch) -> None:
+    cove_home = tmp_path / ".cove"
+    _write_config(
+        cove_home,
+        {
+            "covehub_server_url": "http://127.0.0.1:8000",
+            "phala_cloud_api_key": "phala-api-key",
+        },
+    )
+    bundle = _write_minimal_bundle(tmp_path / "bundle")
+    client = _CapturingPhalaClient()
+
+    monkeypatch.setattr("cove_cli.deploy.pull_workflow_bundle", lambda **_kwargs: bundle)
+    monkeypatch.setattr(
+        "cove_cli.deploy._create_phala_client",
+        lambda api_key: _assert_api_key(api_key, client),
+    )
+
+    output = deploy_workflow(
+        f"{PUBLISHER_DOMAIN}/demo",
+        cove_home=cove_home,
+        phala_options=PhalaDeployOptions(instance_type="tdx.small"),
+    )
+
+    payload = json.loads(output)
+    assert payload["publisher"] == PUBLISHER_DOMAIN
+    assert payload["workflow_id"] == "demo"
+    assert payload["reference"] == "latest"
+    assert payload["published_ref"] == f"{PUBLISHER_DOMAIN}/demo/latest"
+    assert payload["bundle_path"] == str(bundle.root_path)
+    assert payload["manifest_hash"] == bundle.manifest_hash
+    assert payload["deleted_finished_cvms"] == []
+    assert payload["deployments"] == [
+        {
+            "node_id": "node_one",
+            "deployment_name": _deployment_name(
+                publisher=PUBLISHER_DOMAIN,
+                workflow_id="demo",
+                node_id="node_one",
+            ),
+            "cvm_id": "cvm-app-1",
+            "status": "pending",
+            "app_id": "app-1",
+            "compose_hash": "compose-1",
+        }
+    ]
+
+
+def test_deploy_deletes_finished_phala_cvms_for_workflow_before_provision(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    cove_home = tmp_path / ".cove"
+    _write_config(
+        cove_home,
+        {
+            "covehub_server_url": "http://127.0.0.1:8000",
+            "phala_cloud_api_key": "phala-api-key",
+        },
+    )
+    bundle = _write_minimal_bundle(tmp_path / "bundle")
+    deployment_name = _deployment_name(
+        publisher=PUBLISHER_DOMAIN,
+        workflow_id="demo",
+        node_id="node_one",
+    )
+    events: list[str] = []
+
+    class FakePhalaClient:
+        def get_cvm_list(self, request: dict[str, object]):
+            events.append(f"list:{request['page']}")
+            return {
+                "items": [
+                    {
+                        "id": "old-cvm",
+                        "name": deployment_name,
+                        "status": "stopped",
+                    },
+                    {
+                        "id": "running-cvm",
+                        "name": deployment_name,
+                        "status": "running",
+                    },
+                    {
+                        "id": "other-cvm",
+                        "name": "unrelated",
+                        "status": "stopped",
+                    },
+                ],
+                "total": 3,
+                "page": 1,
+                "page_size": 100,
+                "pages": 1,
+            }
+
+        def delete_cvm(self, payload: dict[str, object]) -> None:
+            events.append(f"delete:{payload['id']}")
+
+        def provision_cvm(self, payload: dict[str, object]):
+            events.append("provision")
+            return {"app_id": "app-1", "compose_hash": "compose-1"}
+
+        def commit_cvm_provision(self, payload: dict[str, object]):
+            events.append("commit")
+            return {"id": "cvm-app-1", "status": "pending"}
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr("cove_cli.deploy.pull_workflow_bundle", lambda **_kwargs: bundle)
+    monkeypatch.setattr(
+        "cove_cli.deploy._create_phala_client",
+        lambda api_key: _assert_api_key(api_key, FakePhalaClient()),
+    )
+
+    output = deploy_workflow(
+        f"{PUBLISHER_DOMAIN}/demo",
+        cove_home=cove_home,
+        phala_options=PhalaDeployOptions(instance_type="tdx.small"),
+    )
+
+    assert events == ["list:1", "delete:old-cvm", "provision", "commit"]
+    payload = json.loads(output)
+    assert payload["deleted_finished_cvms"] == [
+        {
+            "cvm_id": "old-cvm",
+            "name": deployment_name,
+            "status": "stopped",
+            "finish_reason": "cvm_status",
+        }
+    ]
+
+
+def test_deploy_deletes_running_phala_cvms_when_all_containers_exited(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    cove_home = tmp_path / ".cove"
+    _write_config(
+        cove_home,
+        {
+            "covehub_server_url": "http://127.0.0.1:8000",
+            "phala_cloud_api_key": "phala-api-key",
+        },
+    )
+    bundle = _write_minimal_bundle(tmp_path / "bundle")
+    deployment_name = _deployment_name(
+        publisher=PUBLISHER_DOMAIN,
+        workflow_id="demo",
+        node_id="node_one",
+    )
+    events: list[str] = []
+
+    class FakePhalaClient:
+        def get_cvm_list(self, request: dict[str, object]):
+            events.append(f"list:{request['page']}")
+            return {
+                "items": [
+                    {
+                        "id": "finished-workload",
+                        "name": deployment_name,
+                        "status": "running",
+                    },
+                    {
+                        "id": "live-service",
+                        "name": deployment_name,
+                        "status": "running",
+                    },
+                ],
+                "total": 2,
+                "page": 1,
+                "page_size": 100,
+                "pages": 1,
+            }
+
+        def get_cvm_containers_stats(self, payload: dict[str, object]):
+            events.append(f"containers:{payload['id']}")
+            if payload["id"] == "finished-workload":
+                return {
+                    "containers": [
+                        {"name": "worker", "state": "exited", "status": "Exited (0)"},
+                        {"name": "writer", "state": "exited", "status": "Exited (0)"},
+                    ]
+                }
+            return {
+                "containers": [
+                    {"name": "server", "state": "running", "status": "Up 1 minute"}
+                ]
+            }
+
+        def delete_cvm(self, payload: dict[str, object]) -> None:
+            events.append(f"delete:{payload['id']}")
+
+        def provision_cvm(self, payload: dict[str, object]):
+            events.append("provision")
+            return {"app_id": "app-1", "compose_hash": "compose-1"}
+
+        def commit_cvm_provision(self, payload: dict[str, object]):
+            events.append("commit")
+            return {"id": "cvm-app-1", "status": "pending"}
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr("cove_cli.deploy.pull_workflow_bundle", lambda **_kwargs: bundle)
+    monkeypatch.setattr(
+        "cove_cli.deploy._create_phala_client",
+        lambda api_key: _assert_api_key(api_key, FakePhalaClient()),
+    )
+
+    output = deploy_workflow(
+        f"{PUBLISHER_DOMAIN}/demo",
+        cove_home=cove_home,
+        phala_options=PhalaDeployOptions(instance_type="tdx.small"),
+    )
+
+    assert events == [
+        "list:1",
+        "containers:finished-workload",
+        "delete:finished-workload",
+        "containers:live-service",
+        "provision",
+        "commit",
+    ]
+    payload = json.loads(output)
+    assert payload["deleted_finished_cvms"] == [
+        {
+            "cvm_id": "finished-workload",
+            "name": deployment_name,
+            "status": "running",
+            "finish_reason": "containers_finished",
+        }
+    ]
+
+
+def test_deploy_deletes_legacy_nested_finished_phala_cvms(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    cove_home = tmp_path / ".cove"
+    _write_config(
+        cove_home,
+        {
+            "covehub_server_url": "http://127.0.0.1:8000",
+            "phala_cloud_api_key": "phala-api-key",
+        },
+    )
+    bundle = _write_minimal_bundle(tmp_path / "bundle")
+    deployment_name = _deployment_name(
+        publisher=PUBLISHER_DOMAIN,
+        workflow_id="demo",
+        node_id="node_one",
+    )
+    events: list[str] = []
+
+    class FakePhalaClient:
+        def get_cvm_list(self, request: dict[str, object]):
+            events.append(f"list:{request['page']}")
+            return {
+                "items": [
+                    {
+                        "hosted": {
+                            "id": "legacy-cvm",
+                            "name": deployment_name,
+                            "status": "stopped",
+                        }
+                    }
+                ],
+                "total": 1,
+                "page": 1,
+                "page_size": 100,
+                "pages": 1,
+            }
+
+        def delete_cvm(self, payload: dict[str, object]) -> None:
+            events.append(f"delete:{payload['id']}")
+
+        def provision_cvm(self, payload: dict[str, object]):
+            events.append("provision")
+            return {"app_id": "app-1", "compose_hash": "compose-1"}
+
+        def commit_cvm_provision(self, payload: dict[str, object]):
+            events.append("commit")
+            return {"id": "cvm-app-1", "status": "pending"}
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr("cove_cli.deploy.pull_workflow_bundle", lambda **_kwargs: bundle)
+    monkeypatch.setattr(
+        "cove_cli.deploy._create_phala_client",
+        lambda api_key: _assert_api_key(api_key, FakePhalaClient()),
+    )
+
+    output = deploy_workflow(
+        f"{PUBLISHER_DOMAIN}/demo",
+        cove_home=cove_home,
+        phala_options=PhalaDeployOptions(instance_type="tdx.small"),
+    )
+
+    assert events == ["list:1", "delete:legacy-cvm", "provision", "commit"]
+    payload = json.loads(output)
+    assert payload["deleted_finished_cvms"] == [
+        {
+            "cvm_id": "legacy-cvm",
+            "name": deployment_name,
+            "status": "stopped",
+            "finish_reason": "cvm_status",
+        }
+    ]
+
+
 def test_deploy_staged_launch_waits_before_submitting_dependent_nodes(
     tmp_path,
     monkeypatch,
@@ -275,6 +597,12 @@ def test_deploy_staged_launch_waits_before_submitting_dependent_nodes(
         def commit_cvm_provision(self, payload: dict[str, object]):
             app_id = payload["app_id"]
             return {"id": f"cvm-{app_id}", "status": "pending"}
+
+        def get_cvm_list(self, request: dict[str, object]):
+            return _empty_cvm_list()
+
+        def delete_cvm(self, payload: dict[str, object]) -> None:
+            raise AssertionError(f"unexpected delete_cvm call: {payload}")
 
         def close(self) -> None:
             return None
@@ -361,6 +689,12 @@ def test_deploy_workflow_node_launches_only_requested_node(
         def commit_cvm_provision(self, payload: dict[str, object]):
             return {"id": "cvm-app-1", "status": "pending"}
 
+        def get_cvm_list(self, request: dict[str, object]):
+            return _empty_cvm_list()
+
+        def delete_cvm(self, payload: dict[str, object]) -> None:
+            raise AssertionError(f"unexpected delete_cvm call: {payload}")
+
         def close(self) -> None:
             return None
 
@@ -388,7 +722,7 @@ def test_deploy_workflow_node_launches_only_requested_node(
             ),
         )
 
-        summary = deploy_workflow(
+        output = deploy_workflow(
             f"{PUBLISHER_DOMAIN}/hello_world",
             cove_home=cove_home,
             phala_options=PhalaDeployOptions(
@@ -414,8 +748,9 @@ def test_deploy_workflow_node_launches_only_requested_node(
     ]
     assert len(fake_client.provision_calls) == 1
     assert fake_client.provision_calls[0]["name"] == expected_name
-    assert "- final_server:" in summary
-    assert "alice_word_length_checker" not in summary
+    payload = json.loads(output)
+    assert [deployment["node_id"] for deployment in payload["deployments"]] == ["final_server"]
+    assert payload["deployments"][0]["deployment_name"] == expected_name
 
 
 def test_deploy_requires_phala_cloud_api_key_in_local_config(tmp_path) -> None:
@@ -485,6 +820,12 @@ services:
 
         def commit_cvm_provision(self, payload: dict[str, object]):
             return {"id": "cvm-app-1", "status": "pending"}
+
+        def get_cvm_list(self, request: dict[str, object]):
+            return _empty_cvm_list()
+
+        def delete_cvm(self, payload: dict[str, object]) -> None:
+            raise AssertionError(f"unexpected delete_cvm call: {payload}")
 
         def close(self) -> None:
             return None
@@ -560,7 +901,7 @@ def test_deploy_encrypts_configured_docker_hub_credentials_for_phala(
     )
     monkeypatch.setattr("cove_cli.deploy._encrypt_phala_env_vars", fake_encrypt)
 
-    summary = deploy_workflow(
+    output = deploy_workflow(
         "alice/demo",
         cove_home=cove_home,
         phala_options=PhalaDeployOptions(instance_type="tdx.medium"),
@@ -595,7 +936,7 @@ def test_deploy_encrypts_configured_docker_hub_credentials_for_phala(
     assert "docker-read-token" not in str(client.provision_payloads)
     assert "docker-read-token" not in str(client.commit_payloads)
     assert "docker-read-token" not in translated_compose
-    assert "docker-read-token" not in summary
+    assert "docker-read-token" not in output
 
 
 def test_deploy_adds_custom_registry_to_encrypted_phala_env(
@@ -960,6 +1301,12 @@ class _CapturingPhalaClient:
         app_id = payload["app_id"]
         return {"id": f"cvm-{app_id}", "status": "pending"}
 
+    def get_cvm_list(self, request: dict[str, object]):
+        return _empty_cvm_list()
+
+    def delete_cvm(self, payload: dict[str, object]) -> None:
+        raise AssertionError(f"unexpected delete_cvm call: {payload}")
+
     def close(self) -> None:
         return None
 
@@ -1050,6 +1397,16 @@ def _unused_fake_client(_api_key: str):
             return None
 
     return Client()
+
+
+def _empty_cvm_list() -> dict[str, object]:
+    return {
+        "items": [],
+        "total": 0,
+        "page": 1,
+        "page_size": 100,
+        "pages": 1,
+    }
 
 
 def _assert_api_key(api_key: str, client):

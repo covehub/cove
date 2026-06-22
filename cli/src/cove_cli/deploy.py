@@ -24,6 +24,32 @@ _SUPPORTED_DSTACK_SOCKET = "/var/run/dstack.sock"
 _GENERATED_COMPOSE_FILENAME = "compose.generated.yaml"
 _DEFAULT_DEPLOY_DEPENDENCY_TIMEOUT_SECONDS = 600.0
 _DEFAULT_DEPLOY_DEPENDENCY_POLL_INTERVAL_SECONDS = 0.5
+_PHALA_CVM_LIST_PAGE_SIZE = 100
+_FINISHED_PHALA_CVM_STATUSES = {
+    "complete",
+    "completed",
+    "crashed",
+    "dead",
+    "deleted",
+    "done",
+    "error",
+    "errored",
+    "exited",
+    "failed",
+    "finished",
+    "killed",
+    "shutdown",
+    "shut_down",
+    "stopped",
+    "succeeded",
+    "success",
+    "terminated",
+}
+_FINISHED_CONTAINER_STATES = {
+    "dead",
+    "exited",
+    "removed",
+}
 _SUPPORTED_TOP_LEVEL_COMPOSE_KEYS = {"services", "volumes"}
 _SUPPORTED_SERVICE_KEYS = {
     "command",
@@ -60,6 +86,26 @@ class DeployNodeResult:
     status: str
     app_id: str
     compose_hash: str
+
+
+@dataclass(frozen=True, slots=True)
+class DeletedPhalaCvm:
+    cvm_id: str
+    name: str
+    status: str
+    finish_reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class DeployWorkflowResult:
+    publisher: str
+    workflow_id: str
+    reference: str
+    published_ref: str
+    bundle_path: Path
+    manifest_hash: str
+    deleted_finished_cvms: tuple[DeletedPhalaCvm, ...]
+    deployments: tuple[DeployNodeResult, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,16 +190,27 @@ def deploy_workflow(
         else phala_options.dependency_poll_interval_seconds
     )
 
+    deployable_nodes = _deployment_nodes(bundle)
     nodes = _select_deployment_nodes(
-        _deployment_nodes(bundle),
+        deployable_nodes,
         workflow_node_id=phala_options.workflow_node_id,
     )
+    cleanup_deployment_names = {
+        _deployment_name(
+            publisher=parsed_ref.publisher,
+            workflow_id=parsed_ref.workflow_id,
+            node_id=node.node.node_id,
+        )
+        for node in deployable_nodes
+    }
     dependency_compose_hashes = {
         node.node_id: node.compose_hash
         for node in bundle.nodes
     }
     client = _create_phala_client(config.phala_cloud_api_key)
     results: list[DeployNodeResult] = []
+    deleted_finished_cvms: list[DeletedPhalaCvm] = []
+    deleted_finished_cvm_ids: set[str] = set()
     try:
         for node in nodes:
             if staged_launch:
@@ -169,6 +226,13 @@ def deploy_workflow(
                 )
 
             translated = _translate_node_deployment(bundle, node.node)
+            new_deleted_cvms = _delete_finished_phala_cvms(
+                client,
+                deployment_names=cleanup_deployment_names,
+                skipped_cvm_ids=deleted_finished_cvm_ids,
+            )
+            deleted_finished_cvms.extend(new_deleted_cvms)
+            deleted_finished_cvm_ids.update(cvm.cvm_id for cvm in new_deleted_cvms)
             provision_payload = _phala_provision_payload(
                 translated=translated,
                 options=phala_options,
@@ -209,21 +273,156 @@ def deploy_workflow(
         if callable(close_method):
             close_method()
 
-    return "\n".join(
-        [
-            f"Deployed workflow '{parsed_ref.publisher}/{parsed_ref.workflow_id}' to Phala",
-            f"Pulled bundle path: {bundle.root_path}",
-            "Node deployments:",
-            *[
-                (
-                    f"- {result.node_id}: {result.deployment_name} "
-                    f"(cvm_id={result.cvm_id}, status={result.status}, app_id={result.app_id}, "
-                    f"compose_hash={result.compose_hash})"
-                )
-                for result in results
-            ],
-        ]
+    deploy_result = DeployWorkflowResult(
+        publisher=parsed_ref.publisher,
+        workflow_id=parsed_ref.workflow_id,
+        reference=parsed_ref.reference,
+        published_ref=f"{parsed_ref.publisher}/{parsed_ref.workflow_id}/{parsed_ref.reference}",
+        bundle_path=bundle.root_path,
+        manifest_hash=bundle.manifest_hash,
+        deleted_finished_cvms=tuple(deleted_finished_cvms),
+        deployments=tuple(results),
     )
+    return json.dumps(_deploy_result_payload(deploy_result), indent=2, sort_keys=True)
+
+
+def _deploy_result_payload(result: DeployWorkflowResult) -> dict[str, Any]:
+    return {
+        "publisher": result.publisher,
+        "workflow_id": result.workflow_id,
+        "reference": result.reference,
+        "published_ref": result.published_ref,
+        "bundle_path": str(result.bundle_path),
+        "manifest_hash": result.manifest_hash,
+        "deleted_finished_cvms": [
+            {
+                "cvm_id": cvm.cvm_id,
+                "name": cvm.name,
+                "status": cvm.status,
+                "finish_reason": cvm.finish_reason,
+            }
+            for cvm in result.deleted_finished_cvms
+        ],
+        "deployments": [
+            {
+                "node_id": node.node_id,
+                "deployment_name": node.deployment_name,
+                "cvm_id": node.cvm_id,
+                "status": node.status,
+                "app_id": node.app_id,
+                "compose_hash": node.compose_hash,
+            }
+            for node in result.deployments
+        ],
+    }
+
+
+def _delete_finished_phala_cvms(
+    client: Any,
+    *,
+    deployment_names: set[str],
+    skipped_cvm_ids: set[str],
+) -> list[DeletedPhalaCvm]:
+    deleted: list[DeletedPhalaCvm] = []
+    for cvm in _iter_phala_cvms(client):
+        hosted = _model_value(cvm, "hosted")
+        name = _optional_model_string(cvm, "name") or _optional_model_string(hosted, "name")
+        if name not in deployment_names:
+            continue
+        status = _optional_model_string(cvm, "status") or _optional_model_string(
+            hosted,
+            "status",
+        )
+        cvm_id = _optional_model_string(cvm, "id") or _optional_model_string(hosted, "id")
+        if not cvm_id:
+            raise DeployCommandError(f"finished Phala CVM {name!r} is missing an id")
+        finish_reason = _phala_cvm_finish_reason(client, cvm_id=cvm_id, status=status)
+        if finish_reason is None:
+            continue
+        if cvm_id in skipped_cvm_ids:
+            continue
+        client.delete_cvm({"id": cvm_id})
+        deleted.append(
+            DeletedPhalaCvm(
+                cvm_id=cvm_id,
+                name=name,
+                status=status or "",
+                finish_reason=finish_reason,
+            )
+        )
+    return deleted
+
+
+def _phala_cvm_finish_reason(
+    client: Any,
+    *,
+    cvm_id: str,
+    status: str | None,
+) -> str | None:
+    if _is_finished_phala_cvm_status(status):
+        return "cvm_status"
+    if _phala_cvm_containers_are_finished(client, cvm_id=cvm_id):
+        return "containers_finished"
+    return None
+
+
+def _phala_cvm_containers_are_finished(client: Any, *, cvm_id: str) -> bool:
+    get_containers_stats = getattr(client, "get_cvm_containers_stats", None)
+    if not callable(get_containers_stats):
+        return False
+    try:
+        response = get_containers_stats({"id": cvm_id})
+    except Exception:
+        return False
+    containers = _model_value(response, "containers")
+    if not isinstance(containers, list) or not containers:
+        return False
+    return all(_phala_container_is_finished(container) for container in containers)
+
+
+def _phala_container_is_finished(container: Any) -> bool:
+    state = _optional_model_string(container, "state")
+    if state:
+        return _normalize_status_string(state) in _FINISHED_CONTAINER_STATES
+    status = _optional_model_string(container, "status")
+    if not status:
+        return False
+    return status.strip().lower().startswith("exited")
+
+
+def _iter_phala_cvms(client: Any) -> list[Any]:
+    cvms: list[Any] = []
+    page = 1
+    while True:
+        response = client.get_cvm_list(
+            {
+                "page": page,
+                "page_size": _PHALA_CVM_LIST_PAGE_SIZE,
+            }
+        )
+        items = _model_value(response, "items")
+        if not isinstance(items, list):
+            raise DeployCommandError("Phala CVM list response is missing items")
+        cvms.extend(items)
+
+        pages = _optional_model_int(response, "pages")
+        if pages is not None:
+            if page >= pages:
+                return cvms
+        elif not items:
+            return cvms
+
+        page += 1
+
+
+def _is_finished_phala_cvm_status(status: str | None) -> bool:
+    if status is None:
+        return False
+    return _normalize_status_string(status) in _FINISHED_PHALA_CVM_STATUSES
+
+
+def _normalize_status_string(status: str) -> str:
+    return status.strip().lower().replace("-", "_").replace(" ", "_")
 
 
 def _select_deployment_nodes(
@@ -535,6 +734,13 @@ def _translate_node_deployment(
     )
 
 
+def translated_node_deployment_compose_text(
+    bundle: MaterializedWorkflowBundle,
+    node: MaterializedNode,
+) -> str:
+    return _translate_node_deployment(bundle, node).compose_text
+
+
 def _translate_service(
     *,
     service_name: str,
@@ -683,6 +889,29 @@ def _required_model_string(model: Any, key: str) -> str:
     if not isinstance(value, str) or not value:
         raise DeployCommandError(f"Phala response is missing {key!r}")
     return value
+
+
+def _optional_model_string(model: Any, key: str) -> str | None:
+    value = _model_value(model, key)
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, str) and value:
+        return value
+    return None
+
+
+def _optional_model_int(model: Any, key: str) -> int | None:
+    value = _model_value(model, key)
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return None
+    return None
 
 
 def _model_value(model: Any, key: str) -> Any:

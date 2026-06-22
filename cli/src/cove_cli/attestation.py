@@ -9,6 +9,7 @@ from .common import RuntimeErrorBase, canonical_json_bytes, http_post_json
 PHALA_DSTACK_ATTESTATION_FORMAT = "phala_dstack_v1"
 PHALA_DSTACK_VERIFY_URL = "https://cloud-api.phala.network/api/v1/attestations/verify"
 _KEY_RELEASE_REPORT_LABEL = b"cove_key_release_v1"
+_NODE_CERTIFICATE_REPORT_LABEL = b"cove_node_certificate_v1"
 
 
 class AttestationError(RuntimeErrorBase):
@@ -31,6 +32,20 @@ def build_key_release_report_data(
             "node_id": node_id,
             "compose_hash": compose_hash,
             "artifact_provisioner_digest": artifact_provisioner_digest,
+        },
+    )
+
+
+def build_node_certificate_report_data(
+    *,
+    certificate_body_hash: str,
+    compose_hash: str,
+) -> bytes:
+    return _labeled_report_data(
+        label=_NODE_CERTIFICATE_REPORT_LABEL,
+        payload={
+            "certificate_body_hash": certificate_body_hash,
+            "generated_node_compose_hash": compose_hash,
         },
     )
 

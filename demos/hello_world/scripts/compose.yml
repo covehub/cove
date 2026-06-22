@@ -1,0 +1,148 @@
+name: cove-hello-world-demo
+
+x-party-env: &party-env
+  env_file:
+    - path: .env
+      required: false
+  environment:
+    COVE_PROVISION_HOST: 0.0.0.0
+    PYTHONPATH: /workspace/cli/src:/workspace/cove_container_runtime/src
+    PYTHONUNBUFFERED: "1"
+  volumes:
+    - ../../..:/workspace
+    - cove-homes:/cove-homes
+    - cove-coordination:/coordination
+  working_dir: /workspace/demos/hello_world
+
+x-cove-cli-build: &cove-cli-build
+  context: ../../..
+  dockerfile_inline: |
+    FROM python:3.12-slim
+    ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+    COPY cove_container_runtime /tmp/cove_container_runtime
+    COPY cli /tmp/cli
+    RUN python -m pip install --no-cache-dir /tmp/cove_container_runtime /tmp/cli
+    WORKDIR /workspace/demos/hello_world
+
+services:
+  covehub-api:
+    build:
+      context: ../../..
+      dockerfile: server/Dockerfile
+    environment:
+      COVE_SERVER_HOST: 0.0.0.0
+      COVE_SERVER_PORT: 8000
+      COVE_SERVER_DATA_ROOT: /var/lib/covehub/data
+      COVE_SERVER_QUOTE_VERIFIER: phala_dstack
+    volumes:
+      - covehub-data:/var/lib/covehub/data
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2).read()"
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  covehub-ui:
+    build:
+      context: ../../..
+      dockerfile: ui/Dockerfile
+    environment:
+      COVE_UI_DATA_ROOT: /var/lib/covehub/data
+      COVE_UI_CACHE_TTL_SECONDS: 5
+      COVE_UI_PREVIEW_BYTES: 4096
+      COVE_UI_STATIC_ROOT: /app/static
+      COVE_UI_DOCS_ROOT: /app/docs
+    volumes:
+      - covehub-data:/var/lib/covehub/data:ro
+    depends_on:
+      covehub-api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  alice:
+    <<: *party-env
+    build: *cove-cli-build
+    command: ["sh", "/workspace/demos/hello_world/scripts/orchestrate.sh", "alice"]
+
+  bob:
+    <<: *party-env
+    build: *cove-cli-build
+    command: ["sh", "/workspace/demos/hello_world/scripts/orchestrate.sh", "bob"]
+
+  carol:
+    <<: *party-env
+    build: *cove-cli-build
+    command: ["sh", "/workspace/demos/hello_world/scripts/orchestrate.sh", "carol"]
+
+  client-proxy:
+    <<: *party-env
+    build: *cove-cli-build
+    ports:
+      - "${CLIENT_PROXY_LOCAL_PORT:-9701}:9701"
+    command:
+      - sh
+      - -c
+      - |
+        set -eu
+        workflow_ref_id="$${WORKFLOW_REF_ID:-hello_world}"
+        node_id="final_server"
+        keypair_name="session_key"
+        local_port="9701"
+        retry_seconds="30"
+        echo "waiting for Carol deployment before starting client proxy"
+        while [ ! -f /coordination/carol-deployed.done ]; do
+          sleep 2
+        done
+        remote_url="$$(cat /coordination/client-proxy-remote-url)"
+        carol_domain="$$(python -c 'import sys; from urllib.parse import urlparse; print(urlparse(sys.argv[1]).netloc)' "$$CAROL_URL")"
+        workflow_ref="$${carol_domain}/$${workflow_ref_id}/latest"
+        while :; do
+          echo "starting verified client proxy for $${remote_url} on 0.0.0.0:$${local_port}"
+          if cove client proxy \
+            --remote "$$remote_url" \
+            --local "0.0.0.0:$${local_port}" \
+            --workflow "$$workflow_ref" \
+            --node "$$node_id" \
+            --keypair "$$keypair_name" \
+            --write-workflow-to /client-proxy-workflows \
+            --server-url "$$COVEHUB_API_URL"; then
+            exit 0
+          fi
+          echo "client proxy verification failed; retrying in $${retry_seconds}s"
+          sleep "$$retry_seconds"
+        done
+    depends_on:
+      carol:
+        condition: service_started
+    volumes:
+      - ../../..:/workspace
+      - cove-coordination:/coordination
+      - client-proxy-workflows:/client-proxy-workflows
+    restart: unless-stopped
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARED_TUNNEL_TOKEN:?set CLOUDFLARED_TUNNEL_TOKEN in demos/hello_world/scripts/.env}
+    # Configure the Cloudflare tunnel public hostnames to these compose origins:
+    #   ALICE_URL      -> http://alice:9000
+    #   BOB_URL        -> http://bob:9000
+    #   CAROL_URL      -> http://carol:9000
+    #   COVEHUB_API_URL -> http://covehub-api:8000
+    #   COVEHUB_UI_URL -> http://covehub-ui:8080
+    command: tunnel --no-autoupdate run
+    restart: unless-stopped
+
+volumes:
+  covehub-data:
+  cove-homes:
+  cove-coordination:
+  client-proxy-workflows:
