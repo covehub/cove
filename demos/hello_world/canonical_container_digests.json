@@ -10,7 +10,7 @@
     },
     {
       "image_name": "cove-demo-hello-world-final-server",
-      "canonical_ref": "covehub/cove-demo-hello-world-final-server@sha256:88176b39d2f05aace17e1d64e505a816b30a4ce1ff208651b1c50e09e110478d"
+      "canonical_ref": "covehub/cove-demo-hello-world-final-server@sha256:6e17616a329414b99f42c87cda0e86f644eba7289a1eb17e74d681185ad6e743"
     }
   ]
 }

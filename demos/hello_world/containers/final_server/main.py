@@ -2,16 +2,30 @@
 
 import json
 import ssl
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from hello_world_common import log, optional_env, read_secret_word, require_env
 
 
 SERVICE = "final_server"
+TLS_HANDSHAKE_TIMEOUT_SECONDS = 5.0
+
+
+class ThreadingHTTPSServer(ThreadingHTTPServer):
+    daemon_threads = True
+    ssl_context: ssl.SSLContext
 
 
 class Handler(BaseHTTPRequestHandler):
     message = ""
+
+    def setup(self) -> None:
+        self.request.settimeout(TLS_HANDSHAKE_TIMEOUT_SECONDS)
+        self.request = self.server.ssl_context.wrap_socket(self.request, server_side=True)
+        self.request.settimeout(None)
+        self.connection = self.request
+        self.rfile = self.connection.makefile("rb", self.rbufsize)
+        self.wfile = self.connection.makefile("wb", self.wbufsize)
 
     def log_message(self, fmt: str, *args) -> None:
         return
@@ -42,6 +56,22 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json(404, {"error": "not found"})
 
 
+def build_server(
+    *,
+    host: str,
+    port: int,
+    tls_cert_path: str,
+    tls_key_path: str,
+    message: str,
+) -> ThreadingHTTPSServer:
+    Handler.message = message
+    ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ssl_context.load_cert_chain(certfile=tls_cert_path, keyfile=tls_key_path)
+    server = ThreadingHTTPSServer((host, port), Handler)
+    server.ssl_context = ssl_context
+    return server
+
+
 def main() -> int:
     alice_input_path = require_env("ALICE_INPUT_PATH")
     bob_input_path = require_env("BOB_INPUT_PATH")
@@ -54,11 +84,13 @@ def main() -> int:
     bob_word = read_secret_word(bob_input_path)
     message = f"alice's secret word is: {alice_word} and bob's secret word is: {bob_word}"
 
-    Handler.message = message
-    server = HTTPServer((host, port), Handler)
-    ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    ssl_context.load_cert_chain(certfile=tls_cert_path, keyfile=tls_key_path)
-    server.socket = ssl_context.wrap_socket(server.socket, server_side=True)
+    server = build_server(
+        host=host,
+        port=port,
+        tls_cert_path=tls_cert_path,
+        tls_key_path=tls_key_path,
+        message=message,
+    )
     log(SERVICE, f"serving https on {host}:{port}")
     server.serve_forever()
     return 0
