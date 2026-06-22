@@ -147,7 +147,7 @@ def main() -> int:
             _stop_process(server)
 
         payload = read_json(eval_result_path)
-        payload.setdefault("benchmark_name", "CoveDemoEval")
+        payload.setdefault("benchmark_name", "CoveDemoHarmBenchEval")
         payload.setdefault("pass", bool(payload.get("passes_threshold")))
         payload["eval_code_sha256"] = sha256_file(eval_code_path)
         payload["eval_data_sha256"] = sha256_file(eval_data_path)

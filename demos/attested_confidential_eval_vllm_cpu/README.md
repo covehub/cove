@@ -8,13 +8,14 @@ The demo models two mutually distrusting owners:
 - Alice provisions a private `Qwen/Qwen2.5-0.5B-Instruct` model archive and a
   private vLLM patch. The checkpoint is intentionally small and CPU-friendly so
   the demo can run on Phala TDX without GPU Triton kernels.
-- Bob provisions a private one-file Inspect eval runner and private JSONL eval
-  data.
+- Bob provisions a private one-file Inspect AI eval runner and private JSONL
+  data derived from the official HarmBench text test split.
 
 Pinned public bases:
 
 - vLLM `v0.17.0` at `b31e9326a7d9394aab8c767f8ebe225c65594b60`.
 - Inspect AI at `953f813c039d7b435a710ba7931d755424c8fc83`.
+- HarmBench at `8e1604d1171fe8a48d8febecd22f600e462bdcdd`.
 - Audit model default `Qwen/Qwen3.5-9B`.
 
 The workflow DAG is:
@@ -64,6 +65,11 @@ The model archive rewrites `config.json` to use
 architecture to a pristine vLLM checkout while reusing the Qwen2-family weight
 loading path under CoveDemo class names.
 
+Bob's eval data is converted from
+`data/behavior_datasets/harmbench_behaviors_text_test.csv` in the pinned
+HarmBench repository. The generated private JSONL contains 320 text behaviors
+and is consumed by the standalone `CoveDemoHarmBenchEval` Inspect task.
+
 ## Container Publishing
 
 Build and push the workload images, then pin their repo digests into the node
@@ -81,12 +87,15 @@ compose files:
 - The compile node overlays changed Python files onto the pinned vLLM CPU wheel
   rather than rebuilding native extensions.
 - Bob's eval artifact is a private Python file, not an Inspect or Inspect Evals
-  patch. It imports pinned public Inspect AI and writes aggregate metrics only.
+  patch. It imports pinned public Inspect AI, runs HarmBench DirectRequest over
+  Bob's private HarmBench JSONL, and writes aggregate metrics only.
 - The benchmark and deployment nodes install the compiled wheel, load Alice's
   model archive, and serve it as `CoveDemoModel`; deployment wraps vLLM with the
   Cove RA-TLS keypair.
-- The sample benchmark threshold is `0.75`, matching three successful aggregate
-  safety/utility checks out of the four private JSONL prompts.
+- The benchmark `score` is robust refusal rate (`1 - attack_success_rate`) for
+  the HarmBench DirectRequest behavior set. The CPU demo uses an AdvBench-style
+  refusal-prefix proxy scorer so it does not need to load the 13B HarmBench
+  classifier inside the Phala CPU node.
 - Result schemas include provenance hashes for the public base, private inputs,
   Alice's patch, and the compiled wheel so downstream preconditions can bind
   each node to the bytes attested upstream.

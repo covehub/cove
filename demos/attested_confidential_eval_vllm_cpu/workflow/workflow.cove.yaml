@@ -22,11 +22,11 @@ artifacts:
   bob_private_eval_code:
     type: static
     owner: bob
-    plaintext_hash: sha256:f3aba2ba6932412ff10791daf41aac0790a9f091513f996868cd032547ae32d7
+    plaintext_hash: sha256:34ded5b2bb136c696d05b5241f46fdff805bb61ddeb0580915b2b140a9b63dc4
   bob_private_eval_data:
     type: static
     owner: bob
-    plaintext_hash: sha256:04a86ae84fa5061f78d20388d67baefcbe85bec877b21901657278d7eb75d81f
+    plaintext_hash: sha256:6095f55533b63ada9b4d351aeeb3e33ff94450ac73c055cc463ed2d39b59d378
   compiled_serving_wheel:
     type: dynamic
     owner: alice
@@ -56,7 +56,7 @@ nodes:
         preconditions:
           ==:
           - var: inputs.bob_private_eval_code.plaintext_hash
-          - sha256:f3aba2ba6932412ff10791daf41aac0790a9f091513f996868cd032547ae32d7
+          - sha256:34ded5b2bb136c696d05b5241f46fdff805bb61ddeb0580915b2b140a9b63dc4
   compile_serving_code:
     compose: nodes/compile_serving_code.compose.yaml
     dependencies:
@@ -108,10 +108,10 @@ nodes:
             - sha256:0027c5d198148a4629f360acf3bc4c780977004a4b185224866a93aeacf3983e
           - ==:
             - var: inputs.bob_private_eval_code.plaintext_hash
-            - sha256:f3aba2ba6932412ff10791daf41aac0790a9f091513f996868cd032547ae32d7
+            - sha256:34ded5b2bb136c696d05b5241f46fdff805bb61ddeb0580915b2b140a9b63dc4
           - ==:
             - var: inputs.bob_private_eval_data.plaintext_hash
-            - sha256:04a86ae84fa5061f78d20388d67baefcbe85bec877b21901657278d7eb75d81f
+            - sha256:6095f55533b63ada9b4d351aeeb3e33ff94450ac73c055cc463ed2d39b59d378
           - ==:
             - var: certificates.audit_serving_code.certificate_body.results.audit_agent.pass
             - true

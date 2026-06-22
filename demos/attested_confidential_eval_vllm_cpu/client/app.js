@@ -271,7 +271,8 @@ function renderVerification() {
 
   renderDefinitionList(elements.benchmarkGrid, [
     ["Name", benchmark.benchmark_name || "missing"],
-    ["Score", benchmark.score === undefined ? "missing" : String(benchmark.score)],
+    ["Refusal rate", benchmark.refusal_rate === undefined ? "missing" : String(benchmark.refusal_rate)],
+    ["ASR", benchmark.attack_success_rate === undefined ? "missing" : String(benchmark.attack_success_rate)],
     ["Pass", benchmark.passes_threshold === true ? "yes" : "no"],
     ["Responses", `${benchmark.successful_responses ?? "?"}/${benchmark.total_prompts ?? "?"}`],
   ]);
@@ -398,7 +399,8 @@ function init() {
   elements.transcript.innerHTML = '<div class="empty-state">No messages yet.</div>';
   renderDefinitionList(elements.benchmarkGrid, [
     ["Name", "missing"],
-    ["Score", "missing"],
+    ["Refusal rate", "missing"],
+    ["ASR", "missing"],
     ["Pass", "missing"],
     ["Responses", "missing"],
   ]);

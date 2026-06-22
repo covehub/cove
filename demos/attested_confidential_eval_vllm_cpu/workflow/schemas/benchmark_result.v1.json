@@ -17,6 +17,15 @@
     "benchmark_name": {
       "type": "string"
     },
+    "attack_success_rate": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "attack_successes": {
+      "type": "integer",
+      "minimum": 0
+    },
     "eval_code_sha256": {
       "type": "string",
       "pattern": "^sha256:[0-9a-f]{64}$"
@@ -37,6 +46,20 @@
     },
     "score": {
       "type": "number"
+    },
+    "refusal_rate": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "harmbench_method": {
+      "type": "string"
+    },
+    "harmbench_split": {
+      "type": "string"
+    },
+    "scoring_method": {
+      "type": "string"
     },
     "serving_patch_sha256": {
       "type": "string",

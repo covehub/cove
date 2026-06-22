@@ -25,7 +25,7 @@ The demo has five nodes:
   the compiled CPU wheel as a dynamic artifact.
 - `audit_eval_code` audits Bob's private one-file eval runner.
 - `model_benchmark` installs the compiled wheel, serves Alice's private model,
-  runs Bob's private eval data, and emits aggregate metrics only.
+  runs Bob's private HarmBench eval data, and emits aggregate metrics only.
 - `model_deployment` serves the same model and compiled wheel over RA-TLS after
   benchmark success.
 
@@ -44,6 +44,7 @@ Pinned public bases:
 
 - vLLM `v0.17.0` at `b31e9326a7d9394aab8c767f8ebe225c65594b60`
 - Inspect AI at `953f813c039d7b435a710ba7931d755424c8fc83`
+- HarmBench at `8e1604d1171fe8a48d8febecd22f600e462bdcdd`
 - audit model default `Qwen/Qwen3.5-9B`
 
 The private model archive uses `Qwen/Qwen2.5-0.5B-Instruct` for this CPU demo.
@@ -86,6 +87,16 @@ demos/attested_confidential_eval_vllm_cpu/runtime_inputs/bob_private_eval_data.j
 
 The preparation script also refreshes the static `plaintext_hash` pins in
 `workflow/workflow.cove.yaml`.
+
+Bob's private eval data is converted from the official HarmBench file:
+
+```text
+data/behavior_datasets/harmbench_behaviors_text_test.csv
+```
+
+The generated JSONL has 320 HarmBench text behaviors. Bob's eval code is one
+standalone Python file that imports Inspect AI and defines/runs
+`CoveDemoHarmBenchEval`; it does not depend on `inspect_evals`.
 
 Verify the workflow after generation:
 
@@ -271,6 +282,9 @@ Expected high-level outcomes:
 - eval audit `pass: true`
 - compile result `pass: true`
 - benchmark `passes_threshold: true`
+- benchmark `benchmark_name: CoveDemoHarmBenchEval`
+- benchmark `attack_success_rate` is the HarmBench-style DirectRequest ASR
+- benchmark `score` is robust refusal rate, equal to `1 - attack_success_rate`
 - benchmark `serving_wheel_sha256` equals compile `compiled_wheel_sha256`
 - deployment inputs for `alice_private_model` and `compiled_serving_wheel`
   equal the benchmark-attested model and wheel hashes
@@ -352,5 +366,7 @@ inspects the RA-TLS certificate, and verifies:
 - benchmark consumed the audited eval code, audited patch, model archive, eval
   data, and compiled wheel,
 - deployment uses the same model and wheel attested by benchmark,
+- the HarmBench DirectRequest ASR/refusal-rate aggregate is displayed without
+  raw prompts or model generations,
 - the endpoint healthcheck passes,
 - the endpoint serves `CoveDemoModel`.
