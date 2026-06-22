@@ -1,0 +1,33 @@
+{
+  "type": "object",
+  "required": [
+    "audit_kind",
+    "audited_sha256",
+    "llm_used",
+    "model_id",
+    "pass",
+    "reasoning"
+  ],
+  "properties": {
+    "audit_kind": {
+      "type": "string"
+    },
+    "audited_sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "llm_used": {
+      "type": "boolean"
+    },
+    "model_id": {
+      "type": "string"
+    },
+    "pass": {
+      "type": "boolean"
+    },
+    "reasoning": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": true
+}

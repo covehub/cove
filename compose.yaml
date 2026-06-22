@@ -1,5 +1,59 @@
 name: covehub
 
+x-cove-cli-build: &cove-cli-build
+  context: .
+  dockerfile_inline: |
+    FROM python:3.12-slim
+    ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+    COPY cove_container_runtime /tmp/cove_container_runtime
+    COPY cli /tmp/cli
+    RUN python -m pip install --no-cache-dir /tmp/cove_container_runtime /tmp/cli
+
+x-owner-environment: &owner-environment
+  COVE_PROVISION_HOST: 0.0.0.0
+  COVEHUB_API_URL: ${COVEHUB_API_URL:-https://api.covehub.io}
+  PYTHONUNBUFFERED: "1"
+
+x-owner-command: &owner-command
+  - sh
+  - -c
+  - |
+    set -eu
+    : "$${OWNER_NAME:?set OWNER_NAME for this service}"
+    : "$${OWNER_URL:?set OWNER_URL for this service}"
+    : "$${COVEHUB_API_URL:?set COVEHUB_API_URL in cove/.env}"
+    cove_home="/cove-homes/$${OWNER_NAME}"
+    python - "$$cove_home" "$$COVEHUB_API_URL" "$$OWNER_URL" <<'PY'
+    import sys
+
+    from cove_cli.config import provision_paths_for_home, update_local_config
+    from cove_cli.provisioning_identity import ensure_owner_signing_key_material
+
+    cove_home, covehub_server_url, owner_server_url = sys.argv[1:]
+    provision_paths = provision_paths_for_home(cove_home)
+    ensure_owner_signing_key_material(
+        private_key_path=provision_paths.owner_private_key_path,
+        public_key_path=provision_paths.owner_public_key_path,
+    )
+    update_local_config(
+        cove_home=cove_home,
+        covehub_server_url=covehub_server_url,
+        phala_cloud_api_key=None,
+        phala_docker_username=None,
+        phala_docker_access_token=None,
+        phala_docker_registry=None,
+        owner_server_url=owner_server_url,
+    )
+    PY
+    exec cove --cove-home "$$cove_home" start 9000
+
+x-owner-service: &owner-service
+  build: *cove-cli-build
+  command: *owner-command
+  volumes:
+    - cove-homes:/cove-homes
+  restart: unless-stopped
+
 services:
   covehub-api:
     build:
@@ -14,6 +68,15 @@ services:
       - "127.0.0.1:${COVEHUB_API_PORT:-3518}:8000"
     volumes:
       - covehub-data:/var/lib/covehub/data
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2).read()"
+      interval: 5s
+      timeout: 3s
+      retries: 30
     restart: unless-stopped
 
   covehub-ui:
@@ -31,8 +94,30 @@ services:
     volumes:
       - covehub-data:/var/lib/covehub/data:ro
     depends_on:
-      - covehub-api
+      covehub-api:
+        condition: service_healthy
     restart: unless-stopped
+
+  alice:
+    <<: *owner-service
+    environment:
+      <<: *owner-environment
+      OWNER_NAME: alice
+      OWNER_URL: ${ALICE_URL:-https://demo-alice.covehub.io}
+
+  bob:
+    <<: *owner-service
+    environment:
+      <<: *owner-environment
+      OWNER_NAME: bob
+      OWNER_URL: ${BOB_URL:-https://demo-bob.covehub.io}
+
+  carol:
+    <<: *owner-service
+    environment:
+      <<: *owner-environment
+      OWNER_NAME: carol
+      OWNER_URL: ${CAROL_URL:-https://demo-carol.covehub.io}
 
   cloudflared:
     image: cloudflare/cloudflared:latest
@@ -42,10 +127,20 @@ services:
         required: false
     environment:
       TUNNEL_TOKEN: ${CLOUDFLARED_TOKEN:?set CLOUDFLARED_TOKEN in cove/.env}
+    # Configure the Cloudflare tunnel public hostnames to these compose origins:
+    #   COVEHUB_UI_URL  -> http://covehub-ui:8080
+    #   COVEHUB_API_URL -> http://covehub-api:8000
+    #   ALICE_URL       -> http://alice:9000
+    #   BOB_URL         -> http://bob:9000
+    #   CAROL_URL       -> http://carol:9000
     depends_on:
       - covehub-api
       - covehub-ui
+      - alice
+      - bob
+      - carol
     restart: unless-stopped
 
 volumes:
   covehub-data:
+  cove-homes:

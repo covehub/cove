@@ -1,0 +1,8 @@
+services:
+  compile_serving_wheel:
+    image: "covehub/cove-demo-attested-confidential-eval-vllm-compile-serving-wheel@sha256:018e90f33c31b33de3ded3d31593d93c0f683bd9597b1055839e74654478e17b"
+    environment:
+      OUTPUT_PATH: /workspace/output/compiled_serving_wheel.whl
+      PATCH_PATH: /workspace/input/alice_private_serving_patch.diff
+      RESULT_PATH: /workspace/output/compile_result.json
+      VLLM_GIT_SHA: b31e9326a7d9394aab8c767f8ebe225c65594b60

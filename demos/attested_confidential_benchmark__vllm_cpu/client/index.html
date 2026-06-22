@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Cove Attested Benchmark Client</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <main class="workspace">
+        <section class="topbar" aria-label="Connection">
+          <div class="brand-block">
+            <span class="brand-mark">C</span>
+            <div>
+              <h1>CoveDemoModel</h1>
+              <p>Attested confidential benchmark CPU client</p>
+            </div>
+          </div>
+          <form id="settingsForm" class="settings-grid">
+            <label>
+              Endpoint
+              <input id="endpointInput" name="endpoint" type="url" spellcheck="false">
+            </label>
+            <label>
+              Publisher
+              <input id="publisherInput" name="publisher" spellcheck="false">
+            </label>
+            <label>
+              Workflow
+              <input id="workflowInput" name="workflow" spellcheck="false">
+            </label>
+            <label>
+              Model
+              <input id="modelInput" name="model" spellcheck="false">
+            </label>
+            <button id="verifyButton" type="button">Verify</button>
+          </form>
+        </section>
+
+        <section class="conversation-panel" aria-label="Conversation">
+          <div class="panel-heading">
+            <h2>Request</h2>
+            <div id="modelBadge" class="badge muted">unverified</div>
+          </div>
+          <div id="transcript" class="transcript" aria-live="polite"></div>
+          <form id="chatForm" class="composer">
+            <textarea id="promptInput" rows="5" spellcheck="true">Reply with exactly: ok</textarea>
+            <div class="composer-actions">
+              <label>
+                Max tokens
+                <input id="maxTokensInput" type="number" min="1" max="1024" value="160">
+              </label>
+              <label>
+                Temperature
+                <input id="temperatureInput" type="number" min="0" max="2" step="0.1" value="0">
+              </label>
+              <button id="sendButton" type="submit">Send</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="payload-panel" aria-label="Payload">
+          <details>
+            <summary>Last payload</summary>
+            <pre id="payloadOutput">{}</pre>
+          </details>
+        </section>
+      </main>
+
+      <aside class="attestation-sidebar" aria-label="Attestation">
+        <div class="sidebar-header">
+          <h2>Attestation</h2>
+          <div id="overallStatus" class="status-pill pending">pending</div>
+        </div>
+
+        <section class="sidebar-section">
+          <h3>Benchmark</h3>
+          <dl id="benchmarkGrid" class="metric-grid"></dl>
+        </section>
+
+        <section class="sidebar-section">
+          <h3>Checks</h3>
+          <ol id="checkList" class="check-list"></ol>
+        </section>
+
+        <section class="sidebar-section">
+          <h3>Provenance</h3>
+          <div id="hashList" class="hash-list"></div>
+        </section>
+
+        <section class="sidebar-section">
+          <h3>Endpoint TLS</h3>
+          <dl id="tlsGrid" class="tls-grid"></dl>
+        </section>
+      </aside>
+    </div>
+
+    <script src="./config.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>

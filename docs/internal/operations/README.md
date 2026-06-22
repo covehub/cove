@@ -13,6 +13,7 @@ walkthrough mapped to primitives), start at the
 
 | If you want to … | Read |
 | --- | --- |
+| Set up a personal dev tunnel such as `covehub-orion` and run the scripted demo | [dev_setup.md](dev_setup.md) |
 | Stand up the full hello-world deploy from scratch | [../hello_world.md](../hello_world.md) |
 | Run the Docker Compose Covehub API + UI stack and route it through Cloudflare | [covehub_server.md](covehub_server.md) |
 | Understand the public Covehub browser UI: API surface, screens, env vars, tests | [ui.md](ui.md) |

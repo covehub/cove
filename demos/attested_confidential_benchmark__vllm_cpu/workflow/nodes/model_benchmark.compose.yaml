@@ -1,0 +1,12 @@
+services:
+  benchmark_runner:
+    image: "covehub/cove-demo-attested-confidential-eval-vllm-benchmark-runner@sha256:4651c3fee03ec4dbaee5a70ee8784fba4460e50f5ed5cc8b51465a35feb87d48"
+    environment:
+      EVAL_CODE_PATH: /workspace/input/bob_private_eval_code.py
+      EVAL_DATA_PATH: /workspace/input/bob_private_eval_data.jsonl
+      MODEL_NAME: CoveDemoModel
+      MODEL_ARCHIVE_PATH: /workspace/input/alice_private_model.tar
+      RESULT_PATH: /workspace/output/benchmark_result.json
+      SCORE_THRESHOLD: "0.40"
+      SERVING_PATCH_PATH: /workspace/input/alice_private_serving_patch.diff
+      SERVING_WHEEL_PATH: /workspace/input/compiled_serving_wheel.whl

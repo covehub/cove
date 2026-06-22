@@ -16,8 +16,8 @@ Usage:
 
 Examples:
   ./scripts/build_all_containers.sh
-  ./scripts/build_all_containers.sh --docker-namespace yourname --tag v1
-  ./scripts/build_all_containers.sh --docker-namespace yourname --tag v1 --push
+  ./scripts/build_all_containers.sh --docker-namespace covehub --tag v1
+  ./scripts/build_all_containers.sh --docker-namespace covehub --tag v1 --push
 EOF
 }
 

@@ -48,6 +48,10 @@ _STATIC_EXACT_HUB_PATH_RE = re.compile(
 _COMPOSE_ENV_RE = re.compile(r"\$\{(?P<name>[A-Za-z_][A-Za-z0-9_]*)(:-?(?P<default>[^}]*))?\}")
 _COMPOSE_HASH_PLACEHOLDER = "sha256:" + ("0" * 64)
 _COVE_RUNTIME_VOLUME = "cove_runtime"
+_X509_COMMON_NAME_MAX_BYTES = 64
+_FNV1A64_OFFSET = 0xCBF29CE484222325
+_FNV1A64_PRIME = 0x100000001B3
+_FNV1A64_MASK = (1 << 64) - 1
 
 
 class CompileCommandError(RuntimeError):
@@ -81,6 +85,40 @@ class _ResolvedOwnerIdentity:
     owner_url: str
     owner_domain: str
     identity_document: dict[str, object]
+
+
+def _keypair_certificate_common_name(
+    *, workflow_id: str, node_name: str, keypair_name: str
+) -> str:
+    raw_common_name = f"{workflow_id}.{node_name}.{keypair_name}"
+    if len(raw_common_name.encode("utf-8")) <= _X509_COMMON_NAME_MAX_BYTES:
+        return raw_common_name
+
+    digest = _fnv1a64_hex(raw_common_name.encode("utf-8"))
+    suffix = f"-{digest}"
+    prefix = f"cove-{node_name}.{keypair_name}"
+    max_prefix_bytes = _X509_COMMON_NAME_MAX_BYTES - len(suffix.encode("ascii"))
+    return f"{_truncate_utf8(prefix, max_prefix_bytes)}{suffix}"
+
+
+def _fnv1a64_hex(payload: bytes) -> str:
+    value = _FNV1A64_OFFSET
+    for byte in payload:
+        value ^= byte
+        value = (value * _FNV1A64_PRIME) & _FNV1A64_MASK
+    return f"{value:016x}"
+
+
+def _truncate_utf8(value: str, max_bytes: int) -> str:
+    output: list[str] = []
+    used_bytes = 0
+    for char in value:
+        char_len = len(char.encode("utf-8"))
+        if used_bytes + char_len > max_bytes:
+            break
+        output.append(char)
+        used_bytes += char_len
+    return "".join(output)
 
 
 def resolve_image_reference_to_digest(image_reference: str) -> str:
@@ -223,7 +261,11 @@ def _compile_node(
                     "public_key_path": f"/cove/ephemeral_keypairs/{keypair_name}/public.pem",
                     "certificate_path": f"/cove/ephemeral_keypairs/{keypair_name}/certificate.pem",
                     "metadata_path": f"/cove/ephemeral_keypairs/{keypair_name}/metadata.json",
-                    "certificate_common_name": f"{workflow.workflow_id}.{node.name}.{keypair_name}",
+                    "certificate_common_name": _keypair_certificate_common_name(
+                        workflow_id=workflow.workflow_id,
+                        node_name=node.name,
+                        keypair_name=keypair_name,
+                    ),
                 }
                 for keypair_name in node.used_keypairs
             ]

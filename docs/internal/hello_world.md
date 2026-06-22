@@ -38,9 +38,9 @@ The workflow has four nodes:
 - Workflow ref: `demo-carol.covehub.io/hello_world`
 - Workflow file: `/home/$USER/cove/demos/hello_world/workflow/workflow.cove.yaml`
 
-The Alice/Bob/Carol parties tunnel and the Covehub API/UI tunnel are separate
-Cloudflare connectors. Keep their credentials separate and use the connector
-command or token provided by the operator for the environment you are running.
+The scripted run uses one Cloudflare tunnel connector from
+`demos/hello_world/scripts/compose.yml`. Configure that tunnel with routes for
+Covehub API/UI plus the three public owner services.
 
 ## Authored Workflow Surface
 
@@ -52,7 +52,6 @@ are declared by owner only:
 owners:
   alice: https://demo-alice.covehub.io
   bob: https://demo-bob.covehub.io
-  carol: https://demo-carol.covehub.io
 
 artifacts:
   alice_secret_word:
@@ -110,63 +109,104 @@ verify:
 Owner aliases like `alice` and `bob` are authoring conveniences only. Covehub
 paths use domains, never `/alice/...` or `/bob/...`.
 
-## 1. Start Covehub API/UI
+## 1. Prepare The Demo Environment
 
-Start the root Compose stack in a long-running shell or process supervisor:
-
-```bash
-cd /home/$USER/cove
-docker compose up --build
-```
-
-The root Compose stack runs:
-
-- `covehub-api` on local `127.0.0.1:3518`
-- `covehub-ui` on local `127.0.0.1:3517`
-- the Covehub API/UI `cloudflared` connector using the configured tunnel token
-
-For a fresh production reset, stop the stack and remove only the production
-Covehub volume:
+Create a private environment file for the scripted demo run:
 
 ```bash
-cd /home/$USER/cove
-docker compose down -v --remove-orphans
-docker compose up --build
+cd /home/$USER/cove/demos/hello_world/scripts
+cp .env.example .env
+$EDITOR .env
 ```
+
+Use the production Covehub routes and owner routes:
+
+```env
+ALICE_URL=https://demo-alice.covehub.io
+BOB_URL=https://demo-bob.covehub.io
+CAROL_URL=https://demo-carol.covehub.io
+COVEHUB_API_URL=https://api.covehub.io
+COVEHUB_UI_URL=https://covehub.io
+
+PHALA_CLOUD_API_KEY=<carol-phala-cloud-api-key>
+DOCKERHUB_USERNAME=covehub
+DOCKERHUB_API_KEY=<covehub-docker-hub-access-token>
+DOCKERHUB_REGISTRY=
+
+CLOUDFLARED_TUNNEL_TOKEN=<cloudflare-tunnel-token>
+PHALA_INSTANCE_TYPE=tdx.medium
+PHALA_DISK_SIZE_GB=40
+CLIENT_PROXY_LOCAL_PORT=9701
+```
+
+Only Carol uses the Phala and Docker Hub credentials. Alice and Bob leave those
+credential prompts blank in the manual flow, but the scripted Compose flow
+keeps all role configuration in this one private `.env` file.
+
+Configure the Cloudflare tunnel public hostname routes to the Compose service
+origins. Production uses:
+
+```text
+covehub.io               -> http://covehub-ui:8080
+api.covehub.io           -> http://covehub-api:8000
+demo-alice.covehub.io    -> http://alice:9000
+demo-bob.covehub.io      -> http://bob:9000
+demo-carol.covehub.io    -> http://carol:9000
+```
+
+For an individual dev tunnel, choose one coherent hostname set and update both
+`scripts/.env` and the Cloudflare routes to match. Examples include
+`orion-api.covehub.io` with `orion.covehub.io`, `hpmv-api.covehub.io` with
+`hpmv.covehub.io`, or the equivalent `erika` hostnames, plus matching owner
+hostnames for Alice, Bob, and Carol.
 
 Do not wipe or target staging hosts (`staging.covehub.io` or
 `api-staging.covehub.io`) during this run.
 
-Verify:
+## 2. Start The Scripted Compose Run
+
+Start the demo Compose stack from the scripts directory:
 
 ```bash
-curl -fsS http://127.0.0.1:3518/healthz
-curl -fsS http://127.0.0.1:3517/ui-api/healthz
+cd /home/$USER/cove/demos/hello_world/scripts
+docker compose up --build
+```
+
+If this is not the first run and you want a clean local Covehub/object-store
+state, remove the demo volumes first:
+
+```bash
+cd /home/$USER/cove/demos/hello_world/scripts
+docker compose down -v
+docker compose up --build
+```
+
+The scripted stack runs:
+
+- `covehub-api` behind `https://api.covehub.io`
+- `covehub-ui` behind `https://covehub.io`
+- Alice, Bob, and Carol owner services behind the `demo-*` hostnames
+- Carol's check, compile, publish, approve, and deploy flow
+- the verified client proxy on `CLIENT_PROXY_LOCAL_PORT`
+
+Verify public reachability:
+
+```bash
 curl -A 'cove-runtime/0.0.1' -fsS https://api.covehub.io/healthz
 curl -fsS https://covehub.io/
+curl -A 'cove-runtime/0.0.1' -fsS https://demo-alice.covehub.io/identity
+curl -A 'cove-runtime/0.0.1' -fsS https://demo-bob.covehub.io/identity
+curl -A 'cove-runtime/0.0.1' -fsS https://demo-carol.covehub.io/identity
 ```
 
 The `covehub` Cloudflare tunnel should have exactly one active replica for
-this run. If another replica is attached, Cloudflare can send `api.covehub.io`
-and `covehub.io` traffic to different origins, which makes the UI and API
-appear out of sync. Stop old replicas or rotate the tunnel token before
-publishing.
+this run. If another replica is attached, Cloudflare can send public traffic to
+different origins, which makes the UI, API, and owner services appear out of
+sync. Stop old replicas or rotate the tunnel token before publishing.
 
-## 2. Start Parties Tunnel
-
-Start the parties Cloudflare connector command supplied for this environment
-in its own long-running shell or process supervisor.
-
-The parties tunnel must route:
-
-```text
-demo-alice.covehub.io -> http://127.0.0.1:9600
-demo-bob.covehub.io   -> http://127.0.0.1:9601
-demo-carol.covehub.io -> http://127.0.0.1:9602
-```
-
-Do not add `api.covehub.io` or `covehub.io` to this parties tunnel; those use
-the separate Covehub API/UI tunnel from the Compose stack.
+The remaining sections describe the manual equivalent of what the scripted
+Compose flow automates. Use them for debugging individual steps or for running
+the same workflow without the script orchestrator.
 
 ## 3. Build And Install CLI
 

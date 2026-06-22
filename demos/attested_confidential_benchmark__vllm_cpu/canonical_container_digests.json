@@ -1,0 +1,20 @@
+{
+  "containers": [
+    {
+      "image_name": "cove-demo-attested-confidential-eval-vllm-audit-agent",
+      "canonical_ref": "covehub/cove-demo-attested-confidential-eval-vllm-audit-agent@sha256:de2084bb6db77a67c725252f7ddad9e59f589fcc5106787e57602d443552ed8f"
+    },
+    {
+      "image_name": "cove-demo-attested-confidential-eval-vllm-compile-serving-wheel",
+      "canonical_ref": "covehub/cove-demo-attested-confidential-eval-vllm-compile-serving-wheel@sha256:018e90f33c31b33de3ded3d31593d93c0f683bd9597b1055839e74654478e17b"
+    },
+    {
+      "image_name": "cove-demo-attested-confidential-eval-vllm-benchmark-runner",
+      "canonical_ref": "covehub/cove-demo-attested-confidential-eval-vllm-benchmark-runner@sha256:4651c3fee03ec4dbaee5a70ee8784fba4460e50f5ed5cc8b51465a35feb87d48"
+    },
+    {
+      "image_name": "cove-demo-attested-confidential-eval-vllm-model-server",
+      "canonical_ref": "covehub/cove-demo-attested-confidential-eval-vllm-model-server@sha256:2bff5d8aa3895e19811eb18d35beaca3e1b2e198da266ac6bbc5c553006c3bec"
+    }
+  ]
+}
