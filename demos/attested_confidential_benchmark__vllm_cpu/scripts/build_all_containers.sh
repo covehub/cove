@@ -171,4 +171,4 @@ if [[ "${PUSH_IMAGES}" == "1" ]]; then
 fi
 
 echo
-echo "Built attested_confidential_eval_vllm_cpu workload images with tag ${DOCKER_TAG}."
+echo "Built attested_confidential_benchmark__vllm_cpu workload images with tag ${DOCKER_TAG}."

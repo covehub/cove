@@ -53,12 +53,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--workflow-path",
         type=Path,
-        default=Path("demos/attested_confidential_eval_vllm_cpu/workflow/workflow.cove.yaml"),
+        default=Path("demos/attested_confidential_benchmark__vllm_cpu/workflow/workflow.cove.yaml"),
     )
     parser.add_argument(
         "--inputs-root",
         type=Path,
-        default=Path("demos/attested_confidential_eval_vllm_cpu/runtime_inputs"),
+        default=Path("demos/attested_confidential_benchmark__vllm_cpu/runtime_inputs"),
     )
     return parser.parse_args()
 

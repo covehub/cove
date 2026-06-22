@@ -1,7 +1,7 @@
-# `attested_confidential_eval_vllm_cpu`
+# `attested_confidential_benchmark__vllm_cpu`
 
-`attested_confidential_eval_vllm_cpu` is a five-node Cove workflow for the
-attested confidential eval design in `docs/internal/mats_9_1___kang___icml2026___revision_2-5.pdf`.
+`attested_confidential_benchmark__vllm_cpu` is a five-node Cove workflow for the
+attested confidential benchmark design in `docs/internal/mats_9_1___kang___icml2026___revision_2-5.pdf`.
 
 The demo models two mutually distrusting owners:
 
@@ -50,7 +50,7 @@ Prepare the demo inputs locally:
 
 ```bash
 uv run --with huggingface_hub --with pyyaml \
-  python demos/attested_confidential_eval_vllm_cpu/scripts/prepare_demo_inputs.py
+  python demos/attested_confidential_benchmark__vllm_cpu/scripts/prepare_demo_inputs.py
 ```
 
 This creates:
@@ -76,7 +76,7 @@ Build and push the workload images, then pin their repo digests into the node
 compose files:
 
 ```bash
-./demos/attested_confidential_eval_vllm_cpu/scripts/build_all_containers.sh \
+./demos/attested_confidential_benchmark__vllm_cpu/scripts/build_all_containers.sh \
   --docker-namespace hpmv \
   --tag dev \
   --push

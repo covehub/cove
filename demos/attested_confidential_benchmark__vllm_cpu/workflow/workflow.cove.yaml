@@ -1,6 +1,6 @@
 cove_version: 1
 workflow:
-  id: attested_confidential_eval_vllm_cpu
+  id: attested_confidential_benchmark__vllm_cpu
 platform:
   provider: phala
   runtime: dstack

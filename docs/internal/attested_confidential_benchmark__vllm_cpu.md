@@ -1,19 +1,19 @@
-# Attested Confidential Eval vLLM CPU Runbook
+# Attested Confidential Benchmark vLLM CPU Runbook
 
 This document is the end-to-end runbook for
-`demos/attested_confidential_eval_vllm_cpu`. The workflow demonstrates the
-attested confidential eval design on Phala TDX using CPU-only vLLM.
+`demos/attested_confidential_benchmark__vllm_cpu`. The workflow demonstrates the
+attested confidential benchmark design on Phala TDX using CPU-only vLLM.
 
 The workflow ref is:
 
 ```text
-demo-carol.covehub.io/attested_confidential_eval_vllm_cpu
+demo-carol.covehub.io/attested_confidential_benchmark__vllm_cpu
 ```
 
 The workflow file is:
 
 ```text
-/home/$USER/cove/demos/attested_confidential_eval_vllm_cpu/workflow/workflow.cove.yaml
+/home/$USER/cove/demos/attested_confidential_benchmark__vllm_cpu/workflow/workflow.cove.yaml
 ```
 
 ## What This Demo Proves
@@ -73,16 +73,16 @@ Generate Alice and Bob's private inputs:
 cd /home/$USER/cove
 
 uv run --with huggingface_hub --with pyyaml \
-  python demos/attested_confidential_eval_vllm_cpu/scripts/prepare_demo_inputs.py
+  python demos/attested_confidential_benchmark__vllm_cpu/scripts/prepare_demo_inputs.py
 ```
 
 This creates:
 
 ```text
-demos/attested_confidential_eval_vllm_cpu/runtime_inputs/alice_private_model.tar
-demos/attested_confidential_eval_vllm_cpu/runtime_inputs/alice_private_serving_patch.diff
-demos/attested_confidential_eval_vllm_cpu/runtime_inputs/bob_private_eval_code.py
-demos/attested_confidential_eval_vllm_cpu/runtime_inputs/bob_private_eval_data.jsonl
+demos/attested_confidential_benchmark__vllm_cpu/runtime_inputs/alice_private_model.tar
+demos/attested_confidential_benchmark__vllm_cpu/runtime_inputs/alice_private_serving_patch.diff
+demos/attested_confidential_benchmark__vllm_cpu/runtime_inputs/bob_private_eval_code.py
+demos/attested_confidential_benchmark__vllm_cpu/runtime_inputs/bob_private_eval_data.jsonl
 ```
 
 The preparation script also refreshes the static `plaintext_hash` pins in
@@ -102,7 +102,7 @@ Verify the workflow after generation:
 
 ```bash
 uv run --directory cli cove check \
-  /home/$USER/cove/demos/attested_confidential_eval_vllm_cpu/workflow/workflow.cove.yaml
+  /home/$USER/cove/demos/attested_confidential_benchmark__vllm_cpu/workflow/workflow.cove.yaml
 ```
 
 ## 3. Build Workload Images
@@ -111,7 +111,7 @@ The checked-in node compose files are digest-pinned to known working CPU
 workload images. Rebuild and push only when changing container code:
 
 ```bash
-cd /home/$USER/cove/demos/attested_confidential_eval_vllm_cpu
+cd /home/$USER/cove/demos/attested_confidential_benchmark__vllm_cpu
 ./scripts/build_all_containers.sh \
   --docker-namespace covehub \
   --tag <release-tag> \
@@ -134,11 +134,11 @@ Alice provisions her model archive and serving patch:
 ```bash
 cove --cove-home /home/$USER/.alice_cove provision \
   alice_private_model \
-  /home/$USER/cove/demos/attested_confidential_eval_vllm_cpu/runtime_inputs/alice_private_model.tar
+  /home/$USER/cove/demos/attested_confidential_benchmark__vllm_cpu/runtime_inputs/alice_private_model.tar
 
 cove --cove-home /home/$USER/.alice_cove provision \
   alice_private_serving_patch \
-  /home/$USER/cove/demos/attested_confidential_eval_vllm_cpu/runtime_inputs/alice_private_serving_patch.diff
+  /home/$USER/cove/demos/attested_confidential_benchmark__vllm_cpu/runtime_inputs/alice_private_serving_patch.diff
 ```
 
 Bob provisions his eval code and eval data:
@@ -146,11 +146,11 @@ Bob provisions his eval code and eval data:
 ```bash
 cove --cove-home /home/$USER/.bob_cove provision \
   bob_private_eval_code \
-  /home/$USER/cove/demos/attested_confidential_eval_vllm_cpu/runtime_inputs/bob_private_eval_code.py
+  /home/$USER/cove/demos/attested_confidential_benchmark__vllm_cpu/runtime_inputs/bob_private_eval_code.py
 
 cove --cove-home /home/$USER/.bob_cove provision \
   bob_private_eval_data \
-  /home/$USER/cove/demos/attested_confidential_eval_vllm_cpu/runtime_inputs/bob_private_eval_data.jsonl
+  /home/$USER/cove/demos/attested_confidential_benchmark__vllm_cpu/runtime_inputs/bob_private_eval_data.jsonl
 ```
 
 ## 5. Carol Compiles And Publishes
@@ -159,19 +159,19 @@ Carol checks, compiles, and publishes:
 
 ```bash
 cove --cove-home /home/$USER/.carol_cove check \
-  /home/$USER/cove/demos/attested_confidential_eval_vllm_cpu/workflow/workflow.cove.yaml
+  /home/$USER/cove/demos/attested_confidential_benchmark__vllm_cpu/workflow/workflow.cove.yaml
 
 cove --cove-home /home/$USER/.carol_cove compile \
-  /home/$USER/cove/demos/attested_confidential_eval_vllm_cpu/workflow/workflow.cove.yaml
+  /home/$USER/cove/demos/attested_confidential_benchmark__vllm_cpu/workflow/workflow.cove.yaml
 
 cove --cove-home /home/$USER/.carol_cove push \
-  /home/$USER/cove/demos/attested_confidential_eval_vllm_cpu/workflow/workflow.cove.yaml
+  /home/$USER/cove/demos/attested_confidential_benchmark__vllm_cpu/workflow/workflow.cove.yaml
 ```
 
 The published ref is:
 
 ```text
-demo-carol.covehub.io/attested_confidential_eval_vllm_cpu
+demo-carol.covehub.io/attested_confidential_benchmark__vllm_cpu
 ```
 
 ## 6. Alice And Bob Approve
@@ -181,14 +181,14 @@ compiled wheel channel:
 
 ```bash
 cove --cove-home /home/$USER/.alice_cove provision inspect \
-  demo-carol.covehub.io/attested_confidential_eval_vllm_cpu
+  demo-carol.covehub.io/attested_confidential_benchmark__vllm_cpu
 ```
 
 Bob approves access to his private eval code and eval data:
 
 ```bash
 cove --cove-home /home/$USER/.bob_cove provision inspect \
-  demo-carol.covehub.io/attested_confidential_eval_vllm_cpu
+  demo-carol.covehub.io/attested_confidential_benchmark__vllm_cpu
 ```
 
 Keep all owner services running while Phala executes. Runtime sidecars call the
@@ -200,7 +200,7 @@ If Carol's Phala account has enough quota, deploy the full DAG:
 
 ```bash
 cove --cove-home /home/$USER/.carol_cove deploy \
-  demo-carol.covehub.io/attested_confidential_eval_vllm_cpu \
+  demo-carol.covehub.io/attested_confidential_benchmark__vllm_cpu \
   --phala-instance-type tdx.4xlarge \
   --phala-disk-size-gb 120 \
   --phala-public-logs \
@@ -222,27 +222,27 @@ COMMON_DEPLOY_FLAGS="\
   --dependency-timeout-seconds 7200"
 
 cove --cove-home /home/$USER/.carol_cove deploy \
-  demo-carol.covehub.io/attested_confidential_eval_vllm_cpu \
+  demo-carol.covehub.io/attested_confidential_benchmark__vllm_cpu \
   --workflow-node audit_serving_code \
   $COMMON_DEPLOY_FLAGS
 
 cove --cove-home /home/$USER/.carol_cove deploy \
-  demo-carol.covehub.io/attested_confidential_eval_vllm_cpu \
+  demo-carol.covehub.io/attested_confidential_benchmark__vllm_cpu \
   --workflow-node audit_eval_code \
   $COMMON_DEPLOY_FLAGS
 
 cove --cove-home /home/$USER/.carol_cove deploy \
-  demo-carol.covehub.io/attested_confidential_eval_vllm_cpu \
+  demo-carol.covehub.io/attested_confidential_benchmark__vllm_cpu \
   --workflow-node compile_serving_code \
   $COMMON_DEPLOY_FLAGS
 
 cove --cove-home /home/$USER/.carol_cove deploy \
-  demo-carol.covehub.io/attested_confidential_eval_vllm_cpu \
+  demo-carol.covehub.io/attested_confidential_benchmark__vllm_cpu \
   --workflow-node model_benchmark \
   $COMMON_DEPLOY_FLAGS
 
 cove --cove-home /home/$USER/.carol_cove deploy \
-  demo-carol.covehub.io/attested_confidential_eval_vllm_cpu \
+  demo-carol.covehub.io/attested_confidential_benchmark__vllm_cpu \
   --workflow-node model_deployment \
   $COMMON_DEPLOY_FLAGS
 ```
@@ -257,7 +257,7 @@ Fetch the latest certificates:
 ```bash
 for node in audit_serving_code audit_eval_code compile_serving_code model_benchmark model_deployment; do
   curl -A 'cove-runtime/0.0.1' -fsS \
-    "https://api.covehub.io/v1/runtime/demo-carol.covehub.io/attested_confidential_eval_vllm_cpu/certificates/${node}/latest" \
+    "https://api.covehub.io/v1/runtime/demo-carol.covehub.io/attested_confidential_benchmark__vllm_cpu/certificates/${node}/latest" \
     > "/tmp/${node}.json"
 done
 ```
@@ -333,7 +333,7 @@ curl -kfsS "${SERVE_URL}/v1/chat/completions" \
 The TLS certificate common name should be:
 
 ```text
-attested_confidential_eval_vllm_cpu.model_deployment.ratls_key
+attested_confidential_benchmark__vllm_cpu.model_deployment.ratls_key
 ```
 
 ## 10. Run The Client UI
@@ -341,11 +341,11 @@ attested_confidential_eval_vllm_cpu.model_deployment.ratls_key
 The client lives next to the workflow:
 
 ```bash
-cd /home/$USER/cove/demos/attested_confidential_eval_vllm_cpu/client
+cd /home/$USER/cove/demos/attested_confidential_benchmark__vllm_cpu/client
 
 PORT=5177 \
 COVE_DEMO_ENDPOINT="$SERVE_URL" \
-COVE_WORKFLOW_ID=attested_confidential_eval_vllm_cpu \
+COVE_WORKFLOW_ID=attested_confidential_benchmark__vllm_cpu \
 node server.mjs
 ```
 

@@ -1,7 +1,7 @@
 const DEFAULTS = window.COVE_CLIENT_DEFAULTS || {
   endpoint: "",
   publisher: "demo-carol.covehub.io",
-  workflow: "attested_confidential_eval_vllm_cpu",
+  workflow: "attested_confidential_benchmark__vllm_cpu",
   model: "CoveDemoModel",
 };
 
@@ -47,7 +47,7 @@ function applyQueryDefaults() {
   const params = new URLSearchParams(window.location.search);
   elements.endpoint.value = params.get("endpoint") || DEFAULTS.endpoint || "";
   elements.publisher.value = params.get("publisher") || DEFAULTS.publisher || "demo-carol.covehub.io";
-  elements.workflow.value = params.get("workflow") || DEFAULTS.workflow || "attested_confidential_eval_vllm_cpu";
+  elements.workflow.value = params.get("workflow") || DEFAULTS.workflow || "attested_confidential_benchmark__vllm_cpu";
   elements.model.value = params.get("model") || DEFAULTS.model || "CoveDemoModel";
 }
 

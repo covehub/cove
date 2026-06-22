@@ -2,9 +2,9 @@
 set -eu
 
 ROLE="${1:?usage: orchestrate.sh alice|bob|carol}"
-DEMO_ROOT=/workspace/demos/attested_confidential_eval_vllm_cpu
+DEMO_ROOT=/workspace/demos/attested_confidential_benchmark__vllm_cpu
 COORDINATION_DIR=/coordination
-WORKFLOW_REF_ID="${WORKFLOW_REF_ID:-attested_confidential_eval_vllm_cpu}"
+WORKFLOW_REF_ID="${WORKFLOW_REF_ID:-attested_confidential_benchmark__vllm_cpu}"
 WORKFLOW_COPY_DIR="/tmp/${WORKFLOW_REF_ID}-workflow"
 
 stage() {

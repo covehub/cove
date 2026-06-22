@@ -279,7 +279,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output-root",
         type=Path,
-        default=Path("demos/attested_confidential_eval_vllm_cpu/runtime_inputs"),
+        default=Path("demos/attested_confidential_benchmark__vllm_cpu/runtime_inputs"),
     )
     parser.add_argument(
         "--model-id",

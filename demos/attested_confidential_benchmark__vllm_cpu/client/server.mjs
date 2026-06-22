@@ -13,7 +13,7 @@ const PORT = Number(process.env.PORT || 5177);
 const DEFAULTS = {
   endpoint: process.env.COVE_DEMO_ENDPOINT || "",
   publisher: process.env.COVE_PUBLISHER || "demo-carol.covehub.io",
-  workflow: process.env.COVE_WORKFLOW_ID || "attested_confidential_eval_vllm_cpu",
+  workflow: process.env.COVE_WORKFLOW_ID || "attested_confidential_benchmark__vllm_cpu",
   model: process.env.COVE_MODEL_NAME || "CoveDemoModel",
 };
 

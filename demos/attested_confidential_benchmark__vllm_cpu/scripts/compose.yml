@@ -12,7 +12,7 @@ x-party-env: &party-env
     - ../../..:/workspace
     - cove-homes:/cove-homes
     - cove-coordination:/coordination
-  working_dir: /workspace/demos/attested_confidential_eval_vllm_cpu
+  working_dir: /workspace/demos/attested_confidential_benchmark__vllm_cpu
 
 x-cove-cli-build: &cove-cli-build
   context: ../../..
@@ -22,7 +22,7 @@ x-cove-cli-build: &cove-cli-build
     COPY cove_container_runtime /tmp/cove_container_runtime
     COPY cli /tmp/cli
     RUN python -m pip install --no-cache-dir /tmp/cove_container_runtime /tmp/cli
-    WORKDIR /workspace/demos/attested_confidential_eval_vllm_cpu
+    WORKDIR /workspace/demos/attested_confidential_benchmark__vllm_cpu
 
 services:
   covehub-api:
@@ -69,7 +69,7 @@ services:
     build: *cove-cli-build
     command:
       - sh
-      - /workspace/demos/attested_confidential_eval_vllm_cpu/scripts/orchestrate.sh
+      - /workspace/demos/attested_confidential_benchmark__vllm_cpu/scripts/orchestrate.sh
       - alice
 
   bob:
@@ -77,7 +77,7 @@ services:
     build: *cove-cli-build
     command:
       - sh
-      - /workspace/demos/attested_confidential_eval_vllm_cpu/scripts/orchestrate.sh
+      - /workspace/demos/attested_confidential_benchmark__vllm_cpu/scripts/orchestrate.sh
       - bob
 
   carol:
@@ -85,7 +85,7 @@ services:
     build: *cove-cli-build
     command:
       - sh
-      - /workspace/demos/attested_confidential_eval_vllm_cpu/scripts/orchestrate.sh
+      - /workspace/demos/attested_confidential_benchmark__vllm_cpu/scripts/orchestrate.sh
       - carol
 
   client-proxy:
@@ -98,7 +98,7 @@ services:
       - -c
       - |
         set -eu
-        workflow_ref_id="$${WORKFLOW_REF_ID:-attested_confidential_eval_vllm_cpu}"
+        workflow_ref_id="$${WORKFLOW_REF_ID:-attested_confidential_benchmark__vllm_cpu}"
         node_id="model_deployment"
         keypair_name="ratls_key"
         local_port="9701"
@@ -140,7 +140,7 @@ services:
       - path: .env
         required: false
     environment:
-      TUNNEL_TOKEN: ${CLOUDFLARED_TUNNEL_TOKEN:?set CLOUDFLARED_TUNNEL_TOKEN in demos/attested_confidential_eval_vllm_cpu/scripts/.env}
+      TUNNEL_TOKEN: ${CLOUDFLARED_TUNNEL_TOKEN:?set CLOUDFLARED_TUNNEL_TOKEN in demos/attested_confidential_benchmark__vllm_cpu/scripts/.env}
     # Configure the Cloudflare tunnel public hostnames to these compose origins:
     #   ALICE_URL       -> http://alice:9000
     #   BOB_URL         -> http://bob:9000

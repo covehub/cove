@@ -83,7 +83,7 @@ def main() -> int:
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dst)
 
-        build_info_path = wheel_tree / "vllm" / "attested_confidential_eval_build_info.json"
+        build_info_path = wheel_tree / "vllm" / "attested_confidential_benchmark_build_info.json"
         build_info_path.write_text(
             "{\n"
             f'  "base_vllm_git_sha": "{observed_vllm_git_sha}",\n'

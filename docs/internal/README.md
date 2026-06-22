@@ -7,8 +7,8 @@ operating it on behalf of the project.
 ## Reading Order
 
 If you just want to run the smallest demo, jump straight to
-[hello_world.md](hello_world.md). For the attested confidential eval vLLM CPU
-demo, use [attested_confidential_eval_vllm_cpu.md](attested_confidential_eval_vllm_cpu.md).
+[hello_world.md](hello_world.md). For the attested confidential benchmark vLLM CPU
+demo, use [attested_confidential_benchmark__vllm_cpu.md](attested_confidential_benchmark__vllm_cpu.md).
 The ordered list below is the conceptual deep-dive.
 
 For someone new to the project:
@@ -21,8 +21,8 @@ For someone new to the project:
 3. [hello_world.md](hello_world.md) — the smallest workflow that exercises
    every primitive, with the full end-to-end runbook from local setup through
    Phala deployment and RA-TLS verification.
-4. [attested_confidential_eval_vllm_cpu.md](attested_confidential_eval_vllm_cpu.md)
-   — the confidential eval vLLM CPU workflow, including private artifact prep,
+4. [attested_confidential_benchmark__vllm_cpu.md](attested_confidential_benchmark__vllm_cpu.md)
+   — the confidential benchmark vLLM CPU workflow, including private artifact prep,
    audit/compile/benchmark/deploy, and the client UI.
 5. [todos.md](todos.md) — known engineering follow-ups.
 
@@ -33,7 +33,7 @@ For someone new to the project:
 | [architecture.md](architecture.md) | Canonical architecture and object model. |
 | [security_model.md](security_model.md) | Trust boundary, security guarantees, residual risks. |
 | [hello_world.md](hello_world.md) | Hello-world end-to-end runbook and primitive walkthrough. |
-| [attested_confidential_eval_vllm_cpu.md](attested_confidential_eval_vllm_cpu.md) | Attested confidential eval vLLM CPU end-to-end runbook and client verification flow. |
+| [attested_confidential_benchmark__vllm_cpu.md](attested_confidential_benchmark__vllm_cpu.md) | Attested confidential benchmark vLLM CPU end-to-end runbook and client verification flow. |
 | [todos.md](todos.md) | Engineering follow-ups not tracked in code. |
 | [operations/README.md](operations/README.md) | Map of the operations runbooks: which one to read for which task. |
 | [operations/covehub_server.md](operations/covehub_server.md) | Run the Docker Compose Covehub API and public UI stack behind Cloudflare Tunnel. |
@@ -50,7 +50,7 @@ For someone new to the project:
   the operator must supply their own public hostname.
 - **Personas.** Alice and Bob appear in concrete demo runbooks such as
   [hello_world.md](hello_world.md) and
-  [attested_confidential_eval_vllm_cpu.md](attested_confidential_eval_vllm_cpu.md).
+  [attested_confidential_benchmark__vllm_cpu.md](attested_confidential_benchmark__vllm_cpu.md).
   Other documents use generic roles (operator, owner, publisher).
 - **Image digests.** Documentation does not bake specific
   `@sha256:<digest>` values into prose; the canonical digest set lives in
