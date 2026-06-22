@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-import yaml
 from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 
@@ -58,12 +57,6 @@ class VerifiedProxyTarget:
     expected_certificate_der: bytes
 
 
-@dataclass(frozen=True, slots=True)
-class _WorkflowHints:
-    long_running_keypair_nodes: dict[str, set[str]]
-    keypair_nodes: dict[str, set[str]]
-
-
 _PROXY_BUFFER_BYTES = 64 * 1024
 
 
@@ -74,8 +67,8 @@ def start_client_proxy(
     workflow: str,
     write_workflow_to: str | Path | None = None,
     server_url: str | None = None,
-    node_id: str | None = None,
-    keypair_name: str | None = None,
+    node_id: str,
+    keypair_name: str,
     request_timeout_seconds: float = 120.0,
 ) -> int:
     resolved_server_url = _resolve_server_url(server_url)
@@ -123,8 +116,8 @@ def verify_client_proxy_target(
     workflow: str,
     bundle_root: str | Path,
     server_url: str | None = None,
-    node_id: str | None = None,
-    keypair_name: str | None = None,
+    node_id: str,
+    keypair_name: str,
 ) -> VerifiedProxyTarget:
     remote_url = _normalize_remote_url(remote)
     local_endpoint = _parse_local_endpoint(local)
@@ -139,7 +132,7 @@ def verify_client_proxy_target(
         destination=bundle_root,
         require_publisher_signature=True,
     )
-    node = _select_node(bundle, requested_node_id=node_id)
+    node = _select_node(bundle, node_id=node_id)
     certificate = _download_runtime_certificate(
         server_url=resolved_server_url,
         publisher=parsed_ref.publisher,
@@ -158,9 +151,7 @@ def verify_client_proxy_target(
     )
     selected_keypair = _select_keypair_name(
         verified_certificate,
-        bundle_root=bundle.root_path,
-        node_id=node.node_id,
-        requested_keypair_name=keypair_name,
+        keypair_name=keypair_name,
     )
     certificate_hash, expected_der = _load_expected_keypair_certificate(
         verified_certificate,
@@ -454,78 +445,32 @@ def _download_runtime_certificate(
 def _select_node(
     bundle: MaterializedWorkflowBundle,
     *,
-    requested_node_id: str | None,
+    node_id: str,
 ) -> MaterializedNode:
     nodes_by_id = {node.node_id: node for node in bundle.nodes}
-    if requested_node_id is not None:
-        try:
-            return nodes_by_id[requested_node_id]
-        except KeyError as exc:
-            raise ClientProxyCommandError(
-                f"workflow bundle does not contain node {requested_node_id!r}"
-            ) from exc
-
-    hints = _load_workflow_hints(bundle.root_path)
-    long_running_candidates = [
-        nodes_by_id[node_id]
-        for node_id in sorted(hints.long_running_keypair_nodes)
-        if node_id in nodes_by_id
-    ]
-    if len(long_running_candidates) == 1:
-        return long_running_candidates[0]
-    keypair_candidates = [
-        nodes_by_id[node_id]
-        for node_id in sorted(hints.keypair_nodes)
-        if node_id in nodes_by_id
-    ]
-    if len(keypair_candidates) == 1:
-        return keypair_candidates[0]
-    if len(bundle.nodes) == 1:
-        return bundle.nodes[0]
-
-    if long_running_candidates:
-        node_list = ", ".join(node.node_id for node in long_running_candidates)
+    try:
+        return nodes_by_id[node_id]
+    except KeyError as exc:
         raise ClientProxyCommandError(
-            f"multiple long-running keypair nodes found ({node_list}); pass --node"
-        )
-    raise ClientProxyCommandError("could not infer serving node; pass --node")
+            f"workflow bundle does not contain node {node_id!r}"
+        ) from exc
 
 
 def _select_keypair_name(
     certificate: dict[str, Any],
     *,
-    bundle_root: Path,
-    node_id: str,
-    requested_keypair_name: str | None,
+    keypair_name: str,
 ) -> str:
     certificate_body = _required_mapping(certificate.get("certificate_body"), "certificate_body")
     keypairs = _required_mapping(
         certificate_body.get("ephemeral_keypairs"),
         "certificate_body.ephemeral_keypairs",
     )
-    if requested_keypair_name is not None:
-        if requested_keypair_name not in keypairs:
-            raise ClientProxyCommandError(
-                f"runtime certificate does not contain keypair {requested_keypair_name!r}"
-            )
-        return requested_keypair_name
-
-    hints = _load_workflow_hints(bundle_root)
-    hinted_names = sorted(hints.keypair_nodes.get(node_id, set()))
-    hinted_present = [name for name in hinted_names if name in keypairs]
-    if len(hinted_present) == 1:
-        return hinted_present[0]
-
-    if len(keypairs) == 1:
-        keypair_name = next(iter(keypairs))
-        if not isinstance(keypair_name, str):  # pragma: no cover - dict keys from JSON
-            raise ClientProxyCommandError("runtime certificate keypair name must be a string")
-        return keypair_name
-
-    keypair_list = ", ".join(str(name) for name in keypairs)
-    raise ClientProxyCommandError(
-        f"could not infer TLS keypair from certificate ({keypair_list}); pass --keypair"
-    )
+    if keypair_name not in keypairs:
+        raise ClientProxyCommandError(
+            f"runtime certificate does not contain keypair {keypair_name!r}"
+        )
+    return keypair_name
 
 
 def _load_expected_keypair_certificate(
@@ -593,43 +538,6 @@ def _verify_live_tls_certificate(
     connection.close()
 
 
-def _load_workflow_hints(bundle_root: Path) -> _WorkflowHints:
-    workflow_path = bundle_root / "workflow.normalized.cove.yaml"
-    if not workflow_path.is_file():
-        return _WorkflowHints(long_running_keypair_nodes={}, keypair_nodes={})
-    try:
-        payload = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
-    except yaml.YAMLError as exc:
-        raise ClientProxyCommandError(f"failed to parse pulled workflow at {workflow_path}: {exc}") from exc
-    if not isinstance(payload, dict):
-        return _WorkflowHints(long_running_keypair_nodes={}, keypair_nodes={})
-    raw_nodes = payload.get("nodes")
-    if not isinstance(raw_nodes, dict):
-        return _WorkflowHints(long_running_keypair_nodes={}, keypair_nodes={})
-
-    long_running_keypair_nodes: dict[str, set[str]] = {}
-    keypair_nodes: dict[str, set[str]] = {}
-    for node_id, raw_node in raw_nodes.items():
-        if not isinstance(node_id, str) or not isinstance(raw_node, dict):
-            continue
-        raw_services = raw_node.get("services")
-        if not isinstance(raw_services, dict):
-            continue
-        for raw_service in raw_services.values():
-            if not isinstance(raw_service, dict):
-                continue
-            keypairs = _string_list(raw_service.get("ephemeral_keypairs"))
-            if not keypairs:
-                continue
-            keypair_nodes.setdefault(node_id, set()).update(keypairs)
-            if raw_service.get("should_terminate") is False:
-                long_running_keypair_nodes.setdefault(node_id, set()).update(keypairs)
-    return _WorkflowHints(
-        long_running_keypair_nodes=long_running_keypair_nodes,
-        keypair_nodes=keypair_nodes,
-    )
-
-
 def _normalize_remote_url(value: str) -> str:
     parsed = urlparse(value.strip())
     if parsed.scheme != "https" or not parsed.netloc:
@@ -669,12 +577,6 @@ def _resolve_server_url(server_url: str | None) -> str:
 
 def _workflow_output_root(base: Path, *, publisher: str, workflow_id: str) -> Path:
     return base / publisher / workflow_id
-
-
-def _string_list(value: object) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    return [item for item in value if isinstance(item, str) and item]
 
 
 def _required_mapping(value: Any, label: str) -> dict[str, Any]:

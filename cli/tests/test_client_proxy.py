@@ -64,6 +64,8 @@ def test_client_proxy_verifies_target_and_forwards_tcp(tmp_path, monkeypatch) ->
             workflow=f"{PUBLISHER}/{WORKFLOW_ID}",
             bundle_root=tmp_path / "pulled",
             server_url=server.url,
+            node_id=NODE_ID,
+            keypair_name=KEYPAIR_NAME,
         )
 
         proxy = make_verified_proxy_server(target)
@@ -113,6 +115,8 @@ def test_client_proxy_rejects_remote_tls_certificate_mismatch(tmp_path, monkeypa
                 workflow=f"{PUBLISHER}/{WORKFLOW_ID}",
                 bundle_root=tmp_path / "pulled",
                 server_url=server.url,
+                node_id=NODE_ID,
+                keypair_name=KEYPAIR_NAME,
             )
 
 
@@ -133,6 +137,10 @@ def test_client_proxy_cli_does_not_require_cove_init(monkeypatch) -> None:
             "https://service.example.test",
             "--workflow",
             f"{PUBLISHER}/{WORKFLOW_ID}",
+            "--node",
+            NODE_ID,
+            "--keypair",
+            KEYPAIR_NAME,
         ]
     )
 
@@ -140,6 +148,8 @@ def test_client_proxy_cli_does_not_require_cove_init(monkeypatch) -> None:
     assert captured["server_url"] is None
     assert captured["local"] == "localhost:8080"
     assert captured["write_workflow_to"] is None
+    assert captured["node_id"] == NODE_ID
+    assert captured["keypair_name"] == KEYPAIR_NAME
 
 
 class _TlsMaterial:

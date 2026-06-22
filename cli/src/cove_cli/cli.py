@@ -358,11 +358,13 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     proxy_parser.add_argument(
         "--node",
-        help="Serving workflow node id when it cannot be inferred",
+        required=True,
+        help="Serving workflow node id",
     )
     proxy_parser.add_argument(
         "--keypair",
-        help="Ephemeral TLS keypair name when it cannot be inferred",
+        required=True,
+        help="Ephemeral TLS keypair name for the verified service endpoint",
     )
     proxy_parser.add_argument(
         "--request-timeout-seconds",

@@ -63,6 +63,17 @@ class DeployNodeResult:
 
 
 @dataclass(frozen=True, slots=True)
+class DeployWorkflowResult:
+    publisher: str
+    workflow_id: str
+    reference: str
+    published_ref: str
+    bundle_path: Path
+    manifest_hash: str
+    deployments: tuple[DeployNodeResult, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class PhalaDeployOptions:
     instance_type: str | None = None
     region: str | None = None
@@ -209,21 +220,38 @@ def deploy_workflow(
         if callable(close_method):
             close_method()
 
-    return "\n".join(
-        [
-            f"Deployed workflow '{parsed_ref.publisher}/{parsed_ref.workflow_id}' to Phala",
-            f"Pulled bundle path: {bundle.root_path}",
-            "Node deployments:",
-            *[
-                (
-                    f"- {result.node_id}: {result.deployment_name} "
-                    f"(cvm_id={result.cvm_id}, status={result.status}, app_id={result.app_id}, "
-                    f"compose_hash={result.compose_hash})"
-                )
-                for result in results
-            ],
-        ]
+    deploy_result = DeployWorkflowResult(
+        publisher=parsed_ref.publisher,
+        workflow_id=parsed_ref.workflow_id,
+        reference=parsed_ref.reference,
+        published_ref=f"{parsed_ref.publisher}/{parsed_ref.workflow_id}/{parsed_ref.reference}",
+        bundle_path=bundle.root_path,
+        manifest_hash=bundle.manifest_hash,
+        deployments=tuple(results),
     )
+    return json.dumps(_deploy_result_payload(deploy_result), indent=2, sort_keys=True)
+
+
+def _deploy_result_payload(result: DeployWorkflowResult) -> dict[str, Any]:
+    return {
+        "publisher": result.publisher,
+        "workflow_id": result.workflow_id,
+        "reference": result.reference,
+        "published_ref": result.published_ref,
+        "bundle_path": str(result.bundle_path),
+        "manifest_hash": result.manifest_hash,
+        "deployments": [
+            {
+                "node_id": node.node_id,
+                "deployment_name": node.deployment_name,
+                "cvm_id": node.cvm_id,
+                "status": node.status,
+                "app_id": node.app_id,
+                "compose_hash": node.compose_hash,
+            }
+            for node in result.deployments
+        ],
+    }
 
 
 def _select_deployment_nodes(

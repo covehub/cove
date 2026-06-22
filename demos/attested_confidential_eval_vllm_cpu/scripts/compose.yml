@@ -1,4 +1,4 @@
-name: cove-hello-world-demo
+name: cove-attested-confidential-eval-vllm-cpu-demo
 
 x-party-env: &party-env
   env_file:
@@ -12,7 +12,7 @@ x-party-env: &party-env
     - ../../..:/workspace
     - cove-homes:/cove-homes
     - cove-coordination:/coordination
-  working_dir: /workspace/demos/hello_world
+  working_dir: /workspace/demos/attested_confidential_eval_vllm_cpu
 
 x-cove-cli-build: &cove-cli-build
   context: ../../..
@@ -22,7 +22,7 @@ x-cove-cli-build: &cove-cli-build
     COPY cove_container_runtime /tmp/cove_container_runtime
     COPY cli /tmp/cli
     RUN python -m pip install --no-cache-dir /tmp/cove_container_runtime /tmp/cli
-    WORKDIR /workspace/demos/hello_world
+    WORKDIR /workspace/demos/attested_confidential_eval_vllm_cpu
 
 services:
   covehub-api:
@@ -67,17 +67,26 @@ services:
   alice:
     <<: *party-env
     build: *cove-cli-build
-    command: ["sh", "/workspace/demos/hello_world/scripts/orchestrate.sh", "alice"]
+    command:
+      - sh
+      - /workspace/demos/attested_confidential_eval_vllm_cpu/scripts/orchestrate.sh
+      - alice
 
   bob:
     <<: *party-env
     build: *cove-cli-build
-    command: ["sh", "/workspace/demos/hello_world/scripts/orchestrate.sh", "bob"]
+    command:
+      - sh
+      - /workspace/demos/attested_confidential_eval_vllm_cpu/scripts/orchestrate.sh
+      - bob
 
   carol:
     <<: *party-env
     build: *cove-cli-build
-    command: ["sh", "/workspace/demos/hello_world/scripts/orchestrate.sh", "carol"]
+    command:
+      - sh
+      - /workspace/demos/attested_confidential_eval_vllm_cpu/scripts/orchestrate.sh
+      - carol
 
   client-proxy:
     <<: *party-env
@@ -89,9 +98,9 @@ services:
       - -c
       - |
         set -eu
-        workflow_ref_id="$${WORKFLOW_REF_ID:-hello_world}"
-        node_id="final_server"
-        keypair_name="session_key"
+        workflow_ref_id="$${WORKFLOW_REF_ID:-attested_confidential_eval_vllm_cpu}"
+        node_id="model_deployment"
+        keypair_name="ratls_key"
         local_port="9701"
         retry_seconds="30"
         echo "waiting for Carol deployment before starting client proxy"
@@ -131,13 +140,13 @@ services:
       - path: .env
         required: false
     environment:
-      TUNNEL_TOKEN: ${CLOUDFLARED_TUNNEL_TOKEN:?set CLOUDFLARED_TUNNEL_TOKEN in demos/hello_world/scripts/.env}
+      TUNNEL_TOKEN: ${CLOUDFLARED_TUNNEL_TOKEN:?set CLOUDFLARED_TUNNEL_TOKEN in demos/attested_confidential_eval_vllm_cpu/scripts/.env}
     # Configure the Cloudflare tunnel public hostnames to these compose origins:
-    #   ALICE_URL      -> http://alice:9000
-    #   BOB_URL        -> http://bob:9000
-    #   CAROL_URL      -> http://carol:9000
+    #   ALICE_URL       -> http://alice:9000
+    #   BOB_URL         -> http://bob:9000
+    #   CAROL_URL       -> http://carol:9000
     #   COVEHUB_API_URL -> http://covehub-api:8000
-    #   COVEHUB_UI_URL -> http://covehub-ui:8080
+    #   COVEHUB_UI_URL  -> http://covehub-ui:8080
     command: tunnel --no-autoupdate run
     restart: unless-stopped
 

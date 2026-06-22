@@ -2,9 +2,10 @@
 set -eu
 
 ROLE="${1:?usage: orchestrate.sh alice|bob|carol}"
-DEMO_ROOT=/workspace/demos/hello_world
+DEMO_ROOT=/workspace/demos/attested_confidential_eval_vllm_cpu
 COORDINATION_DIR=/coordination
-WORKFLOW_REF_ID=hello_world
+WORKFLOW_REF_ID="${WORKFLOW_REF_ID:-attested_confidential_eval_vllm_cpu}"
+WORKFLOW_COPY_DIR="/tmp/${WORKFLOW_REF_ID}-workflow"
 
 stage() {
   printf '\n===== STAGE: %s =====\n' "$1"
@@ -29,6 +30,13 @@ require_env() {
     echo "missing required environment variable: ${name}" >&2
     exit 1
   fi
+}
+
+resolve_demo_path() {
+  case "$1" in
+    /*) printf '%s\n' "$1" ;;
+    *) printf '%s/%s\n' "$DEMO_ROOT" "$1" ;;
+  esac
 }
 
 wait_url() {
@@ -105,6 +113,18 @@ start_owner_server() {
   mark "$ready_stage"
 }
 
+provision_artifact() {
+  cove_home="$1"
+  artifact_name="$2"
+  artifact_path="$(resolve_demo_path "$3")"
+  if [ ! -f "$artifact_path" ]; then
+    echo "missing artifact file for ${artifact_name}: ${artifact_path}" >&2
+    exit 1
+  fi
+  stage "${ROLE}: provision ${artifact_name}"
+  cove --cove-home "$cove_home" provision --overwrite "$artifact_name" "$artifact_path"
+}
+
 approve_workflow() {
   cove_home="$1"
   carol_domain="$(domain_from_url "$CAROL_URL")"
@@ -114,17 +134,24 @@ approve_workflow() {
 }
 
 prepare_workflow_copy() {
+  source_workflow="${DEMO_ROOT}/workflow/workflow.cove.yaml"
+  if [ ! -f "$source_workflow" ]; then
+    echo "missing workflow source: ${source_workflow}" >&2
+    exit 1
+  fi
+
   stage "carol: prepare workflow copy with .env owner URLs"
-  rm -rf /tmp/hello-world-workflow
-  mkdir -p /tmp/hello-world-workflow
-  cp -a "${DEMO_ROOT}/workflow/." /tmp/hello-world-workflow/
-  python - <<'PY'
+  rm -rf "$WORKFLOW_COPY_DIR"
+  mkdir -p "$WORKFLOW_COPY_DIR"
+  cp -a "${DEMO_ROOT}/workflow/." "$WORKFLOW_COPY_DIR/"
+
+  WORKFLOW_COPY_DIR="$WORKFLOW_COPY_DIR" python - <<'PY'
 import os
 from pathlib import Path
 
 import yaml
 
-workflow_path = Path("/tmp/hello-world-workflow/workflow.cove.yaml")
+workflow_path = Path(os.environ["WORKFLOW_COPY_DIR"]) / "workflow.cove.yaml"
 payload = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
 payload["owners"] = {
     "alice": os.environ["ALICE_URL"],
@@ -132,11 +159,18 @@ payload["owners"] = {
 }
 workflow_path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
 PY
+
+  if [ -f "${DEMO_ROOT}/scripts/render_workflow.py" ]; then
+    stage "carol: refresh workflow artifact hashes"
+    python "${DEMO_ROOT}/scripts/render_workflow.py" \
+      --workflow-path "${WORKFLOW_COPY_DIR}/workflow.cove.yaml" \
+      --inputs-root "${DEMO_ROOT}/runtime_inputs"
+  fi
 }
 
 write_client_proxy_remote_url() {
   deploy_json="$1"
-  node_id="final_server"
+  node_id="model_deployment"
   remote_url="$(python - "$deploy_json" "$node_id" <<'PY'
 import json
 import os
@@ -255,9 +289,10 @@ run_alice() {
   start_owner_server "$cove_home" "$ALICE_URL" alice-server-ready
 
   wait_for covehub-public
-  stage "alice: provision alice_secret_word"
-  cove --cove-home "$cove_home" provision --overwrite \
-    alice_secret_word "${DEMO_ROOT}/fixtures/alice_secret_word.txt"
+  provision_artifact "$cove_home" alice_private_model \
+    "${ALICE_PRIVATE_MODEL_PATH:-runtime_inputs/alice_private_model.tar}"
+  provision_artifact "$cove_home" alice_private_serving_patch \
+    "${ALICE_PRIVATE_SERVING_PATCH_PATH:-runtime_inputs/alice_private_serving_patch.diff}"
   mark alice-provisioned
 
   wait_for carol-pushed
@@ -278,9 +313,10 @@ run_bob() {
   start_owner_server "$cove_home" "$BOB_URL" bob-server-ready
 
   wait_for covehub-public
-  stage "bob: provision bob_secret_word"
-  cove --cove-home "$cove_home" provision --overwrite \
-    bob_secret_word "${DEMO_ROOT}/fixtures/bob_secret_word.txt"
+  provision_artifact "$cove_home" bob_private_eval_code \
+    "${BOB_PRIVATE_EVAL_CODE_PATH:-runtime_inputs/bob_private_eval_code.py}"
+  provision_artifact "$cove_home" bob_private_eval_data \
+    "${BOB_PRIVATE_EVAL_DATA_PATH:-runtime_inputs/bob_private_eval_data.jsonl}"
   mark bob-provisioned
 
   wait_for carol-pushed
@@ -312,11 +348,11 @@ run_carol() {
 
   prepare_workflow_copy
   stage "carol: check workflow"
-  cove --cove-home "$cove_home" check /tmp/hello-world-workflow/workflow.cove.yaml
+  cove --cove-home "$cove_home" check "${WORKFLOW_COPY_DIR}/workflow.cove.yaml"
   stage "carol: compile workflow"
-  cove --cove-home "$cove_home" compile /tmp/hello-world-workflow/workflow.cove.yaml
+  cove --cove-home "$cove_home" compile "${WORKFLOW_COPY_DIR}/workflow.cove.yaml"
   stage "carol: push workflow"
-  cove --cove-home "$cove_home" push --overwrite /tmp/hello-world-workflow/workflow.cove.yaml
+  cove --cove-home "$cove_home" push --overwrite "${WORKFLOW_COPY_DIR}/workflow.cove.yaml"
   mark carol-pushed
 
   wait_for alice-approved
