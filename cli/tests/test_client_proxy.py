@@ -11,6 +11,7 @@ from threading import Thread
 from urllib import request as urllib_request
 
 import pytest
+import yaml
 from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
@@ -18,12 +19,18 @@ from cryptography.x509.oid import NameOID
 
 from cove_cli.attestation import build_node_certificate_report_data
 from cove_cli.cli import run
+from cove_cli.compile import reviewed_compose_hash
 from cove_cli.client_proxy import (
     ClientProxyCommandError,
     make_verified_proxy_server,
     verify_client_proxy_target,
 )
 from cove_cli.common import canonical_json_bytes, sha256_literal
+from cove_cli.provisioning_identity import (
+    build_owner_identity_document,
+    ensure_owner_signing_key_material,
+)
+from cove_cli.publish import _publisher_signature_payload
 
 from .support import MockCovehubServer
 
@@ -32,17 +39,23 @@ PUBLISHER = "alice.example.test"
 WORKFLOW_ID = "demo"
 NODE_ID = "final"
 KEYPAIR_NAME = "ratls_key"
-COMPOSE_HASH = "sha256:" + "1" * 64
+COMPOSE_TEXT = (
+    "services:\n"
+    "  serve:\n"
+    f"    image: example/serve@sha256:{'2' * 64}\n"
+    "volumes: {}\n"
+)
+COMPOSE_HASH = reviewed_compose_hash(yaml.safe_load(COMPOSE_TEXT))
 
 
-def test_client_proxy_verifies_target_and_forwards_http(tmp_path, monkeypatch) -> None:
+def test_client_proxy_verifies_target_and_forwards_tcp(tmp_path, monkeypatch) -> None:
     tls = _write_ed25519_tls_material(tmp_path / "tls", "demo.final.ratls_key")
 
     with (
         _HttpsService(tls.cert_path, tls.key_path) as remote,
         MockCovehubServer() as server,
     ):
-        _seed_workflow_and_certificate(server, tls.certificate_pem)
+        _seed_workflow_and_certificate(server, tls.certificate_pem, tmp_path)
         _stub_attestation_verifier(monkeypatch)
 
         target = verify_client_proxy_target(
@@ -90,7 +103,7 @@ def test_client_proxy_rejects_remote_tls_certificate_mismatch(tmp_path, monkeypa
         _HttpsService(served_tls.cert_path, served_tls.key_path) as remote,
         MockCovehubServer() as server,
     ):
-        _seed_workflow_and_certificate(server, expected_tls.certificate_pem)
+        _seed_workflow_and_certificate(server, expected_tls.certificate_pem, tmp_path)
         _stub_attestation_verifier(monkeypatch)
 
         with pytest.raises(ClientProxyCommandError, match="served TLS certificate"):
@@ -220,8 +233,9 @@ class _HttpsService:
 def _seed_workflow_and_certificate(
     server: MockCovehubServer,
     certificate_pem: bytes,
+    tmp_path: Path,
 ) -> None:
-    workflow_object = _workflow_object_bytes()
+    workflow_object = _workflow_object_bytes(tmp_path)
     server.state.workflow_bundles[
         f"v1/workflows/{PUBLISHER}/{WORKFLOW_ID}/latest"
     ] = workflow_object
@@ -232,7 +246,7 @@ def _seed_workflow_and_certificate(
     )
 
 
-def _workflow_object_bytes() -> bytes:
+def _workflow_object_bytes(tmp_path: Path) -> bytes:
     files = {
         "workflow.normalized.cove.yaml": (
             "cove_version: 1\n"
@@ -254,7 +268,7 @@ def _workflow_object_bytes() -> bytes:
             "        ephemeral_keypairs:\n"
             f"        - {KEYPAIR_NAME}\n"
         ).encode("utf-8"),
-        f"nodes/{NODE_ID}/compose.generated.yaml": b"services: {}\nvolumes: {}\n",
+        f"nodes/{NODE_ID}/compose.generated.yaml": COMPOSE_TEXT.encode("utf-8"),
         f"nodes/{NODE_ID}/compose.generated.sha256": f"{COMPOSE_HASH}\n".encode("utf-8"),
     }
     file_entries = [
@@ -282,6 +296,17 @@ def _workflow_object_bytes() -> bytes:
         **manifest_without_hash,
         "manifest_hash": sha256_literal(canonical_json_bytes(manifest_without_hash)),
     }
+    key_path = tmp_path / "publisher-private.pem"
+    public_key_path = tmp_path / "publisher-public.pem"
+    ensure_owner_signing_key_material(
+        private_key_path=key_path,
+        public_key_path=public_key_path,
+    )
+    owner_identity = build_owner_identity_document(
+        owner_url=f"https://{PUBLISHER}",
+        owner_private_key_path=key_path,
+        owner_public_key_path=public_key_path,
+    )
     workflow_object = {
         "format": "cove.workflow.bundle.v1",
         "manifest": manifest,
@@ -293,6 +318,11 @@ def _workflow_object_bytes() -> bytes:
             }
             for path, payload in sorted(files.items())
         ],
+        "publisher_signature": _publisher_signature_payload(
+            manifest,
+            publisher_identity=owner_identity,
+            publisher_private_key_path=key_path,
+        ),
     }
     return canonical_json_bytes(workflow_object)
 
@@ -334,11 +364,19 @@ def _runtime_certificate(certificate_pem: bytes) -> dict[str, object]:
 
 
 def _stub_attestation_verifier(monkeypatch) -> None:
-    def fake_verify_attestation_bundle(attestation_bundle, *, expected_report_data):
+    def fake_verify_client_attestation_bundle(
+        attestation_bundle,
+        *,
+        expected_report_data,
+        expected_compose_hash,
+        expected_deployed_compose_text,
+    ):
         assert attestation_bundle["report_data"] == expected_report_data.hex()
+        assert expected_compose_hash == COMPOSE_HASH
+        assert "services:" in expected_deployed_compose_text
         return attestation_bundle
 
     monkeypatch.setattr(
-        "cove_cli.client_proxy.verify_attestation_bundle",
-        fake_verify_attestation_bundle,
+        "cove_cli.client_proxy.verify_client_attestation_bundle",
+        fake_verify_client_attestation_bundle,
     )

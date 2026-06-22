@@ -5,8 +5,8 @@ platform:
   provider: phala
   runtime: dstack
 owners:
-  alice: https://demo-alice.covehub.io
-  bob: https://demo-bob.covehub.io
+  alice: https://hpmv-demo-alice.covehub.io
+  bob: https://hpmv-demo-bob.covehub.io
 ephemeral_keypairs:
   ratls_key:
     algorithm: ed25519

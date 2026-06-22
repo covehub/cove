@@ -535,6 +535,13 @@ def _translate_node_deployment(
     )
 
 
+def translated_node_deployment_compose_text(
+    bundle: MaterializedWorkflowBundle,
+    node: MaterializedNode,
+) -> str:
+    return _translate_node_deployment(bundle, node).compose_text
+
+
 def _translate_service(
     *,
     service_name: str,

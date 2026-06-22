@@ -331,7 +331,7 @@ def _build_parser() -> argparse.ArgumentParser:
     client_subparsers = client_parser.add_subparsers(dest="client_command", required=True)
     proxy_parser = client_subparsers.add_parser(
         "proxy",
-        help="Verify a Cove service endpoint and expose it as a local HTTP proxy",
+        help="Verify a Cove service endpoint and expose it as a local TCP proxy",
     )
     proxy_parser.add_argument(
         "--remote",
@@ -341,7 +341,7 @@ def _build_parser() -> argparse.ArgumentParser:
     proxy_parser.add_argument(
         "--local",
         default="localhost:8080",
-        help="Local HTTP bind address as <host>:<port> (defaults to localhost:8080)",
+        help="Local TCP bind address as <host>:<port> (defaults to localhost:8080)",
     )
     proxy_parser.add_argument(
         "--workflow",
@@ -368,7 +368,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--request-timeout-seconds",
         type=float,
         default=120.0,
-        help="Timeout for proxied remote requests",
+        help="Timeout for connecting to the verified remote service",
     )
 
     deploy_parser = subparsers.add_parser(

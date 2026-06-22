@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import http.client
-import json
+import socket
+import socketserver
 import ssl
 import tempfile
+import threading
 from dataclasses import dataclass
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -14,8 +14,10 @@ import yaml
 from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 
-from .attestation import build_node_certificate_report_data, verify_attestation_bundle
+from .attestation import build_node_certificate_report_data
+from .client_attestation import verify_client_attestation_bundle
 from .common import RuntimeErrorBase, canonical_json_bytes, http_get_json, sha256_literal
+from .deploy import translated_node_deployment_compose_text
 from .publish import (
     MaterializedNode,
     MaterializedWorkflowBundle,
@@ -62,17 +64,7 @@ class _WorkflowHints:
     keypair_nodes: dict[str, set[str]]
 
 
-_HOP_BY_HOP_HEADERS = {
-    "connection",
-    "content-length",
-    "keep-alive",
-    "proxy-authenticate",
-    "proxy-authorization",
-    "te",
-    "trailer",
-    "transfer-encoding",
-    "upgrade",
-}
+_PROXY_BUFFER_BYTES = 64 * 1024
 
 
 def start_client_proxy(
@@ -145,6 +137,7 @@ def verify_client_proxy_target(
         workflow_id=parsed_ref.workflow_id,
         reference=parsed_ref.reference,
         destination=bundle_root,
+        require_publisher_signature=True,
     )
     node = _select_node(bundle, requested_node_id=node_id)
     certificate = _download_runtime_certificate(
@@ -158,6 +151,10 @@ def verify_client_proxy_target(
         expected_workflow_id=parsed_ref.workflow_id,
         expected_node_name=node.node_id,
         expected_generated_node_compose_hash=node.compose_hash,
+        expected_deployed_compose_text=translated_node_deployment_compose_text(
+            bundle,
+            node,
+        ),
     )
     selected_keypair = _select_keypair_name(
         verified_certificate,
@@ -206,7 +203,7 @@ def serve_verified_proxy(
     lines = [
         "Verified Cove service endpoint",
         f"  Remote: {target.remote_url}",
-        f"  Local: http://{bound_host}:{bound_port}",
+        f"  Local: tcp://{bound_host}:{bound_port}",
         f"  Workflow: {target.publisher}/{target.workflow_id}/{target.workflow_reference}",
         f"  Bundle path: {target.bundle_root}",
         f"  Manifest hash: {target.manifest_hash}",
@@ -235,12 +232,12 @@ def make_verified_proxy_server(
     target: VerifiedProxyTarget,
     *,
     request_timeout_seconds: float = 120.0,
-) -> ThreadingHTTPServer:
+) -> socketserver.ThreadingTCPServer:
     handler_class = _proxy_handler_class(
         target,
         request_timeout_seconds=request_timeout_seconds,
     )
-    return ThreadingHTTPServer((target.local.host, target.local.port), handler_class)
+    return _ThreadingTCPProxyServer((target.local.host, target.local.port), handler_class)
 
 
 def verify_node_certificate(
@@ -249,6 +246,7 @@ def verify_node_certificate(
     expected_workflow_id: str | None = None,
     expected_node_name: str | None = None,
     expected_generated_node_compose_hash: str | None = None,
+    expected_deployed_compose_text: str | None = None,
 ) -> dict[str, Any]:
     certificate_body = _required_mapping(certificate.get("certificate_body"), "certificate_body")
     attestation_bundle = _required_mapping(
@@ -324,9 +322,11 @@ def verify_node_certificate(
         compose_hash=compose_hash,
     )
     try:
-        verify_attestation_bundle(
+        verify_client_attestation_bundle(
             attestation_bundle,
             expected_report_data=report_data,
+            expected_compose_hash=compose_hash,
+            expected_deployed_compose_text=expected_deployed_compose_text,
         )
     except RuntimeErrorBase as exc:
         raise ClientProxyCommandError(str(exc)) from exc
@@ -338,116 +338,100 @@ def _proxy_handler_class(
     target: VerifiedProxyTarget,
     *,
     request_timeout_seconds: float,
-) -> type[BaseHTTPRequestHandler]:
+) -> type[socketserver.BaseRequestHandler]:
     parsed_remote = urlparse(target.remote_url)
     assert parsed_remote.hostname is not None
     remote_port = parsed_remote.port or 443
-    remote_base_path = parsed_remote.path.rstrip("/")
 
-    class ProxyHandler(BaseHTTPRequestHandler):
-        protocol_version = "HTTP/1.1"
+    class ProxyHandler(socketserver.BaseRequestHandler):
+        request: socket.socket
 
-        def log_message(self, fmt: str, *args: object) -> None:
-            return
-
-        def do_DELETE(self) -> None:  # noqa: N802
-            self._forward()
-
-        def do_GET(self) -> None:  # noqa: N802
-            self._forward()
-
-        def do_HEAD(self) -> None:  # noqa: N802
-            self._forward()
-
-        def do_OPTIONS(self) -> None:  # noqa: N802
-            self._forward()
-
-        def do_PATCH(self) -> None:  # noqa: N802
-            self._forward()
-
-        def do_POST(self) -> None:  # noqa: N802
-            self._forward()
-
-        def do_PUT(self) -> None:  # noqa: N802
-            self._forward()
-
-        def _forward(self) -> None:
-            if self.headers.get("Transfer-Encoding", "").lower() == "chunked":
-                self._send_json_error(501, "chunked local requests are not supported")
-                return
-
-            content_length = int(self.headers.get("Content-Length", "0"))
-            body = self.rfile.read(content_length) if content_length else None
-            path = _join_remote_request_path(remote_base_path, self.path)
-            headers = _forward_request_headers(self.headers, host=parsed_remote.netloc)
-            connection = _PinnedHTTPSConnection(
-                parsed_remote.hostname,
-                remote_port,
-                expected_certificate_der=target.expected_certificate_der,
-                expected_certificate_hash=target.certificate_hash,
-                timeout=request_timeout_seconds,
-            )
+        def handle(self) -> None:
             try:
-                connection.request(self.command, path, body=body, headers=headers)
-                response = connection.getresponse()
-                payload = response.read()
-            except (OSError, http.client.HTTPException, ClientProxyCommandError) as exc:
-                connection.close()
-                self._send_json_error(502, f"remote proxy request failed: {exc}")
+                upstream = _open_pinned_tls_connection(
+                    host=parsed_remote.hostname,
+                    port=remote_port,
+                    connect_timeout=request_timeout_seconds,
+                    expected_certificate_der=target.expected_certificate_der,
+                    expected_certificate_hash=target.certificate_hash,
+                )
+            except (OSError, ClientProxyCommandError):
                 return
 
-            self.send_response(response.status, response.reason)
-            for key, value in response.getheaders():
-                if key.lower() in _HOP_BY_HOP_HEADERS:
-                    continue
-                self.send_header(key, value)
-            self.send_header("Content-Length", str(len(payload)))
-            self.end_headers()
-            if self.command != "HEAD":
-                self.wfile.write(payload)
-            connection.close()
-
-        def _send_json_error(self, status_code: int, message: str) -> None:
-            payload = json.dumps({"detail": message}).encode("utf-8")
-            self.send_response(status_code)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(payload)))
-            self.end_headers()
-            self.wfile.write(payload)
+            try:
+                _forward_tcp_bidirectional(self.request, upstream)
+            finally:
+                upstream.close()
 
     return ProxyHandler
 
 
-class _PinnedHTTPSConnection(http.client.HTTPSConnection):
-    def __init__(
-        self,
-        host: str,
-        port: int,
-        *,
-        expected_certificate_der: bytes,
-        expected_certificate_hash: str,
-        timeout: float,
-    ) -> None:
-        super().__init__(
-            host,
-            port=port,
-            timeout=timeout,
-            context=ssl._create_unverified_context(),
-        )
-        self._expected_certificate_der = expected_certificate_der
-        self._expected_certificate_hash = expected_certificate_hash
+class _ThreadingTCPProxyServer(socketserver.ThreadingTCPServer):
+    allow_reuse_address = True
+    daemon_threads = True
 
-    def connect(self) -> None:
-        super().connect()
-        assert self.sock is not None
-        served_der = self.sock.getpeercert(binary_form=True)
-        if served_der != self._expected_certificate_der:
-            served_hash = _certificate_pem_hash_from_der(served_der)
-            self.close()
-            raise ClientProxyCommandError(
-                "served TLS certificate does not match verified runtime certificate: "
-                f"{served_hash} != {self._expected_certificate_hash}"
-            )
+
+def _open_pinned_tls_connection(
+    *,
+    host: str,
+    port: int,
+    connect_timeout: float,
+    expected_certificate_der: bytes,
+    expected_certificate_hash: str,
+) -> ssl.SSLSocket:
+    raw_socket = socket.create_connection((host, port), timeout=connect_timeout)
+    try:
+        tls_socket = ssl._create_unverified_context().wrap_socket(
+            raw_socket,
+            server_hostname=host,
+        )
+    except Exception:
+        raw_socket.close()
+        raise
+
+    served_der = tls_socket.getpeercert(binary_form=True)
+    if served_der != expected_certificate_der:
+        served_hash = _certificate_pem_hash_from_der(served_der)
+        tls_socket.close()
+        raise ClientProxyCommandError(
+            "served TLS certificate does not match verified runtime certificate: "
+            f"{served_hash} != {expected_certificate_hash}"
+        )
+    tls_socket.settimeout(None)
+    return tls_socket
+
+
+def _forward_tcp_bidirectional(client_socket: socket.socket, upstream: ssl.SSLSocket) -> None:
+    client_to_upstream = threading.Thread(
+        target=_pipe_tcp,
+        args=(client_socket, upstream),
+        daemon=True,
+    )
+    upstream_to_client = threading.Thread(
+        target=_pipe_tcp,
+        args=(upstream, client_socket),
+        daemon=True,
+    )
+    client_to_upstream.start()
+    upstream_to_client.start()
+    client_to_upstream.join()
+    upstream_to_client.join()
+
+
+def _pipe_tcp(source: socket.socket, sink: socket.socket) -> None:
+    try:
+        while True:
+            chunk = source.recv(_PROXY_BUFFER_BYTES)
+            if not chunk:
+                break
+            sink.sendall(chunk)
+    except OSError:
+        pass
+    finally:
+        try:
+            sink.shutdown(socket.SHUT_WR)
+        except OSError:
+            pass
 
 
 def _download_runtime_certificate(
@@ -596,19 +580,17 @@ def _verify_live_tls_certificate(
     if parsed.hostname is None:
         raise ClientProxyCommandError("remote URL must include a hostname")
     port = parsed.port or 443
-    connection = _PinnedHTTPSConnection(
-        parsed.hostname,
-        port,
-        expected_certificate_der=expected_certificate_der,
-        expected_certificate_hash=expected_certificate_hash,
-        timeout=30.0,
-    )
     try:
-        connection.connect()
+        connection = _open_pinned_tls_connection(
+            host=parsed.hostname,
+            port=port,
+            connect_timeout=30.0,
+            expected_certificate_der=expected_certificate_der,
+            expected_certificate_hash=expected_certificate_hash,
+        )
     except OSError as exc:
         raise ClientProxyCommandError(f"failed to connect to remote endpoint: {exc}") from exc
-    finally:
-        connection.close()
+    connection.close()
 
 
 def _load_workflow_hints(bundle_root: Path) -> _WorkflowHints:
@@ -648,32 +630,12 @@ def _load_workflow_hints(bundle_root: Path) -> _WorkflowHints:
     )
 
 
-def _forward_request_headers(headers: Any, *, host: str) -> dict[str, str]:
-    forwarded = {
-        key: value
-        for key, value in headers.items()
-        if key.lower() not in _HOP_BY_HOP_HEADERS and key.lower() != "host"
-    }
-    forwarded["Host"] = host
-    return forwarded
-
-
-def _join_remote_request_path(remote_base_path: str, local_path: str) -> str:
-    if not remote_base_path:
-        return local_path
-    if local_path == "/":
-        return f"{remote_base_path}/"
-    if local_path.startswith("/"):
-        return f"{remote_base_path}{local_path}"
-    return f"{remote_base_path}/{local_path}"
-
-
 def _normalize_remote_url(value: str) -> str:
     parsed = urlparse(value.strip())
     if parsed.scheme != "https" or not parsed.netloc:
         raise ClientProxyCommandError("--remote must be an https URL")
-    if parsed.params or parsed.query or parsed.fragment:
-        raise ClientProxyCommandError("--remote must be an https origin or base path URL")
+    if parsed.path not in {"", "/"} or parsed.params or parsed.query or parsed.fragment:
+        raise ClientProxyCommandError("--remote must be an https origin URL")
     return value.strip().rstrip("/")
 
 
@@ -681,8 +643,8 @@ def _parse_local_endpoint(value: str) -> LocalEndpoint:
     raw_value = value.strip()
     if "://" in raw_value:
         parsed = urlparse(raw_value)
-        if parsed.scheme != "http" or not parsed.hostname or parsed.port is None:
-            raise ClientProxyCommandError("--local URL must use http://<host>:<port>")
+        if parsed.scheme != "tcp" or not parsed.hostname or parsed.port is None:
+            raise ClientProxyCommandError("--local URL must use tcp://<host>:<port>")
         return LocalEndpoint(host=parsed.hostname, port=parsed.port)
 
     if ":" not in raw_value:

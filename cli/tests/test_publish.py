@@ -27,6 +27,7 @@ from cove_cli.publish import (
     PublishCommandError,
     load_canonical_container_digests,
     load_workflow_bundle,
+    pull_workflow_bundle,
 )
 from cove_cli.provisioning_identity import build_owner_identity_document
 
@@ -330,6 +331,11 @@ def test_push_and_pull_preserve_generated_digest_pinned_bundle(tmp_path, monkeyp
     )
     bundle = load_workflow_bundle(pulled_root)
     manifest = json.loads((pulled_root / "bundle.manifest.json").read_text(encoding="utf-8"))
+    workflow_object = json.loads(
+        server.state.workflow_bundles[
+            f"v1/workflows/{PUBLISHER_DOMAIN}/hello_world/latest"
+        ].decode("utf-8")
+    )
     final_compose_path = pulled_root / "nodes" / "final_server" / "compose.generated.yaml"
     final_compose_hash_path = pulled_root / "nodes" / "final_server" / "compose.generated.sha256"
     built_compose_path = workflow_dir / "build" / "nodes" / "final_server" / "compose.generated.yaml"
@@ -349,6 +355,8 @@ def test_push_and_pull_preserve_generated_digest_pinned_bundle(tmp_path, monkeyp
     }
     assert f"Published workflow bundle '{PUBLISHER_DOMAIN}/hello_world'" in push_output
     assert f"Pulled workflow bundle '{PUBLISHER_DOMAIN}/hello_world'" in pull_output
+    assert workflow_object["publisher_signature"]["owner_identity"]["owner_domain"] == PUBLISHER_DOMAIN
+    assert workflow_object["publisher_signature"]["signature_algorithm"] == "ed25519"
     assert (pulled_root / "bundle.manifest.json").is_file()
     assert bundle.owners == {
         "alice": ALICE_OWNER_URL,
@@ -378,6 +386,7 @@ def test_push_and_pull_preserve_generated_digest_pinned_bundle(tmp_path, monkeyp
     assert final_provisioner_config["workflow_publisher_domain"] == PUBLISHER_DOMAIN
     assert final_provisioner_config["workflow_id"] == "hello_world"
     assert final_provisioner_config["mode"] == "dynamic_input"
+
     assert final_provisioner_config["producer_certificate_path"] == (
         "/cove/certificates/alice_word_length_checker/certificate.json"
     )
@@ -409,6 +418,38 @@ def test_push_and_pull_preserve_generated_digest_pinned_bundle(tmp_path, monkeyp
             f"v1/runtime/{PUBLISHER_DOMAIN}/hello_world/artifacts/bob_secret_word_transformed/latest",
         ),
     ]
+
+
+def test_pull_workflow_bundle_rejects_tampered_publisher_signature(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workflow_dir = _copy_hello_world_workflow(tmp_path)
+    cove_home = tmp_path / ".carol_cove"
+
+    with MockCovehubServer() as server:
+        _write_config(cove_home, _owner_config(server.url))
+        assert run(
+            ["--cove-home", str(cove_home), "push", str(workflow_dir / "workflow.cove.yaml")]
+        ) == 0
+        payload = json.loads(
+            server.state.workflow_bundles[
+                f"v1/workflows/{PUBLISHER_DOMAIN}/hello_world/latest"
+            ].decode("utf-8")
+        )
+        payload["manifest"]["workflow_id"] = "tampered"
+        server.state.workflow_bundles[
+            f"v1/workflows/{PUBLISHER_DOMAIN}/hello_world/latest"
+        ] = json.dumps(payload).encode("utf-8")
+
+        with pytest.raises(PublishCommandError, match="publisher signature"):
+            pull_workflow_bundle(
+                server_url=server.url,
+                publisher=PUBLISHER_DOMAIN,
+                workflow_id="hello_world",
+                destination=tmp_path / "pulled",
+                require_publisher_signature=True,
+            )
 
 
 def test_push_republishes_workflow_and_advances_latest(tmp_path, capsys) -> None:

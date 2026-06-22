@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import mimetypes
+import os
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -158,6 +159,7 @@ def start_owner_service(
     state = ProvisionState(provision_paths.database_path)
     state.initialize()
 
+    bind_host = os.environ.get("COVE_PROVISION_HOST", "127.0.0.1")
     local_provisioning_url = _local_provisioning_url(resolved_port)
     public_url = _owner_server_url(config)
     owner_domain = owner_domain_from_url(public_url)
@@ -166,7 +168,7 @@ def start_owner_service(
         keys_dir=provision_paths.keys_dir,
         owner_private_key_path=provision_paths.owner_private_key_path,
         owner_public_key_path=provision_paths.owner_public_key_path,
-        host="127.0.0.1",
+        host=bind_host,
         port=resolved_port,
         owner_domain=owner_domain,
         owner_url=public_url,

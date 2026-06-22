@@ -11,6 +11,8 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 import yaml
+from cryptography.hazmat.primitives.asymmetric import ed25519
+from cryptography.hazmat.primitives.serialization import load_pem_private_key, load_pem_public_key
 
 from .canonical_images import (
     ARTIFACT_PROVISIONER_IMAGE_NAME,
@@ -40,10 +42,12 @@ from .provisioning_identity import (
     fetch_owner_identity_for_write,
     owner_domain_from_url,
 )
+from .owner_identity import OwnerIdentityError, verify_owner_identity_document
 
 MANIFEST_FILENAME = "bundle.manifest.json"
 GENERATED_COMPOSE_FILENAME = "compose.generated.yaml"
 GENERATED_COMPOSE_HASH_FILENAME = "compose.generated.sha256"
+WORKFLOW_BUNDLE_SIGNATURE_PURPOSE = "cove_workflow_bundle_v1"
 _DIGEST_PINNED_IMAGE_RE = re.compile(r"^(?P<name>.+)@(?P<digest>sha256:[0-9a-f]{64})$")
 _STATIC_HUB_PATH_RE = re.compile(
     r"^v1/artifacts/(?P<owner>[^/]+)/(?P<artifact>[^/]+)/"
@@ -147,7 +151,11 @@ def push_workflow(
             publisher=publisher_domain,
             bundle_root=bundle_root,
         )
-        workflow_object = _workflow_object_bytes(bundle)
+        workflow_object = _workflow_object_bytes(
+            bundle,
+            publisher_identity=owner_identity,
+            publisher_private_key_path=provision_paths.owner_private_key_path,
+        )
         upload_result = upload_workflow_object(
             server_url=config.covehub_server_url,
             publisher=publisher_domain,
@@ -226,6 +234,7 @@ def pull_workflow_bundle(
     reference: str = "latest",
     destination: str | Path | None = None,
     cove_home: str | Path | None = None,
+    require_publisher_signature: bool = False,
 ) -> MaterializedWorkflowBundle:
     if destination is None:
         paths = provision_paths_for_home(cove_home)
@@ -243,7 +252,11 @@ def pull_workflow_bundle(
         workflow_id=workflow_id,
         reference=reference,
     )
-    manifest_bytes, file_payloads = _parse_workflow_object_bytes(workflow_object_bytes)
+    manifest_bytes, file_payloads = _parse_workflow_object_bytes(
+        workflow_object_bytes,
+        expected_publisher=publisher,
+        require_publisher_signature=require_publisher_signature,
+    )
     manifest_payload = _parse_manifest_bytes(
         manifest_bytes,
         bundle_root=bundle_root,
@@ -645,7 +658,12 @@ def _canonical_json_bytes(payload: dict[str, Any]) -> bytes:
     return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
-def _workflow_object_bytes(bundle: MaterializedWorkflowBundle) -> bytes:
+def _workflow_object_bytes(
+    bundle: MaterializedWorkflowBundle,
+    *,
+    publisher_identity: dict[str, object] | None = None,
+    publisher_private_key_path: Path | None = None,
+) -> bytes:
     manifest_payload = json.loads((bundle.root_path / MANIFEST_FILENAME).read_text(encoding="utf-8"))
     if not isinstance(manifest_payload, dict):
         raise PublishCommandError("bundle manifest must be a JSON object")
@@ -663,10 +681,25 @@ def _workflow_object_bytes(bundle: MaterializedWorkflowBundle) -> bytes:
             for bundle_file in bundle.files
         ],
     }
+    if publisher_identity is not None or publisher_private_key_path is not None:
+        if publisher_identity is None or publisher_private_key_path is None:
+            raise PublishCommandError(
+                "publisher identity and private key path are both required for workflow signing"
+            )
+        workflow_object["publisher_signature"] = _publisher_signature_payload(
+            manifest_payload,
+            publisher_identity=publisher_identity,
+            publisher_private_key_path=publisher_private_key_path,
+        )
     return _canonical_json_bytes(workflow_object)
 
 
-def _parse_workflow_object_bytes(payload: bytes) -> tuple[bytes, dict[str, bytes]]:
+def _parse_workflow_object_bytes(
+    payload: bytes,
+    *,
+    expected_publisher: str | None = None,
+    require_publisher_signature: bool = False,
+) -> tuple[bytes, dict[str, bytes]]:
     try:
         workflow_object = json.loads(payload.decode("utf-8"))
     except json.JSONDecodeError as exc:
@@ -679,6 +712,18 @@ def _parse_workflow_object_bytes(payload: bytes) -> tuple[bytes, dict[str, bytes
     raw_files = workflow_object.get("files")
     if not isinstance(manifest, dict) or not isinstance(raw_files, list):
         raise PublishCommandError("workflow object is missing manifest or files")
+    raw_publisher_signature = workflow_object.get("publisher_signature")
+    if raw_publisher_signature is None:
+        if require_publisher_signature:
+            raise PublishCommandError("workflow object is missing publisher_signature")
+    elif isinstance(raw_publisher_signature, dict):
+        _verify_publisher_signature(
+            raw_publisher_signature,
+            manifest=manifest,
+            expected_publisher=expected_publisher,
+        )
+    else:
+        raise PublishCommandError("workflow object publisher_signature must be an object")
 
     manifest_bytes = (
         json.dumps(manifest, indent=2, sort_keys=True) + "\n"
@@ -710,6 +755,86 @@ def _parse_workflow_object_bytes(payload: bytes) -> tuple[bytes, dict[str, bytes
             )
         files[path] = file_bytes
     return manifest_bytes, files
+
+
+def _publisher_signature_payload(
+    manifest: dict[str, Any],
+    *,
+    publisher_identity: dict[str, object],
+    publisher_private_key_path: Path,
+) -> dict[str, Any]:
+    publisher = _required_string(manifest, "publisher")
+    try:
+        verified_identity = verify_owner_identity_document(
+            publisher_identity,
+            expected_owner_domain=publisher,
+        )
+    except OwnerIdentityError as exc:
+        raise PublishCommandError(f"publisher identity is invalid: {exc}") from exc
+    private_key = load_pem_private_key(publisher_private_key_path.read_bytes(), password=None)
+    if not isinstance(private_key, ed25519.Ed25519PrivateKey):
+        raise PublishCommandError(f"publisher private key at {publisher_private_key_path} must be Ed25519")
+    signature = private_key.sign(
+        _canonical_json_bytes(_workflow_signature_payload(manifest))
+    )
+    return {
+        "purpose": WORKFLOW_BUNDLE_SIGNATURE_PURPOSE,
+        "signature_algorithm": "ed25519",
+        "owner_identity": verified_identity,
+        "signature": base64.b64encode(signature).decode("ascii"),
+    }
+
+
+def _verify_publisher_signature(
+    publisher_signature: dict[str, Any],
+    *,
+    manifest: dict[str, Any],
+    expected_publisher: str | None,
+) -> None:
+    purpose = _required_string(publisher_signature, "purpose")
+    if purpose != WORKFLOW_BUNDLE_SIGNATURE_PURPOSE:
+        raise PublishCommandError("workflow object publisher_signature purpose is unsupported")
+    signature_algorithm = _required_string(publisher_signature, "signature_algorithm")
+    if signature_algorithm != "ed25519":
+        raise PublishCommandError("workflow object publisher_signature algorithm must be ed25519")
+    publisher = _required_string(manifest, "publisher")
+    if expected_publisher is not None and publisher != expected_publisher:
+        raise PublishCommandError(
+            f"workflow object publisher {publisher!r} does not match expected {expected_publisher!r}"
+        )
+    owner_identity = publisher_signature.get("owner_identity")
+    if not isinstance(owner_identity, dict):
+        raise PublishCommandError("workflow object publisher_signature.owner_identity must be an object")
+    try:
+        verified_identity = verify_owner_identity_document(
+            owner_identity,
+            expected_owner_domain=publisher,
+        )
+    except OwnerIdentityError as exc:
+        raise PublishCommandError(f"workflow object publisher identity is invalid: {exc}") from exc
+    public_key = load_pem_public_key(
+        _required_string(verified_identity, "owner_public_key_pem").encode("utf-8")
+    )
+    if not isinstance(public_key, ed25519.Ed25519PublicKey):
+        raise PublishCommandError("workflow object publisher public key must be Ed25519")
+    try:
+        signature = base64.b64decode(
+            _required_string(publisher_signature, "signature").encode("ascii"),
+            validate=True,
+        )
+    except Exception as exc:
+        raise PublishCommandError("workflow object publisher_signature.signature must be valid base64") from exc
+    try:
+        public_key.verify(signature, _canonical_json_bytes(_workflow_signature_payload(manifest)))
+    except Exception as exc:
+        raise PublishCommandError("workflow object publisher signature verification failed") from exc
+
+
+def _workflow_signature_payload(manifest: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "purpose": WORKFLOW_BUNDLE_SIGNATURE_PURPOSE,
+        "manifest": manifest,
+    }
 
 
 def _node_manifest_payload(node: MaterializedNode) -> dict[str, Any]:
