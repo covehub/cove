@@ -27,15 +27,16 @@ Each directory has its own README. Start there for package-level details.
 
 ## Top-Level Files
 
-- [compose.yaml](compose.yaml) — the canonical Covehub deployment: API, public UI, and Cloudflare Tunnel as a single Compose stack.
-- [.env.example](.env.example) — template for the private Compose environment. Copy it locally, set the Cloudflare tunnel token, and optionally tune local smoke ports. The real env file is gitignored.
+- [compose.yaml](compose.yaml) — the canonical Covehub deployment: API, public UI, idle Alice/Bob/Carol owner services, and Cloudflare Tunnel as a single Compose stack.
+- [.env.example](.env.example) — template for the private Compose environment. Copy it locally, set the shared Cloudflare tunnel token, configure the public API/UI and owner routes, and optionally tune local smoke ports. The real env file is gitignored.
 
 ## Quick Start
 
 If you want to run the hello-world demo against Phala Cloud, the
 authoritative walkthrough is [docs/internal/hello_world.md](docs/internal/hello_world.md).
 
-If you only want to bring up Covehub itself (API + UI + tunnel):
+If you only want to bring up Covehub infrastructure (API + UI + tunnel +
+idle Alice/Bob/Carol owner services):
 
 ```bash
 cd /path/to/cove
@@ -44,6 +45,11 @@ $EDITOR .env  # set the Cloudflare tunnel token
 docker compose up -d --build
 ```
 
+This root stack only initializes and serves the demo owner accounts. It does
+not provision artifacts, compile or push workflows, approve workflows, deploy
+to Phala, run either demo, or start a client proxy. Use the demo-specific
+Compose stacks when you want the full hello-world or attested benchmark flows.
+
 Verify locally and publicly:
 
 ```bash
@@ -51,6 +57,9 @@ curl -fsS http://127.0.0.1:3518/healthz
 curl -fsS http://127.0.0.1:3517/ui-api/healthz
 curl -A 'cove-runtime/0.0.1' -fsS https://api.covehub.io/healthz
 curl -fsS https://covehub.io/
+curl -A 'cove-runtime/0.0.1' -fsS https://demo-alice.covehub.io/identity
+curl -A 'cove-runtime/0.0.1' -fsS https://demo-bob.covehub.io/identity
+curl -A 'cove-runtime/0.0.1' -fsS https://demo-carol.covehub.io/identity
 ```
 
 Full deployment runbook: [docs/internal/operations/covehub_server.md](docs/internal/operations/covehub_server.md).
