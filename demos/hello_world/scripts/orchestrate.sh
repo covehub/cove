@@ -139,9 +139,10 @@ write_client_proxy_remote_url() {
   node_id="final_server"
   remote_url="$(python - "$deploy_json" "$node_id" <<'PY'
 import json
-import os
 import sys
 from pathlib import Path
+
+PHALA_GATEWAY_BASE_DOMAIN = "dstack-pha-prod5.phala.network"
 
 deploy_json, node_id = sys.argv[1:]
 payload = json.loads(Path(deploy_json).read_text(encoding="utf-8"))
@@ -157,88 +158,10 @@ deployment = next(
 )
 if deployment is None:
     raise SystemExit(f"could not find deployment node {node_id!r} in deploy JSON")
-cvm_id = deployment.get("cvm_id")
 app_id = deployment.get("app_id")
-if not isinstance(cvm_id, str) or not cvm_id:
-    raise SystemExit(f"deploy JSON is missing cvm_id for node {node_id!r}")
 if not isinstance(app_id, str) or not app_id:
     raise SystemExit(f"deploy JSON is missing app_id for node {node_id!r}")
-
-from phala_cloud import create_client
-
-
-def plain(value):
-    if hasattr(value, "model_dump"):
-        return value.model_dump(mode="json")
-    if isinstance(value, dict):
-        return value
-    return {}
-
-
-def normalize_url(value):
-    if not isinstance(value, str) or not value.strip():
-        return None
-    value = value.strip().rstrip("/")
-    if value.startswith(("http://", "https://")):
-        return value
-    if "." in value:
-        return f"https://{value}"
-    return None
-
-
-def collect_urls(value):
-    urls = []
-    if isinstance(value, dict):
-        for item in value.values():
-            urls.extend(collect_urls(item))
-    elif isinstance(value, list):
-        for item in value:
-            urls.extend(collect_urls(item))
-    elif isinstance(value, str):
-        url = normalize_url(value)
-        if url:
-            urls.append(url)
-    return urls
-
-
-client = create_client(api_key=os.environ["PHALA_CLOUD_API_KEY"])
-try:
-    info = plain(client.get_cvm_info({"id": cvm_id}))
-    try:
-        network = plain(client.get_cvm_network({"id": cvm_id}))
-    except Exception:
-        network = {}
-finally:
-    close = getattr(client, "close", None)
-    if callable(close):
-        close()
-
-for payload in (info, network):
-    if isinstance(payload, dict):
-        url = normalize_url(payload.get("app_url"))
-        if url:
-            print(url)
-            raise SystemExit(0)
-
-for url in collect_urls([info, network]):
-    if app_id in url:
-        print(url)
-        raise SystemExit(0)
-
-gateway = info.get("gateway") if isinstance(info, dict) else None
-if isinstance(gateway, dict):
-    for key in ("cname", "base_domain"):
-        host = gateway.get(key)
-        url = normalize_url(host)
-        if url and app_id in url:
-            print(url)
-            raise SystemExit(0)
-        if isinstance(host, str) and host.strip() and key == "base_domain":
-            port = "18443"
-            print(f"https://{app_id}-{port}s.{host.strip().strip('/')}")
-            raise SystemExit(0)
-
-raise SystemExit("Phala API response did not include a remote service URL")
+print(f"https://{app_id}-18443s.{PHALA_GATEWAY_BASE_DOMAIN}")
 PY
 )"
   stage "carol: client proxy remote endpoint ${remote_url}"
