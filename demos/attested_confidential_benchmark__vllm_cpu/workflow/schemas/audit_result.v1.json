@@ -3,6 +3,7 @@
   "required": [
     "audit_kind",
     "audited_sha256",
+    "llm_used",
     "model_id",
     "pass",
     "reasoning"
@@ -14,12 +15,6 @@
     "audited_sha256": {
       "type": "string",
       "pattern": "^sha256:[0-9a-f]{64}$"
-    },
-    "heuristic_findings": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      }
     },
     "llm_used": {
       "type": "boolean"

@@ -1,6 +1,6 @@
 services:
   audit_agent:
-    image: "covehub/cove-demo-attested-confidential-eval-vllm-audit-agent@sha256:50032520c4cfc2bc5fed3711cac4c50689b9303a931021b00c9a8e0326ceded3"
+    image: "covehub/cove-demo-attested-confidential-eval-vllm-audit-agent@sha256:16afb4619f0a87514c73ea7e10119849c6f0649bbe0543625779b6d8abffcc8b"
     environment:
       AUDIT_KIND: eval_code
       AUDIT_MODEL_ID: Qwen/Qwen3.5-9B

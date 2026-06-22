@@ -41,7 +41,12 @@ from cove_cli.artifact_crypto import (
 )
 from cove_cli.check import check_workflow
 from cove_cli.cli import run
-from cove_cli.compile import compile_workflow, compile_workflow_artifact, reviewed_compose_hash
+from cove_cli.compile import (
+    _keypair_certificate_common_name,
+    compile_workflow,
+    compile_workflow_artifact,
+    reviewed_compose_hash,
+)
 from cove_cli.config import provision_paths_for_home
 from cove_cli.owner_identity import verify_owner_identity_document
 from cove_cli.provision_server import create_provision_server
@@ -50,11 +55,11 @@ from cove_cli.provision_state import ProvisionState
 from .support import MockCovehubServer, build_test_owner_identity, load_container_main_module, write_test_certificate
 
 
-ALICE_DOMAIN = "alice.cove-demo-parties.covehub.io"
+ALICE_DOMAIN = "demo-alice.covehub.io"
 ALICE_OWNER_URL = f"https://{ALICE_DOMAIN}"
-BOB_DOMAIN = "bob.cove-demo-parties.covehub.io"
+BOB_DOMAIN = "demo-bob.covehub.io"
 BOB_OWNER_URL = f"https://{BOB_DOMAIN}"
-CAROL_DOMAIN = "carol.cove-demo-parties.covehub.io"
+CAROL_DOMAIN = "demo-carol.covehub.io"
 CAROL_OWNER_URL = f"https://{CAROL_DOMAIN}"
 PUBLISHER_DOMAIN = CAROL_DOMAIN
 PUBLISHER_OWNER_URL = CAROL_OWNER_URL
@@ -317,6 +322,10 @@ def test_compile_emits_generated_compose_hash_and_sidecars(tmp_path) -> None:
         services["cove_key_manager"]["image"]
         == canonical_container_ref("cove-key-manager")
     )
+    key_manager_config = _inline_service_config(services, "cove_key_manager")
+    assert key_manager_config["keypairs"][0]["certificate_common_name"] == (
+        "hello_world.final_server.session_key"
+    )
     assert (
         services["cove_node_certificate_writer"]["image"]
         == canonical_container_ref("cove-node-certificate-writer")
@@ -571,6 +580,26 @@ def test_compile_emits_generated_compose_hash_and_sidecars(tmp_path) -> None:
     assert alice_input_config["hub_path"] == (
         f"v1/artifacts/{ALICE_DOMAIN}/alice_secret_word/{expected_ciphertext_hash}"
     )
+
+
+def test_compile_bounds_long_keypair_certificate_common_names() -> None:
+    assert (
+        _keypair_certificate_common_name(
+            workflow_id="hello_world",
+            node_name="final_server",
+            keypair_name="session_key",
+        )
+        == "hello_world.final_server.session_key"
+    )
+
+    common_name = _keypair_certificate_common_name(
+        workflow_id="attested_confidential_benchmark__vllm_cpu",
+        node_name="final_server",
+        keypair_name="session_key",
+    )
+
+    assert common_name == "cove-final_server.session_key-0f8736dfed29b034"
+    assert len(common_name.encode("utf-8")) <= 64
 
 
 def test_compile_orders_generated_nodes_topologically_and_stably(tmp_path) -> None:

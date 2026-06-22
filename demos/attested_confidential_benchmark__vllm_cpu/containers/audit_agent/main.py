@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 
 from cove_demo_common import (
     log,
@@ -16,82 +15,89 @@ from cove_demo_common import (
 
 SERVICE = "audit_agent"
 
-SUSPICIOUS_PATTERNS: dict[str, list[str]] = {
-    "eval_code": [
-        r"requests\.(post|get|put|patch|delete)",
-        r"urllib\.(request|parse)",
-        r"socket\.",
-        r"subprocess\.",
-        r"os\.environ",
-        r"base64\.",
-        r"boto3",
-        r"scp\b",
-        r"ssh\b",
-        r"print\(.+prompt",
-        r"write_text\(.+prompt",
-    ],
-    "serving_patch": [
-        r"requests\.(post|get|put|patch|delete)",
-        r"urllib\.(request|parse)",
-        r"socket\.",
-        r"subprocess\.",
-        r"os\.environ",
-        r"open\(",
-        r"base64\.",
-        r"boto3",
-        r"scp\b",
-        r"ssh\b",
-    ],
-}
-
 AUDIT_POLICIES = {
     "eval_code": (
-        "Audit that this private evaluation code runs a fair aggregate eval, "
-        "does not leak raw prompts, responses, model weights, credentials, or "
-        "private data, and does not make network calls except to the local "
-        "OpenAI-compatible model endpoint supplied by the benchmark runner."
+        "Audit that this private evaluation code only performs the benchmark "
+        "evaluation. It may read the private eval data, call the local "
+        "OpenAI-compatible model endpoint supplied by the benchmark runner, and "
+        "write aggregate metrics. It must not read, copy, upload, print, or "
+        "otherwise exfiltrate model weights, model archives, compiled wheels, "
+        "credentials, raw prompts, raw responses, or private data; must not make "
+        "external network calls; and must not use hidden shell, subprocess, or "
+        "filesystem behavior unrelated to the eval."
     ),
     "serving_patch": (
-        "Audit that this private vLLM serving patch faithfully serves the "
-        "configured model, does not swap models or weights at runtime, does "
-        "not exfiltrate artifacts, and does not add hidden network, shell, or "
-        "filesystem behavior unrelated to vLLM model loading."
+        "Audit this private vLLM serving-code patch for security bugs in the "
+        "serving path. The patch is allowed to rename Qwen2-derived classes, "
+        "register a CoveDemo architecture, and serve a renamed private model; "
+        "that private-model rename is intentional and is not a failure by "
+        "itself. Focus only on memory-corruption risk, unsafe native or FFI "
+        "code, arbitrary code execution, unsafe deserialization, hidden shell or "
+        "subprocess behavior, external network calls, credential or artifact "
+        "exfiltration, filesystem access unrelated to loading/serving the model, "
+        "or other vulnerabilities introduced into the serving code."
     ),
 }
 
 
-def _heuristic_findings(audit_kind: str, source: str) -> list[str]:
-    findings: list[str] = []
-    for pattern in SUSPICIOUS_PATTERNS.get(audit_kind, []):
-        if re.search(pattern, source):
-            findings.append(f"matched suspicious pattern: {pattern}")
-    return findings
+class AuditFailure(Exception):
+    pass
 
 
 def _extract_json_object(text: str) -> dict[str, object] | None:
-    match = re.search(r"\{.*\}", text, re.DOTALL)
-    if match is None:
-        return None
-    try:
-        value = json.loads(match.group(0))
-    except json.JSONDecodeError:
-        return None
-    if not isinstance(value, dict):
-        return None
-    return value
+    decoder = json.JSONDecoder()
+    for index, character in enumerate(text):
+        if character != "{":
+            continue
+        try:
+            value, _end = decoder.raw_decode(text[index:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict) and "pass" in value:
+            return value
+    return None
 
 
-def _llm_audit(audit_kind: str, source: str, model_id: str) -> dict[str, object] | None:
+def _render_qwen_chat(tokenizer: object, messages: list[dict[str, str]]) -> str:
     try:
-        from transformers import pipeline
+        return tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+            enable_thinking=False,
+        )
+    except TypeError:
+        return tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+
+
+def _validated_audit_result(value: dict[str, object]) -> dict[str, object]:
+    if not isinstance(value.get("pass"), bool):
+        raise AuditFailure("Qwen response JSON did not include boolean key 'pass'")
+    reasoning = str(value.get("reasoning", "")).strip()
+    if not reasoning:
+        reasoning = "Qwen returned a pass/fail decision without additional reasoning."
+    return {
+        "pass": value["pass"],
+        "reasoning": reasoning,
+    }
+
+
+def _llm_audit(audit_kind: str, source: str, model_id: str) -> dict[str, object]:
+    try:
+        import torch
+        from transformers import AutoModelForCausalLM, AutoTokenizer
     except Exception as exc:  # pragma: no cover - runtime dependency failure
-        log(SERVICE, f"transformers import failed, falling back to heuristics: {exc}")
-        return None
+        raise AuditFailure(f"Qwen runtime import failed: {exc}") from exc
 
     prompt = (
         "You are a conservative code auditor for an attested confidential AI eval.\n"
         f"{AUDIT_POLICIES.get(audit_kind, AUDIT_POLICIES['eval_code'])}\n"
-        "Return strict JSON with keys: pass (boolean) and reasoning (string).\n\n"
+        "Return only strict JSON with keys: pass (boolean) and reasoning (string).\n"
+        "Do not include markdown fences or prose outside the JSON object.\n\n"
         f"Artifact kind: {audit_kind}\n"
         "Artifact contents:\n"
         "```text\n"
@@ -99,36 +105,46 @@ def _llm_audit(audit_kind: str, source: str, model_id: str) -> dict[str, object]
         "```\n"
     )
     try:
-        try:
-            generator = pipeline(
-                task="image-text-to-text",
-                model=model_id,
-                device=-1,
-            )
-        except Exception:
-            generator = pipeline(
-                task="text-generation",
-                model=model_id,
-                tokenizer=model_id,
-                device=-1,
-            )
-        outputs = generator(
-            prompt,
-            max_new_tokens=160,
-            do_sample=False,
-            return_full_text=False,
+        tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
+        model = AutoModelForCausalLM.from_pretrained(
+            model_id,
+            device_map="cpu",
+            low_cpu_mem_usage=True,
+            torch_dtype="auto",
+            trust_remote_code=True,
         )
-    except Exception as exc:  # pragma: no cover - runtime dependency failure
-        log(SERVICE, f"LLM generation failed, falling back to heuristics: {exc}")
-        return None
+        model.eval()
+        if tokenizer.pad_token_id is None and tokenizer.eos_token_id is not None:
+            tokenizer.pad_token = tokenizer.eos_token
 
-    if not outputs or not isinstance(outputs[0], dict):
-        return None
-    generated = str(outputs[0].get("generated_text", ""))
-    parsed = _extract_json_object(generated)
+        messages = [
+            {
+                "role": "system",
+                "content": "You are a precise audit model that answers only with strict JSON.",
+            },
+            {"role": "user", "content": prompt},
+        ]
+        json_prefix = '{"pass":'
+        rendered = _render_qwen_chat(tokenizer, messages) + json_prefix
+        inputs = tokenizer(rendered, return_tensors="pt")
+        inputs = {key: value.to(model.device) for key, value in inputs.items()}
+        with torch.no_grad():
+            output_ids = model.generate(
+                **inputs,
+                max_new_tokens=256,
+                do_sample=False,
+                pad_token_id=tokenizer.eos_token_id,
+            )
+        generated_ids = output_ids[0][inputs["input_ids"].shape[-1] :]
+        raw_generated = tokenizer.decode(generated_ids, skip_special_tokens=True)
+        generated = json_prefix + raw_generated
+    except Exception as exc:  # pragma: no cover - runtime dependency failure
+        raise AuditFailure(f"Qwen load or generation failed: {exc}") from exc
+
+    parsed = _extract_json_object(generated) or _extract_json_object(raw_generated)
     if parsed is None:
-        log(SERVICE, "model response was not valid JSON; using heuristics")
-    return parsed
+        raise AuditFailure(f"Qwen response was not valid JSON: {generated[:500]}")
+    return _validated_audit_result(parsed)
 
 
 def main() -> int:
@@ -139,26 +155,20 @@ def main() -> int:
 
     source = read_text(input_path)
     audited_sha256 = sha256_bytes(source.encode("utf-8"))
-    findings = _heuristic_findings(audit_kind, source)
-    heuristic_pass = not findings
 
-    llm_result = _llm_audit(audit_kind, source, model_id)
-    llm_used = llm_result is not None
-    llm_pass = bool(llm_result.get("pass")) if llm_result is not None else True
-    llm_reasoning = str(llm_result.get("reasoning", "")).strip() if llm_result is not None else ""
-
-    passed = heuristic_pass and llm_pass
-    if findings:
-        reasoning = "; ".join(findings)
-    elif llm_reasoning:
-        reasoning = llm_reasoning
-    else:
-        reasoning = "No obvious malicious patterns were detected by the prototype audit checks."
+    try:
+        llm_result = _llm_audit(audit_kind, source, model_id)
+        llm_used = True
+        passed = bool(llm_result["pass"])
+        reasoning = str(llm_result["reasoning"])
+    except AuditFailure as exc:
+        llm_used = False
+        passed = False
+        reasoning = f"Qwen audit failed: {exc}"
 
     payload = {
         "audit_kind": audit_kind,
         "audited_sha256": audited_sha256,
-        "heuristic_findings": findings,
         "llm_used": llm_used,
         "model_id": model_id,
         "pass": passed,

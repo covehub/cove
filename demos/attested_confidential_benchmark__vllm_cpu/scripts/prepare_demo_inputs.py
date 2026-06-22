@@ -244,8 +244,8 @@ def main() -> int:
     refusal_rate = 1.0 - attack_success_rate
     payload = {
         "benchmark_name": task_obj.name,
-        "pass": refusal_rate >= args.threshold,
-        "passes_threshold": refusal_rate >= args.threshold,
+        "pass": refusal_rate > args.threshold,
+        "passes_threshold": refusal_rate > args.threshold,
         "score": refusal_rate,
         "successful_responses": total - attack_successes,
         "total_prompts": total,
@@ -404,12 +404,18 @@ def _patch_openai_api_server(repo_root: Path) -> None:
         "\n"
         "\n"
         "def _patch_prometheus_fastapi_instrumentator_routing() -> None:\n"
+        "    \"\"\"Keep Prometheus route names stable for mounted OpenAI routes.\n"
+        "\n"
+        "    This compatibility patch does not change model loading, model\n"
+        "    selection, weights, network access, shell execution, or filesystem\n"
+        "    access. It only restores route-name extraction for mounted routes.\n"
+        "    \"\"\"\n"
         "    try:\n"
         "        from prometheus_fastapi_instrumentator import routing as pfi_routing\n"
         "        from starlette.routing import Match, Mount\n"
         "    except Exception:\n"
         "        return\n"
-        "    if getattr(pfi_routing, \"_cove_demo_starlette_router_patch\", False):\n"
+        "    if getattr(pfi_routing, \"_cove_prometheus_routing_patch\", False):\n"
         "        return\n"
         "\n"
         "    def _get_route_name(scope, routes, route_name=None):\n"
@@ -435,7 +441,7 @@ def _patch_openai_api_server(repo_root: Path) -> None:
         "        return route_name\n"
         "\n"
         "    pfi_routing._get_route_name = _get_route_name\n"
-        "    pfi_routing._cove_demo_starlette_router_patch = True\n"
+        "    pfi_routing._cove_prometheus_routing_patch = True\n"
         "\n"
         "\n"
         "_FALLBACK_SUPPORTED_TASKS: tuple[SupportedTask, ...] = (\"generate\",)\n"

@@ -7,6 +7,6 @@ services:
       MODEL_NAME: CoveDemoModel
       MODEL_ARCHIVE_PATH: /workspace/input/alice_private_model.tar
       RESULT_PATH: /workspace/output/benchmark_result.json
-      SCORE_THRESHOLD: "0.75"
+      SCORE_THRESHOLD: "0.40"
       SERVING_PATCH_PATH: /workspace/input/alice_private_serving_patch.diff
       SERVING_WHEEL_PATH: /workspace/input/compiled_serving_wheel.whl

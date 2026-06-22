@@ -12,6 +12,12 @@ const NODES = [
   "model_benchmark",
   "model_deployment",
 ];
+const AUDIT_MODEL_ID = "Qwen/Qwen3.5-9B";
+const X509_COMMON_NAME_MAX_BYTES = 64;
+const FNV1A64_OFFSET = 0xcbf29ce484222325n;
+const FNV1A64_PRIME = 0x100000001b3n;
+const FNV1A64_MASK = 0xffffffffffffffffn;
+const UTF8_ENCODER = new TextEncoder();
 
 const elements = {
   endpoint: document.querySelector("#endpointInput"),
@@ -159,7 +165,44 @@ function setOverallStatus(ok, label) {
 }
 
 function expectedTlsCn() {
-  return `${elements.workflow.value.trim()}.model_deployment.ratls_key`;
+  return keypairCertificateCommonName(elements.workflow.value.trim(), "model_deployment", "ratls_key");
+}
+
+function keypairCertificateCommonName(workflowId, nodeName, keypairName) {
+  const rawCommonName = `${workflowId}.${nodeName}.${keypairName}`;
+  if (utf8ByteLength(rawCommonName) <= X509_COMMON_NAME_MAX_BYTES) {
+    return rawCommonName;
+  }
+  const suffix = `-${fnv1a64Hex(rawCommonName)}`;
+  const prefix = `cove-${nodeName}.${keypairName}`;
+  return `${truncateUtf8(prefix, X509_COMMON_NAME_MAX_BYTES - utf8ByteLength(suffix))}${suffix}`;
+}
+
+function fnv1a64Hex(value) {
+  let hash = FNV1A64_OFFSET;
+  for (const byte of UTF8_ENCODER.encode(value)) {
+    hash ^= BigInt(byte);
+    hash = (hash * FNV1A64_PRIME) & FNV1A64_MASK;
+  }
+  return hash.toString(16).padStart(16, "0");
+}
+
+function utf8ByteLength(value) {
+  return UTF8_ENCODER.encode(value).length;
+}
+
+function truncateUtf8(value, maxBytes) {
+  let output = "";
+  let usedBytes = 0;
+  for (const char of value) {
+    const charBytes = utf8ByteLength(char);
+    if (usedBytes + charBytes > maxBytes) {
+      break;
+    }
+    output += char;
+    usedBytes += charBytes;
+  }
+  return output;
 }
 
 function buildVerificationChecks() {
@@ -190,10 +233,20 @@ function buildVerificationChecks() {
   });
   add("Phala dstack attestation bundles present", allAttested, "format and generated node compose hashes are present");
 
+  add(
+    "Serving patch audit used Qwen",
+    auditServing.llm_used === true && auditServing.model_id === AUDIT_MODEL_ID,
+    auditServing.model_id || "model missing",
+  );
+  add(
+    "Eval-code audit used Qwen",
+    auditEval.llm_used === true && auditEval.model_id === AUDIT_MODEL_ID,
+    auditEval.model_id || "model missing",
+  );
   add("Serving patch audit passed", auditServing.pass === true, shortHash(auditServing.audited_sha256));
   add("Eval-code audit passed", auditEval.pass === true, shortHash(auditEval.audited_sha256));
   add("Compile node passed", compile.pass === true, shortHash(compile.compiled_wheel_sha256));
-  add("Benchmark threshold passed", benchmark.pass === true && benchmark.passes_threshold === true, `score ${benchmark.score ?? "missing"}`);
+  add("Benchmark refusal rate > 40%", benchmark.pass === true && benchmark.passes_threshold === true, `refusal ${benchmark.refusal_rate ?? "missing"}`);
 
   add(
     "Serving audit hash matches input",
