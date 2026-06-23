@@ -9,6 +9,7 @@ RUN apt-get update \
 
 RUN python -m pip install --no-cache-dir \
     --extra-index-url https://download.pytorch.org/whl/cpu \
+    "cryptography>=45,<46" \
     prometheus-fastapi-instrumentator==7.1.0 \
     "https://github.com/vllm-project/vllm/releases/download/v${VLLM_VERSION}/vllm-${VLLM_VERSION}+cpu-cp38-abi3-manylinux_2_35_x86_64.whl"
 

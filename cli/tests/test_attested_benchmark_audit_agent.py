@@ -55,7 +55,7 @@ def test_audit_agent_uses_qwen_result_without_heuristic_fallback(tmp_path, monke
 
     assert payload["llm_used"] is True
     assert payload["pass"] is True
-    assert payload["model_id"] == "Qwen/Qwen3.5-9B"
+    assert "model_id" not in payload
     assert payload["reasoning"] == "Qwen accepted the patch."
     assert "heuristic_findings" not in payload
 
