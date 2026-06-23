@@ -353,21 +353,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         workflow_id = ensure_identifier(workflow_id, "workflow id")
         artifact_name = ensure_identifier(artifact_name, "artifact name")
         payload = await request.body()
+        expected_size, body_attestation = _parse_runtime_artifact_upload_session_request_payload(payload)
+        attestation_fields = _runtime_artifact_attestation_fields_from_body(body_attestation)
         _verify_runtime_artifact_attestation(
             current_services,
-            quote=x_tdx_quote,
-            event_log=x_tdx_event_log,
-            workflow_id=x_cove_workflow_id,
-            artifact_name=x_cove_artifact_name,
+            quote=attestation_fields.get("quote", x_tdx_quote),
+            event_log=attestation_fields.get("event_log", x_tdx_event_log),
+            workflow_id=attestation_fields.get("workflow_id", x_cove_workflow_id),
+            artifact_name=attestation_fields.get("artifact_name", x_cove_artifact_name),
             path_workflow_id=workflow_id,
             path_artifact_name=artifact_name,
-            node_id=x_cove_node_id,
-            compose_hash=x_cove_compose_hash,
-            attestation_format=x_cove_attestation_format,
-            report_data=x_cove_report_data,
-            info=x_cove_attestation_info,
+            node_id=attestation_fields.get("node_id", x_cove_node_id),
+            compose_hash=attestation_fields.get("compose_hash", x_cove_compose_hash),
+            attestation_format=attestation_fields.get("attestation_format", x_cove_attestation_format),
+            report_data=attestation_fields.get("report_data", x_cove_report_data),
+            info=attestation_fields.get("info", x_cove_attestation_info),
         )
-        expected_size = _parse_upload_session_request_payload(payload)
         session = _create_upload_session(
             current_services,
             namespace_parts=["runtime", publisher, workflow_id, "artifacts", artifact_name],
@@ -574,6 +575,31 @@ def _upload_session_payload(session: UploadSession) -> dict[str, object]:
 
 
 def _parse_upload_session_request_payload(payload: bytes) -> int | None:
+    parsed = _parse_upload_session_payload_object(payload)
+    if parsed is None:
+        return None
+    return _parse_upload_length(parsed)
+
+
+def _parse_runtime_artifact_upload_session_request_payload(
+    payload: bytes,
+) -> tuple[int | None, dict[str, object] | None]:
+    parsed = _parse_upload_session_payload_object(payload)
+    if parsed is None:
+        return None, None
+    upload_length = _parse_upload_length(parsed)
+    attestation = parsed.get("attestation")
+    if attestation is None:
+        return upload_length, None
+    if not isinstance(attestation, dict):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="attestation must be a JSON object",
+        )
+    return upload_length, attestation
+
+
+def _parse_upload_session_payload_object(payload: bytes) -> dict[str, object] | None:
     if not payload:
         return None
     try:
@@ -588,15 +614,45 @@ def _parse_upload_session_request_payload(payload: bytes) -> int | None:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="upload session payload must be a JSON object",
         )
-    upload_length = parsed.get("upload_length")
+    return parsed
+
+
+def _parse_upload_length(payload: dict[str, object]) -> int | None:
+    upload_length = payload.get("upload_length")
     if upload_length is None:
         return None
     if not isinstance(upload_length, int) or upload_length < 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="upload_length must be a non-negative integer",
-        )
+    )
     return upload_length
+
+
+def _runtime_artifact_attestation_fields_from_body(
+    attestation: dict[str, object] | None,
+) -> dict[str, str | None]:
+    if attestation is None:
+        return {}
+    event_log = attestation.get("event_log")
+    info = attestation.get("info")
+    return {
+        "quote": _string_or_none(attestation.get("quote")),
+        "event_log": _serialize_event_log(event_log) if event_log is not None else None,
+        "workflow_id": _string_or_none(attestation.get("workflow_id")),
+        "artifact_name": _string_or_none(attestation.get("artifact_name")),
+        "node_id": _string_or_none(attestation.get("node_id")),
+        "compose_hash": _string_or_none(attestation.get("compose_hash")),
+        "attestation_format": _string_or_none(
+            attestation.get("attestation_format", attestation.get("format"))
+        ),
+        "report_data": _string_or_none(attestation.get("report_data")),
+        "info": json.dumps(info, sort_keys=True, separators=(",", ":")) if info is not None else None,
+    }
+
+
+def _string_or_none(value: object) -> str | None:
+    return value if isinstance(value, str) else None
 
 
 def _parse_upload_offset(value: str) -> int:

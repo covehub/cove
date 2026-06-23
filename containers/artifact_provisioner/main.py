@@ -25,7 +25,7 @@ from cove_container_runtime.common import (
     http_get_bytes,
     http_get_to_file,
     http_put_bytes,
-    http_put_bytes_resumable,
+    http_put_bytes_upload_session,
     join_url,
     load_inline_sidecar_context,
     log,
@@ -362,29 +362,31 @@ def _run_dynamic_output(
             artifact_name=artifact_name,
         ),
     )
-    upload_headers = {
-        "Content-Type": "application/octet-stream",
-        "X-TDX-Quote": required_string(attestation_bundle, "quote"),
-        "X-Cove-Workflow-Id": workflow_id,
-        "X-Cove-Artifact-Name": artifact_name,
-        "X-Cove-Node-Id": node_id,
-        "X-Cove-Compose-Hash": compose_hash,
-        "X-Cove-Attestation-Format": required_string(attestation_bundle, "format"),
-        "X-Cove-Report-Data": required_string(attestation_bundle, "report_data"),
-    }
     event_log = attestation_bundle.get("event_log")
-    if event_log is not None:
-        upload_headers["X-TDX-Event-Log"] = _event_log_header(event_log)
+    if event_log is None:
+        raise RuntimeErrorBase("runtime artifact attestation bundle is missing event_log")
+    attestation_payload: dict[str, object] = {
+        "quote": required_string(attestation_bundle, "quote"),
+        "event_log": event_log,
+        "workflow_id": workflow_id,
+        "artifact_name": artifact_name,
+        "node_id": node_id,
+        "compose_hash": compose_hash,
+        "attestation_format": required_string(attestation_bundle, "format"),
+        "report_data": required_string(attestation_bundle, "report_data"),
+    }
     info = attestation_bundle.get("info")
     if isinstance(info, dict):
-        upload_headers["X-Cove-Attestation-Info"] = _json_header(info)
+        attestation_payload["info"] = info
 
-    http_put_bytes_resumable(
+    http_put_bytes_upload_session(
         url=join_url(_server_url(config), exact_hub_path),
         payload=ciphertext,
-        headers=upload_headers,
-        session_create_headers=upload_headers,
-        session_create_payload={"upload_length": len(ciphertext)},
+        headers={"Content-Type": "application/octet-stream"},
+        session_create_payload={
+            "upload_length": len(ciphertext),
+            "attestation": attestation_payload,
+        },
     )
 
     write_json_file(
@@ -754,16 +756,6 @@ def _latest_hub_path(exact_hub_path: str) -> str:
     if match is None:
         return exact_hub_path
     return f"{match.group('prefix')}/latest"
-
-
-def _event_log_header(event_log: object) -> str:
-    if isinstance(event_log, str):
-        return event_log
-    return json.dumps(event_log, sort_keys=True)
-
-
-def _json_header(payload: object) -> str:
-    return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
 
 def _server_url(config: dict[str, object]) -> str:

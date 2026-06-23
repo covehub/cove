@@ -2,31 +2,31 @@
   "containers": [
     {
       "image_name": "cove-base",
-      "canonical_ref": "covehub/cove-base@sha256:69baa7cccda1b58954b7b3cbbcf091ac4f34fb8dfeddefbf7a8683fb53ac83bd"
+      "canonical_ref": "covehub/cove-base@sha256:f20ddb9103011e2f7b554c2eda5674c09582a14cc208a2a3c37a8664c73af5d2"
     },
     {
       "image_name": "cove-artifact-provisioner",
-      "canonical_ref": "covehub/cove-artifact-provisioner@sha256:8e06a0a27b2ce1a69359ccfdee5d40538e2acd02ff5c1d1ed1eeb3652e46b5aa"
+      "canonical_ref": "covehub/cove-artifact-provisioner@sha256:a458d2425ec5b6fc298467f78087954646a909e4831922a2a8bc66b1a31ce555"
     },
     {
       "image_name": "cove-precondition-checker",
-      "canonical_ref": "covehub/cove-precondition-checker@sha256:73be6e5a6f230484e1b3438a7b0881eedfbb35b8b71a25f737161764e7f178e8"
+      "canonical_ref": "covehub/cove-precondition-checker@sha256:9f55d36f5a604f2deffde6bdb30cb86762d8aeb866cc97a31f9389a7cec30184"
     },
     {
       "image_name": "cove-dependency-certificate-fetcher",
-      "canonical_ref": "covehub/cove-dependency-certificate-fetcher@sha256:5f2d98144dda782a84fcaa9712220c2d2899d836098d93d7964fba2da9249f43"
+      "canonical_ref": "covehub/cove-dependency-certificate-fetcher@sha256:c1eae87f0607933c0816069d9e56742ac5c8968733a49afa535216cee4df5618"
     },
     {
       "image_name": "cove-service-certificate-writer",
-      "canonical_ref": "covehub/cove-service-certificate-writer@sha256:85b1b9b55268b33244bf1fdc49a78a95cc097db95a97a17fc34c97833d28459f"
+      "canonical_ref": "covehub/cove-service-certificate-writer@sha256:cfd29487dc392e7c59ed02292c6da3e88fcccc7e4738a629bb82c04d0c2de6bb"
     },
     {
       "image_name": "cove-key-manager",
-      "canonical_ref": "covehub/cove-key-manager@sha256:12f3c5dfaeb6314665a09671de29491ea8e5f2be04333ff490f326cf0aee5d84"
+      "canonical_ref": "covehub/cove-key-manager@sha256:eda5f9f6e08852b7f6e57fc4c5eb067f3aa2407daac1bb6e61268b1c8175a2cc"
     },
     {
       "image_name": "cove-node-certificate-writer",
-      "canonical_ref": "covehub/cove-node-certificate-writer@sha256:9139069eb00a7cdf8947fc00e35e28f85c60b153ee434b24ab34e0676b6d6b32"
+      "canonical_ref": "covehub/cove-node-certificate-writer@sha256:ca8a20ef8317c3a270e3cdc5c2207184714ee29dcfd27f92a1e5c11f6e7d8658"
     }
   ]
 }

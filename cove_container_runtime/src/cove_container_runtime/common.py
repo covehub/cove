@@ -284,6 +284,28 @@ def http_put_bytes_resumable(
             timeout=timeout,
         )
 
+    return http_put_bytes_upload_session(
+        url=url,
+        payload=payload,
+        headers=headers,
+        session_create_headers=session_create_headers or headers,
+        session_create_payload=session_create_payload,
+        cafile=cafile,
+        timeout=timeout,
+    )
+
+
+def http_put_bytes_upload_session(
+    *,
+    url: str,
+    payload: bytes,
+    headers: dict[str, str] | None = None,
+    session_create_headers: dict[str, str] | None = None,
+    session_create_payload: dict[str, Any] | None = None,
+    complete_headers: dict[str, str] | None = None,
+    cafile: str | Path | None = None,
+    timeout: float = 60.0,
+) -> bytes:
     create_headers = dict(session_create_headers or headers or {})
     create_headers["Content-Type"] = "application/json"
     create_payload = session_create_payload or {"upload_length": len(payload)}
@@ -327,6 +349,7 @@ def http_put_bytes_resumable(
     complete_request = urllib_request.Request(
         _session_complete_url(url, session_id),
         data=b"",
+        headers=dict(complete_headers or {}),
         method="POST",
     )
     return _http_request_bytes(request=complete_request, cafile=cafile, timeout=timeout)

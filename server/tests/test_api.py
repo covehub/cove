@@ -485,6 +485,51 @@ def test_runtime_artifact_upload_passes_attestation_info_header(tmp_path) -> Non
         assert quote_verifier.attestations[-1].info == attestation_info
 
 
+def test_runtime_artifact_upload_session_accepts_body_attestation(tmp_path) -> None:
+    quote_verifier = _AcceptingQuoteVerifier()
+    app = _app_with_quote_verifier(tmp_path, quote_verifier)
+    with TestClient(app) as client:
+        payload = b"ciphertext-envelope"
+        attestation_info = {
+            "tcb_info": {
+                "app_compose": json.dumps({"docker_compose_file": "services: {}"}),
+            },
+        }
+        headers = _runtime_artifact_headers(
+            workflow_id="attested_confidential_eval_demo",
+            node_id="node_a",
+            artifact_name="model_output",
+            attestation_info=attestation_info,
+        )
+        body_attestation = {
+            "quote": headers["X-TDX-Quote"],
+            "event_log": [],
+            "workflow_id": headers["X-Cove-Workflow-Id"],
+            "artifact_name": headers["X-Cove-Artifact-Name"],
+            "node_id": headers["X-Cove-Node-Id"],
+            "compose_hash": headers["X-Cove-Compose-Hash"],
+            "attestation_format": headers["X-Cove-Attestation-Format"],
+            "report_data": headers["X-Cove-Report-Data"],
+            "info": attestation_info,
+        }
+
+        response = client.post(
+            (
+                f"/v1/runtime/{ALICE_DOMAIN}/attested_confidential_eval_demo/"
+                f"artifacts/model_output/{_sha256_literal(payload)}/upload-session"
+            ),
+            json={
+                "upload_length": len(payload),
+                "attestation": body_attestation,
+            },
+        )
+
+        assert response.status_code == 201
+        assert response.json()["upload_length"] == len(payload)
+        assert quote_verifier.attestations[-1].event_log == "[]"
+        assert quote_verifier.attestations[-1].info == attestation_info
+
+
 def test_runtime_artifact_requires_workflow_and_artifact_headers(tmp_path) -> None:
     with _client(tmp_path) as client:
         payload = b"ciphertext-envelope"
