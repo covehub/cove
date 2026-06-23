@@ -375,6 +375,9 @@ def _run_dynamic_output(
     event_log = attestation_bundle.get("event_log")
     if event_log is not None:
         upload_headers["X-TDX-Event-Log"] = _event_log_header(event_log)
+    info = attestation_bundle.get("info")
+    if isinstance(info, dict):
+        upload_headers["X-Cove-Attestation-Info"] = _json_header(info)
 
     http_put_bytes_resumable(
         url=join_url(_server_url(config), exact_hub_path),
@@ -757,6 +760,10 @@ def _event_log_header(event_log: object) -> str:
     if isinstance(event_log, str):
         return event_log
     return json.dumps(event_log, sort_keys=True)
+
+
+def _json_header(payload: object) -> str:
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
 
 def _server_url(config: dict[str, object]) -> str:

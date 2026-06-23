@@ -303,6 +303,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         x_cove_compose_hash: Annotated[str | None, Header(alias="X-Cove-Compose-Hash")] = None,
         x_cove_attestation_format: Annotated[str | None, Header(alias="X-Cove-Attestation-Format")] = None,
         x_cove_report_data: Annotated[str | None, Header(alias="X-Cove-Report-Data")] = None,
+        x_cove_attestation_info: Annotated[str | None, Header(alias="X-Cove-Attestation-Info")] = None,
         current_services: Services = Depends(_get_services),
     ) -> Response:
         publisher = ensure_owner_domain(publisher, "runtime publisher")
@@ -321,6 +322,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             compose_hash=x_cove_compose_hash,
             attestation_format=x_cove_attestation_format,
             report_data=x_cove_report_data,
+            info=x_cove_attestation_info,
         )
         return _write_typed_object(
             current_services,
@@ -344,6 +346,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         x_cove_compose_hash: Annotated[str | None, Header(alias="X-Cove-Compose-Hash")] = None,
         x_cove_attestation_format: Annotated[str | None, Header(alias="X-Cove-Attestation-Format")] = None,
         x_cove_report_data: Annotated[str | None, Header(alias="X-Cove-Report-Data")] = None,
+        x_cove_attestation_info: Annotated[str | None, Header(alias="X-Cove-Attestation-Info")] = None,
         current_services: Services = Depends(_get_services),
     ) -> JSONResponse:
         publisher = ensure_owner_domain(publisher, "runtime publisher")
@@ -362,6 +365,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             compose_hash=x_cove_compose_hash,
             attestation_format=x_cove_attestation_format,
             report_data=x_cove_report_data,
+            info=x_cove_attestation_info,
         )
         expected_size = _parse_upload_session_request_payload(payload)
         session = _create_upload_session(
@@ -816,6 +820,7 @@ def _verify_runtime_artifact_attestation(
     compose_hash: str | None,
     attestation_format: str | None,
     report_data: str | None,
+    info: str | None,
 ) -> None:
     if (
         quote is None
@@ -841,11 +846,15 @@ def _verify_runtime_artifact_attestation(
             raise ValidationError("runtime artifact name does not match path artifact name")
         normalized_node_id = ensure_identifier(node_id, "node id")
         normalized_compose_hash = ensure_hash_segment(compose_hash, "compose hash")
+        attestation_info = _parse_optional_json_header_object(
+            info,
+            "X-Cove-Attestation-Info",
+        )
         attestation = RuntimeAttestation(
             format=_required_string(attestation_format, "attestation format"),
             quote=quote,
             event_log=event_log,
-            info=None,
+            info=attestation_info,
             node_id=normalized_node_id,
             compose_hash=normalized_compose_hash,
             report_data=_required_string(report_data, "report_data"),
@@ -862,6 +871,18 @@ def _verify_runtime_artifact_attestation(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=str(exc),
         ) from exc
+
+
+def _parse_optional_json_header_object(value: str | None, label: str) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError as exc:
+        raise ValidationError(f"{label} must be valid JSON") from exc
+    if not isinstance(parsed, dict):
+        raise ValidationError(f"{label} must be a JSON object")
+    return parsed
 
 
 def _parse_runtime_certificate_payload(payload: bytes) -> dict[str, object]:

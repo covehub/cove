@@ -459,6 +459,32 @@ def test_runtime_artifact_upload_stores_typed_exact_and_latest_object(tmp_path) 
         assert latest_response.content == payload
 
 
+def test_runtime_artifact_upload_passes_attestation_info_header(tmp_path) -> None:
+    quote_verifier = _AcceptingQuoteVerifier()
+    app = _app_with_quote_verifier(tmp_path, quote_verifier)
+    with TestClient(app) as client:
+        payload = b"ciphertext-envelope"
+        attestation_info = {
+            "tcb_info": {
+                "app_compose": json.dumps({"docker_compose_file": "services: {}"}),
+            },
+        }
+
+        response = client.put(
+            f"/v1/runtime/{ALICE_DOMAIN}/attested_confidential_eval_demo/artifacts/model_output/{_sha256_literal(payload)}",
+            content=payload,
+            headers=_runtime_artifact_headers(
+                workflow_id="attested_confidential_eval_demo",
+                node_id="node_a",
+                artifact_name="model_output",
+                attestation_info=attestation_info,
+            ),
+        )
+
+        assert response.status_code == 201
+        assert quote_verifier.attestations[-1].info == attestation_info
+
+
 def test_runtime_artifact_requires_workflow_and_artifact_headers(tmp_path) -> None:
     with _client(tmp_path) as client:
         payload = b"ciphertext-envelope"
@@ -551,6 +577,12 @@ def _client_for_settings(settings: Settings) -> TestClient:
     app = create_app(settings)
     app.state.services.quote_verifier = _AcceptingQuoteVerifier()
     return TestClient(app)
+
+
+def _app_with_quote_verifier(tmp_path, quote_verifier: object):
+    app = create_app(_settings(tmp_path))
+    app.state.services.quote_verifier = quote_verifier
+    return app
 
 
 def _owner_identity(
@@ -652,6 +684,7 @@ def _runtime_artifact_headers(
     node_id: str,
     artifact_name: str,
     compose_hash: str = "sha256:" + "9" * 64,
+    attestation_info: dict[str, object] | None = None,
 ) -> dict[str, str]:
     report_data = build_runtime_artifact_report_data(
         workflow_id=workflow_id,
@@ -659,8 +692,9 @@ def _runtime_artifact_headers(
         compose_hash=compose_hash,
         artifact_name=artifact_name,
     )
-    return {
+    headers = {
         "X-TDX-Quote": "phala-quote",
+        "X-TDX-Event-Log": "[]",
         "X-Cove-Workflow-Id": workflow_id,
         "X-Cove-Artifact-Name": artifact_name,
         "X-Cove-Node-Id": node_id,
@@ -668,6 +702,13 @@ def _runtime_artifact_headers(
         "X-Cove-Attestation-Format": PHALA_DSTACK_ATTESTATION_FORMAT,
         "X-Cove-Report-Data": report_data.hex(),
     }
+    if attestation_info is not None:
+        headers["X-Cove-Attestation-Info"] = json.dumps(
+            attestation_info,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    return headers
 
 
 def _phala_runtime_certificate(
@@ -717,7 +758,11 @@ def _sha256_literal(payload: bytes) -> str:
 
 
 class _AcceptingQuoteVerifier:
+    def __init__(self) -> None:
+        self.attestations = []
+
     def verify(self, attestation) -> None:
+        self.attestations.append(attestation)
         if attestation.format != PHALA_DSTACK_ATTESTATION_FORMAT:
             raise QuoteVerificationError("phala_dstack attestation format is invalid")
         if attestation.quote != "phala-quote":
