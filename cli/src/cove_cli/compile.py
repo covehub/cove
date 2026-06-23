@@ -500,6 +500,13 @@ def _compile_node(
                 }
                 for artifact_name in node.produced_artifacts
             ],
+            "dependencies": [
+                {
+                    "name": dependency_name,
+                    "path": f"/cove/certificates/{dependency_name}/certificate.json",
+                }
+                for dependency_name in node.dependencies
+            ],
             "attestation": attestation_config,
         },
         depends_on=_node_certificate_writer_dependencies(node),

@@ -8,6 +8,7 @@ version = "0.0.1"
 description = "Command-line interface for validating, compiling, publishing, and provisioning Cove workflows"
 requires-python = ">=3.12"
 dependencies = [
+    "cove-container-runtime",
     "cryptography>=45.0.0,<46.0.0",
     "jsonschema>=4.0.0,<5.0.0",
     "phala-cloud>=0.1.2,<0.2.0",
@@ -34,3 +35,6 @@ cove_cli = ["canonical_container_digests.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.uv.sources]
+"cove-container-runtime" = { path = "../cove_container_runtime", editable = true }

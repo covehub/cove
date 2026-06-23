@@ -785,7 +785,8 @@ def _verify_runtime_certificate_attestation(
         attestation = RuntimeAttestation(
             format=_required_string(attestation_bundle.get("format"), "attestation_bundle.format"),
             quote=bundle_quote,
-            event_log=event_log,
+            event_log=bundle_event_log,
+            info=attestation_bundle.get("info") if isinstance(attestation_bundle.get("info"), dict) else None,
             node_id=normalized_node_id,
             compose_hash=normalized_compose_hash,
             report_data=report_data,
@@ -818,6 +819,7 @@ def _verify_runtime_artifact_attestation(
 ) -> None:
     if (
         quote is None
+        or event_log is None
         or workflow_id is None
         or artifact_name is None
         or node_id is None
@@ -843,6 +845,7 @@ def _verify_runtime_artifact_attestation(
             format=_required_string(attestation_format, "attestation format"),
             quote=quote,
             event_log=event_log,
+            info=None,
             node_id=normalized_node_id,
             compose_hash=normalized_compose_hash,
             report_data=_required_string(report_data, "report_data"),

@@ -135,7 +135,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "cryptography", specifier = ">=45.0.0,<46.0.0" },
-    { name = "dstack-sdk", specifier = ">=0.5.4b1" },
+    { name = "dstack-sdk", specifier = ">=0.5.4,<0.6.0" },
     { name = "jsonschema", specifier = ">=4.0.0,<5.0.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0,<9.0.0" },
 ]
@@ -295,7 +295,7 @@ wheels = [
 
 [[package]]
 name = "dstack-sdk"
-version = "0.5.4b1"
+version = "0.5.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "asyncio" },
@@ -305,9 +305,9 @@ dependencies = [
     { name = "httpx" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ac/11/849994fd7206110126f2941ec602f4f4b1cd15fd7aa8a44a83019c75d8c2/dstack_sdk-0.5.4b1.tar.gz", hash = "sha256:06826e2759315352cb5b912b297a9138cf430c2987a561e5b19d17ee5a15ea0b", size = 32915, upload-time = "2026-05-20T15:25:13.198Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/97/6c/5c8a2ce9bbaaa8ffe4603537372deba8d07ac60b2697dc2e57d33910cae7/dstack_sdk-0.5.4.tar.gz", hash = "sha256:0a5426cf37bcd89f98db37aced09a8a95431943ceaf6ed75eb69baca32902c95", size = 33320, upload-time = "2026-06-02T13:26:02.261Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/13/00/bbf206d61a7ff544c8e900eed2e9332c9e5c5f1637e083a23273b68611d2/dstack_sdk-0.5.4b1-py3-none-any.whl", hash = "sha256:f2c122422cbe526f5e2de86b03caa8546997d26dc4609c834dc96d1030e85bb4", size = 19827, upload-time = "2026-05-20T15:25:11.463Z" },
+    { url = "https://files.pythonhosted.org/packages/27/98/2b62a10e0e27a87f6fd6faf26e40e6c9e4a2114632f18ad215aacbd5404e/dstack_sdk-0.5.4-py3-none-any.whl", hash = "sha256:3c64d021408cc95def04332caab4593efb9d91fe87553d1f9d31c7c6e0fee07b", size = 20013, upload-time = "2026-06-02T13:26:01.172Z" },
 ]
 
 [[package]]
