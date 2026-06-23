@@ -17,8 +17,10 @@ Pinned public bases:
 - Inspect AI at `953f813c039d7b435a710ba7931d755424c8fc83`.
 - HarmBench at `8e1604d1171fe8a48d8febecd22f600e462bdcdd`.
 - Audit model default `Qwen/Qwen3.5-9B`.
-  Audit nodes must load Qwen and produce a parsed LLM decision; there is no
-  heuristic success fallback.
+  The public Hugging Face path is a trust assumption covered by the measured
+  audit compose/container setup, not a separate certificate-level model claim.
+  Audit nodes must load the model and produce a parsed LLM decision; there is
+  no heuristic success fallback.
 
 The workflow DAG is:
 
@@ -38,7 +40,8 @@ code.
   placeholders.
 - `workflow/nodes/*.compose.yaml` - node compose files.
 - `workflow/schemas/*.json` - custom certificate result schemas.
-- `client/` - local browser UI for chat plus certificate-chain verification.
+- `client/` - local browser UI backed by a native Node verifier for workflow,
+  certificate-chain, RA-TLS, and response-receipt verification.
 - `containers/` - workload container definitions for the five-node workflow.
 - `containers/common/` - helper code copied into workload images.
 - `scripts/prepare_demo_inputs.py` - prepares Alice and Bob private artifacts.
@@ -111,8 +114,9 @@ CVMs at once.
   OpenAI-compatible vLLM `/v1` endpoint, uses `max_connections=1`, and writes
   aggregate metrics only.
 - The audit nodes load `Qwen/Qwen3.5-9B` and attest `llm_used: true` only after
-  Qwen generates a strict JSON audit decision. Downstream preconditions require
-  both `llm_used: true` and `pass: true`.
+  the model generates a strict JSON audit decision. Downstream preconditions
+  require both `llm_used: true` and `pass: true`; the public model path itself
+  is not emitted as a certificate result claim.
 - The serving-code audit intentionally allows the private Qwen2-derived model to
   be renamed and registered as `CoveDemoForConditionalGeneration`; it checks the
   serving patch for vulnerabilities such as unsafe native/FFI behavior, hidden

@@ -176,6 +176,7 @@ class ProvisioningRequestHandler(BaseHTTPRequestHandler):
             _verify_key_release_attestation(
                 attestation,
                 mode=self.server.quote_verifier_mode,
+                expected_compose_hash=compose_hash,
                 expected_report_data=build_key_release_report_data(
                     workflow_publisher_domain=workflow_publisher_domain,
                     workflow_id=workflow_id,
@@ -442,6 +443,7 @@ def _verify_key_release_attestation(
     attestation: dict[str, object],
     *,
     mode: str,
+    expected_compose_hash: str,
     expected_report_data: bytes,
 ) -> None:
     if mode != "phala_dstack":
@@ -450,6 +452,7 @@ def _verify_key_release_attestation(
         verify_attestation_bundle(
             attestation,
             expected_report_data=expected_report_data,
+            expected_compose_hash=expected_compose_hash,
         )
     except RuntimeErrorBase as exc:
         raise QuoteVerificationError(str(exc)) from exc

@@ -12,7 +12,6 @@ const NODES = [
   "model_benchmark",
   "model_deployment",
 ];
-const AUDIT_MODEL_ID = "Qwen/Qwen3.5-9B";
 const X509_COMMON_NAME_MAX_BYTES = 64;
 const FNV1A64_OFFSET = 0xcbf29ce484222325n;
 const FNV1A64_PRIME = 0x100000001b3n;
@@ -46,6 +45,8 @@ const state = {
   tls: null,
   health: null,
   models: null,
+  verification: null,
+  verificationId: null,
   lastPayload: null,
 };
 
@@ -233,16 +234,8 @@ function buildVerificationChecks() {
   });
   add("Phala dstack attestation bundles present", allAttested, "format and generated node compose hashes are present");
 
-  add(
-    "Serving patch audit used Qwen",
-    auditServing.llm_used === true && auditServing.model_id === AUDIT_MODEL_ID,
-    auditServing.model_id || "model missing",
-  );
-  add(
-    "Eval-code audit used Qwen",
-    auditEval.llm_used === true && auditEval.model_id === AUDIT_MODEL_ID,
-    auditEval.model_id || "model missing",
-  );
+  add("Serving patch audit used public audit model", auditServing.llm_used === true, "audit model path is a compose-measured trust assumption");
+  add("Eval-code audit used public audit model", auditEval.llm_used === true, "audit model path is a compose-measured trust assumption");
   add("Serving patch audit passed", auditServing.pass === true, shortHash(auditServing.audited_sha256));
   add("Eval-code audit passed", auditEval.pass === true, shortHash(auditEval.audited_sha256));
   add("Compile node passed", compile.pass === true, shortHash(compile.compiled_wheel_sha256));
@@ -347,17 +340,20 @@ function renderVerification() {
     ["Deployment wheel", deploymentInputs.compiled_serving_wheel?.plaintext_hash],
   ]);
 
-  const checks = buildVerificationChecks();
+  const checks = state.verification?.checks || buildVerificationChecks();
   renderChecks(checks);
   const ok = checks.length > 0 && checks.every((check) => check.pass);
   setOverallStatus(ok, ok ? "verified" : "blocked");
   elements.payloadOutput.textContent = JSON.stringify(
     {
       certificates: state.certificates,
-      certificateErrors: state.certificateErrors,
+      verification_id: state.verificationId,
       tls: state.tls,
       health: state.health,
       models: state.models,
+      manifest_hash: state.verification?.manifest_hash,
+      expected_compose_hashes: state.verification?.expected_compose_hashes,
+      dependency_edges: state.verification?.dependency_edges,
       checks,
     },
     null,
@@ -371,23 +367,18 @@ async function verifyAttestation() {
     const params = new URLSearchParams({
       publisher: elements.publisher.value.trim(),
       workflow: elements.workflow.value.trim(),
-    });
-    const endpointParams = new URLSearchParams({
       endpoint: elements.endpoint.value.trim(),
+      model: elements.model.value.trim(),
     });
 
-    const [certificatePayload, tlsPayload, healthPayload, modelsPayload] = await Promise.all([
-      apiJson(`/api/certificates?${params}`),
-      apiJson(`/api/tls?${endpointParams}`),
-      apiJson(`/api/health?${endpointParams}`),
-      apiJson(`/api/models?${endpointParams}`),
-    ]);
-
-    state.certificates = certificatePayload.certificates || {};
-    state.certificateErrors = certificatePayload.errors || {};
-    state.tls = tlsPayload;
-    state.health = healthPayload;
-    state.models = modelsPayload;
+    const verificationPayload = await apiJson(`/api/verify?${params}`);
+    state.verification = verificationPayload;
+    state.verificationId = verificationPayload.verification_id;
+    state.certificates = verificationPayload.certificates || {};
+    state.certificateErrors = {};
+    state.tls = verificationPayload.tls;
+    state.health = verificationPayload.health;
+    state.models = verificationPayload.models;
     renderVerification();
   } catch (error) {
     state.lastPayload = error.payload || { error: error.message };
@@ -427,8 +418,7 @@ async function sendPrompt(event) {
     const payload = await apiJson("/api/chat", {
       method: "POST",
       body: JSON.stringify({
-        endpoint: elements.endpoint.value.trim(),
-        model: elements.model.value.trim(),
+        verification_id: state.verificationId,
         prompt,
         max_tokens: Number(elements.maxTokens.value || 160),
         temperature: Number(elements.temperature.value || 0),
@@ -470,7 +460,7 @@ function init() {
     ["Bob eval data", ""],
     ["Compiled wheel", ""],
   ]);
-  renderChecks([{ label: "No certificate chain loaded", pass: false, detail: "pending" }]);
+  renderChecks([{ label: "No server verification loaded", pass: false, detail: "pending" }]);
   elements.verifyButton.addEventListener("click", verifyAttestation);
   elements.chatForm.addEventListener("submit", sendPrompt);
 }

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 import types
@@ -32,6 +33,65 @@ from cove_container_runtime.test_support import (
     build_mock_certificate,
     verify_mock_certificate,
 )
+
+
+_COMPOSE_HASH = "sha256:" + ("b" * 64)
+_RTMR_BYTES = 48
+_DSTACK_EVENT_TYPE = 134217729
+
+
+def _compose_event_log(compose_hash: str = _COMPOSE_HASH) -> tuple[list[dict[str, object]], str]:
+    payload = bytes.fromhex(compose_hash.removeprefix("sha256:"))
+    event_digest = _event_digest("compose-hash", payload)
+    rtmr3 = _rtmr3_for_event_digests([event_digest])
+    return [
+        {
+            "imr": 3,
+            "event_type": _DSTACK_EVENT_TYPE,
+            "event": "compose-hash",
+            "event_payload": payload.hex(),
+            "digest": event_digest.hex(),
+        }
+    ], rtmr3.hex()
+
+
+def _event_digest(event_name: str, payload: bytes) -> bytes:
+    hasher = hashlib.sha384()
+    hasher.update(_DSTACK_EVENT_TYPE.to_bytes(4, "little"))
+    hasher.update(b":")
+    hasher.update(event_name.encode("utf-8"))
+    hasher.update(b":")
+    hasher.update(payload)
+    return hasher.digest()
+
+
+def _rtmr3_for_event_digests(event_digests: list[bytes]) -> bytes:
+    rtmr = b"\0" * _RTMR_BYTES
+    for event_digest in event_digests:
+        rtmr = hashlib.sha384(rtmr + event_digest).digest()
+    return rtmr
+
+
+def _verified_quote_response(report_data_hex: str, compose_hash: str = _COMPOSE_HASH) -> dict[str, object]:
+    _event_log, rtmr3 = _compose_event_log(compose_hash)
+    report_data = bytes.fromhex(report_data_hex)
+    if len(report_data) < 64:
+        report_data_hex = report_data.ljust(64, b"\0").hex()
+    return {
+        "success": True,
+        "quote": {
+            "verified": True,
+            "header": {"tee_type": "tdx"},
+            "body": {
+                "reportdata": report_data_hex,
+                "mrtd": "00" * _RTMR_BYTES,
+                "rtmr0": "00" * _RTMR_BYTES,
+                "rtmr1": "00" * _RTMR_BYTES,
+                "rtmr2": "00" * _RTMR_BYTES,
+                "rtmr3": rtmr3,
+            },
+        },
+    }
 
 
 def test_build_mock_certificate_binds_quote_to_certificate_body_hash() -> None:
@@ -69,6 +129,154 @@ def test_verify_mock_certificate_rejects_mismatched_quote() -> None:
         pass
     else:  # pragma: no cover - defensive
         raise AssertionError("expected mock certificate verification failure")
+
+
+def test_verify_mock_certificate_accepts_dependency_closure() -> None:
+    upstream = build_mock_certificate(
+        workflow_id="hello_world",
+        node_name="upstream",
+        generated_node_compose_hash="sha256:" + ("1" * 64),
+        inputs={},
+        ephemeral_keypairs={},
+        results={"worker": {"pass": True}},
+    )
+    downstream = build_mock_certificate(
+        workflow_id="hello_world",
+        node_name="downstream",
+        generated_node_compose_hash="sha256:" + ("2" * 64),
+        inputs={},
+        ephemeral_keypairs={},
+        results={"worker": {"pass": True}},
+        dependencies={"upstream": upstream},
+    )
+
+    verified = verify_mock_certificate(
+        downstream,
+        expected_workflow_id="hello_world",
+        expected_node_name="downstream",
+        expected_generated_node_compose_hash="sha256:" + ("2" * 64),
+        expected_dependency_compose_hashes={
+            "upstream": "sha256:" + ("1" * 64),
+            "downstream": "sha256:" + ("2" * 64),
+        },
+        expected_dependency_edges={
+            "upstream": [],
+            "downstream": ["upstream"],
+        },
+    )
+
+    assert verified["certificate_body"]["dependencies"]["upstream"] == upstream
+
+
+def test_verify_mock_certificate_rejects_missing_dependency_closure() -> None:
+    downstream = build_mock_certificate(
+        workflow_id="hello_world",
+        node_name="downstream",
+        generated_node_compose_hash="sha256:" + ("2" * 64),
+        inputs={},
+        ephemeral_keypairs={},
+        results={"worker": {"pass": True}},
+    )
+
+    with pytest.raises(RuntimeErrorBase, match="missing dependency certificates"):
+        verify_mock_certificate(
+            downstream,
+            expected_dependency_compose_hashes={
+                "upstream": "sha256:" + ("1" * 64),
+                "downstream": "sha256:" + ("2" * 64),
+            },
+            expected_dependency_edges={"downstream": ["upstream"]},
+        )
+
+
+def test_verify_mock_certificate_rejects_unexpected_dependency_closure() -> None:
+    upstream = build_mock_certificate(
+        workflow_id="hello_world",
+        node_name="upstream",
+        generated_node_compose_hash="sha256:" + ("1" * 64),
+        inputs={},
+        ephemeral_keypairs={},
+        results={"worker": {"pass": True}},
+    )
+    downstream = build_mock_certificate(
+        workflow_id="hello_world",
+        node_name="downstream",
+        generated_node_compose_hash="sha256:" + ("2" * 64),
+        inputs={},
+        ephemeral_keypairs={},
+        results={"worker": {"pass": True}},
+        dependencies={"upstream": upstream},
+    )
+
+    with pytest.raises(RuntimeErrorBase, match="unexpected dependency certificates"):
+        verify_mock_certificate(
+            downstream,
+            expected_dependency_compose_hashes={
+                "upstream": "sha256:" + ("1" * 64),
+                "downstream": "sha256:" + ("2" * 64),
+            },
+            expected_dependency_edges={"downstream": []},
+        )
+
+
+def test_verify_mock_certificate_rejects_stale_dependency_compose() -> None:
+    upstream = build_mock_certificate(
+        workflow_id="hello_world",
+        node_name="upstream",
+        generated_node_compose_hash="sha256:" + ("9" * 64),
+        inputs={},
+        ephemeral_keypairs={},
+        results={"worker": {"pass": True}},
+    )
+    downstream = build_mock_certificate(
+        workflow_id="hello_world",
+        node_name="downstream",
+        generated_node_compose_hash="sha256:" + ("2" * 64),
+        inputs={},
+        ephemeral_keypairs={},
+        results={"worker": {"pass": True}},
+        dependencies={"upstream": upstream},
+    )
+
+    with pytest.raises(RuntimeErrorBase, match="stale or mismatched compose hash"):
+        verify_mock_certificate(
+            downstream,
+            expected_dependency_compose_hashes={
+                "upstream": "sha256:" + ("1" * 64),
+                "downstream": "sha256:" + ("2" * 64),
+            },
+            expected_dependency_edges={"downstream": ["upstream"], "upstream": []},
+        )
+
+
+def test_verify_mock_certificate_rejects_mismatched_dependency_identity() -> None:
+    wrong_upstream = build_mock_certificate(
+        workflow_id="hello_world",
+        node_name="wrong_upstream",
+        generated_node_compose_hash="sha256:" + ("1" * 64),
+        inputs={},
+        ephemeral_keypairs={},
+        results={"worker": {"pass": True}},
+    )
+    downstream = build_mock_certificate(
+        workflow_id="hello_world",
+        node_name="downstream",
+        generated_node_compose_hash="sha256:" + ("2" * 64),
+        inputs={},
+        ephemeral_keypairs={},
+        results={"worker": {"pass": True}},
+        dependencies={"upstream": wrong_upstream},
+    )
+
+    with pytest.raises(RuntimeErrorBase, match="does not match expected node"):
+        verify_mock_certificate(
+            downstream,
+            expected_dependency_compose_hashes={
+                "upstream": "sha256:" + ("1" * 64),
+                "downstream": "sha256:" + ("2" * 64),
+            },
+            expected_dependency_edges={"downstream": ["upstream"], "upstream": []},
+        )
 
 
 def test_generate_ed25519_keypair_material_returns_hashes() -> None:
@@ -317,22 +525,18 @@ def test_verify_attestation_bundle_accepts_verified_phala_dstack_quote(
     )
     monkeypatch.setattr(
         "cove_container_runtime.attestation.http_post_json",
-        lambda **_kwargs: {
-            "success": True,
-            "quote": {
-                "verified": True,
-                "body": {"reportdata": expected_report_data.hex()},
-            },
-        },
+        lambda **_kwargs: _verified_quote_response(expected_report_data.hex()),
     )
 
     verify_attestation_bundle(
         {
             "format": "phala_dstack_v1",
             "quote": "phala-quote",
+            "event_log": _compose_event_log()[0],
             "report_data": expected_report_data.hex(),
         },
         expected_report_data=expected_report_data,
+        expected_compose_hash=_COMPOSE_HASH,
     )
 
 
@@ -343,22 +547,18 @@ def test_verify_attestation_bundle_accepts_tdx_zero_padded_report_data(
     padded_report_data = expected_report_data.ljust(64, b"\0").hex()
     monkeypatch.setattr(
         "cove_container_runtime.attestation.http_post_json",
-        lambda **_kwargs: {
-            "success": True,
-            "quote": {
-                "verified": True,
-                "body": {"reportdata": padded_report_data},
-            },
-        },
+        lambda **_kwargs: _verified_quote_response(padded_report_data),
     )
 
     verify_attestation_bundle(
         {
             "format": "phala_dstack_v1",
             "quote": "phala-quote",
+            "event_log": _compose_event_log()[0],
             "report_data": padded_report_data,
         },
         expected_report_data=expected_report_data,
+        expected_compose_hash=_COMPOSE_HASH,
     )
 
 
@@ -373,9 +573,11 @@ def test_verify_attestation_bundle_rejects_network_failure(monkeypatch) -> None:
             {
                 "format": "phala_dstack_v1",
                 "quote": "phala-quote",
-                "report_data": "00",
+                "event_log": _compose_event_log()[0],
+                "report_data": (b"\0" * 64).hex(),
             },
-            expected_report_data=b"\x00",
+            expected_report_data=b"\0" * 64,
+            expected_compose_hash=_COMPOSE_HASH,
         )
 
 
@@ -389,6 +591,7 @@ def test_verify_attestation_bundle_rejects_malformed_verifier_response(
             "success": True,
             "quote": {
                 "verified": True,
+                "header": {"tee_type": "tdx"},
                 "body": {},
             },
         },
@@ -399,9 +602,11 @@ def test_verify_attestation_bundle_rejects_malformed_verifier_response(
             {
                 "format": "phala_dstack_v1",
                 "quote": "phala-quote",
+                "event_log": _compose_event_log()[0],
                 "report_data": expected_report_data.hex(),
             },
             expected_report_data=expected_report_data,
+            expected_compose_hash=_COMPOSE_HASH,
         )
 
 
@@ -423,9 +628,11 @@ def test_verify_attestation_bundle_rejects_unverified_quote(monkeypatch) -> None
             {
                 "format": "phala_dstack_v1",
                 "quote": "phala-quote",
+                "event_log": _compose_event_log()[0],
                 "report_data": expected_report_data.hex(),
             },
             expected_report_data=expected_report_data,
+            expected_compose_hash=_COMPOSE_HASH,
         )
 
 
@@ -436,8 +643,9 @@ def test_verify_attestation_bundle_rejects_report_data_mismatch(monkeypatch) -> 
         lambda **_kwargs: {
             "success": True,
             "quote": {
+                "header": {"tee_type": "tdx"},
                 "verified": True,
-                "body": {"reportdata": ("ff" * len(expected_report_data))},
+                "body": {"reportdata": ("ff" * 64)},
             },
         },
     )
@@ -447,9 +655,118 @@ def test_verify_attestation_bundle_rejects_report_data_mismatch(monkeypatch) -> 
             {
                 "format": "phala_dstack_v1",
                 "quote": "phala-quote",
+                "event_log": _compose_event_log()[0],
                 "report_data": expected_report_data.hex(),
             },
             expected_report_data=expected_report_data,
+            expected_compose_hash=_COMPOSE_HASH,
+        )
+
+
+def test_verify_attestation_bundle_rejects_non_tdx_quote(monkeypatch) -> None:
+    expected_report_data = b"verified-report-data"
+    padded_report_data = expected_report_data.ljust(64, b"\0").hex()
+    monkeypatch.setattr(
+        "cove_container_runtime.attestation.http_post_json",
+        lambda **_kwargs: {
+            **_verified_quote_response(padded_report_data),
+            "quote": {
+                **_verified_quote_response(padded_report_data)["quote"],
+                "header": {"tee_type": "sgx"},
+            },
+        },
+    )
+
+    with pytest.raises(RuntimeErrorBase, match="not a TDX quote"):
+        verify_attestation_bundle(
+            {
+                "format": "phala_dstack_v1",
+                "quote": "phala-quote",
+                "event_log": _compose_event_log()[0],
+                "report_data": expected_report_data.hex(),
+            },
+            expected_report_data=expected_report_data,
+            expected_compose_hash=_COMPOSE_HASH,
+        )
+
+
+def test_verify_attestation_bundle_rejects_missing_rtmr_fields(monkeypatch) -> None:
+    expected_report_data = b"verified-report-data"
+    padded_report_data = expected_report_data.ljust(64, b"\0").hex()
+    _event_log, rtmr3 = _compose_event_log()
+    monkeypatch.setattr(
+        "cove_container_runtime.attestation.http_post_json",
+        lambda **_kwargs: {
+            "success": True,
+            "quote": {
+                "verified": True,
+                "header": {"tee_type": "tdx"},
+                "body": {
+                    "reportdata": padded_report_data,
+                    "rtmr3": rtmr3,
+                },
+            },
+        },
+    )
+
+    with pytest.raises(RuntimeErrorBase, match="quote.body.mrtd"):
+        verify_attestation_bundle(
+            {
+                "format": "phala_dstack_v1",
+                "quote": "phala-quote",
+                "event_log": _compose_event_log()[0],
+                "report_data": expected_report_data.hex(),
+            },
+            expected_report_data=expected_report_data,
+            expected_compose_hash=_COMPOSE_HASH,
+        )
+
+
+def test_verify_attestation_bundle_rejects_duplicate_compose_events(monkeypatch) -> None:
+    expected_report_data = b"verified-report-data"
+    padded_report_data = expected_report_data.ljust(64, b"\0").hex()
+    event_log, _rtmr3 = _compose_event_log()
+    event_digest = bytes.fromhex(str(event_log[0]["digest"]))
+    duplicate_event_log = [event_log[0], dict(event_log[0])]
+    duplicate_rtmr3 = _rtmr3_for_event_digests([event_digest, event_digest]).hex()
+    quote_response = _verified_quote_response(padded_report_data)
+    quote_response["quote"]["body"]["rtmr3"] = duplicate_rtmr3
+    monkeypatch.setattr(
+        "cove_container_runtime.attestation.http_post_json",
+        lambda **_kwargs: quote_response,
+    )
+
+    with pytest.raises(RuntimeErrorBase, match="exactly one RTMR3 compose-hash event"):
+        verify_attestation_bundle(
+            {
+                "format": "phala_dstack_v1",
+                "quote": "phala-quote",
+                "event_log": duplicate_event_log,
+                "report_data": expected_report_data.hex(),
+            },
+            expected_report_data=expected_report_data,
+            expected_compose_hash=_COMPOSE_HASH,
+        )
+
+
+def test_verify_attestation_bundle_rejects_compose_mismatch(monkeypatch) -> None:
+    expected_report_data = b"verified-report-data"
+    padded_report_data = expected_report_data.ljust(64, b"\0").hex()
+    monkeypatch.setattr(
+        "cove_container_runtime.attestation.http_post_json",
+        lambda **_kwargs: _verified_quote_response(padded_report_data),
+    )
+
+    with pytest.raises(RuntimeErrorBase, match="compose-hash event does not match expected compose hash"):
+        verify_attestation_bundle(
+            {
+                "format": "phala_dstack_v1",
+                "quote": "phala-quote",
+                "event_log": _compose_event_log()[0],
+                "report_data": expected_report_data.hex(),
+            },
+            expected_report_data=expected_report_data,
+            expected_compose_hash="sha256:" + ("c" * 64),
         )
 
 

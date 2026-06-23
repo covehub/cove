@@ -174,7 +174,6 @@ def main() -> int:
         "audit_kind": audit_kind,
         "audited_sha256": audited_sha256,
         "llm_used": llm_used,
-        "model_id": model_id,
         "pass": passed,
         "reasoning": reasoning,
     }

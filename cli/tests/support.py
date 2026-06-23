@@ -97,6 +97,53 @@ class MockCovehubServer:
                     )
                     return
 
+                if (
+                    len(parts) == 8
+                    and parts[0] == "v1"
+                    and parts[1] == "runtime"
+                    and parts[4] == "artifacts"
+                    and parts[7] == "upload-session"
+                ):
+                    try:
+                        session_payload = json.loads(payload.decode("utf-8")) if payload else {}
+                    except json.JSONDecodeError:
+                        _write_json(self, HTTPStatus.BAD_REQUEST, {"detail": "upload session payload must be valid JSON"})
+                        return
+                    if not isinstance(session_payload, dict):
+                        _write_json(self, HTTPStatus.BAD_REQUEST, {"detail": "upload session payload must be a JSON object"})
+                        return
+                    upload_length = session_payload.get("upload_length")
+                    if upload_length is not None and (not isinstance(upload_length, int) or upload_length < 0):
+                        _write_json(self, HTTPStatus.BAD_REQUEST, {"detail": "upload_length must be a non-negative integer"})
+                        return
+                    session_id = secrets.token_hex(16)
+                    digest = parts[6]
+                    relative_path = "/".join(parts[:7])
+                    latest_path = "/".join([*parts[:6], "latest"])
+                    state.upload_sessions[session_id] = {
+                        "kind": "runtime_artifacts",
+                        "relative_path": relative_path,
+                        "latest_path": latest_path,
+                        "digest": digest,
+                        "upload_length": upload_length,
+                        "offset": 0,
+                        "payload": bytearray(),
+                        "completed": False,
+                    }
+                    _write_json(
+                        self,
+                        HTTPStatus.CREATED,
+                        {
+                            "session_id": session_id,
+                            "path": relative_path,
+                            "digest": digest,
+                            "offset": 0,
+                            "upload_length": upload_length,
+                            "completed": False,
+                        },
+                    )
+                    return
+
                 if len(parts) == 5 and parts[0] == "v1" and parts[1] == "uploads" and parts[2] == "sessions" and parts[4] == "complete":
                     session = state.upload_sessions.get(parts[3])
                     if session is None:
@@ -117,6 +164,10 @@ class MockCovehubServer:
                     if session["kind"] == "artifacts":
                         created = session["relative_path"] not in state.artifacts
                         state.artifacts[session["relative_path"]] = payload_bytes
+                    elif session["kind"] == "runtime_artifacts":
+                        created = session["relative_path"] not in state.runtime_artifacts
+                        state.runtime_artifacts[session["relative_path"]] = payload_bytes
+                        state.runtime_artifacts[session["latest_path"]] = payload_bytes
                     else:
                         created = session["relative_path"] not in state.workflow_bundles
                         state.workflow_bundles[session["relative_path"]] = payload_bytes

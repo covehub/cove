@@ -4,7 +4,6 @@
     "audit_kind",
     "audited_sha256",
     "llm_used",
-    "model_id",
     "pass",
     "reasoning"
   ],
@@ -18,9 +17,6 @@
     },
     "llm_used": {
       "type": "boolean"
-    },
-    "model_id": {
-      "type": "string"
     },
     "pass": {
       "type": "boolean"

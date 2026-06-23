@@ -34,11 +34,11 @@ from cove_cli.provisioning_identity import build_owner_identity_document
 from .support import MockCovehubServer, build_test_owner_identity, load_container_main_module, write_test_certificate
 
 
-ALICE_DOMAIN = "alice.cove-demo-parties.covehub.io"
+ALICE_DOMAIN = "demo-alice.covehub.io"
 ALICE_OWNER_URL = f"https://{ALICE_DOMAIN}"
-BOB_DOMAIN = "bob.cove-demo-parties.covehub.io"
+BOB_DOMAIN = "demo-bob.covehub.io"
 BOB_OWNER_URL = f"https://{BOB_DOMAIN}"
-CAROL_DOMAIN = "carol.cove-demo-parties.covehub.io"
+CAROL_DOMAIN = "demo-carol.covehub.io"
 CAROL_OWNER_URL = f"https://{CAROL_DOMAIN}"
 PUBLISHER_DOMAIN = CAROL_DOMAIN
 PUBLISHER_OWNER_URL = CAROL_OWNER_URL
@@ -71,7 +71,13 @@ def _stub_phala_attestation(monkeypatch):
             "report_data": report_data.hex(),
         }
 
-    def fake_verify_attestation_bundle(attestation, *, expected_report_data: bytes):
+    def fake_verify_attestation_bundle(
+        attestation,
+        *,
+        expected_report_data: bytes,
+        expected_compose_hash: str,
+        expected_deployed_compose_text: str | None = None,
+    ):
         if attestation.get("report_data") != expected_report_data.hex():
             raise RuntimeErrorBase("attestation_bundle.report_data does not match expected report data")
         return attestation
@@ -361,7 +367,6 @@ def test_push_and_pull_preserve_generated_digest_pinned_bundle(tmp_path, monkeyp
     assert bundle.owners == {
         "alice": ALICE_OWNER_URL,
         "bob": BOB_OWNER_URL,
-        "carol": CAROL_OWNER_URL,
     }
     assert manifest["owners"] == bundle.owners
     assert final_compose_path.is_file()
@@ -894,7 +899,7 @@ def test_allow_gated_key_release_rejects_mismatched_attestation_identity(
     )
     monkeypatch.setattr(
         "cove_cli.provision_server.verify_attestation_bundle",
-        lambda attestation, *, expected_report_data: (
+        lambda attestation, *, expected_report_data, expected_compose_hash: (
             attestation
             if attestation.get("report_data") == expected_report_data.hex()
             else (_raise_runtime_error("attestation_bundle.report_data does not match expected report data"))

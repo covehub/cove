@@ -37,6 +37,7 @@ def run(config: dict[str, object], *, compose_hash: str | None = None) -> None:
     keypairs = load_named_json_entries(config.get("ephemeral_keypairs"), "ephemeral_keypairs")
     results = load_named_json_entries(config.get("results"), "results")
     outputs = load_named_json_entries(config.get("outputs"), "outputs")
+    dependencies = load_named_json_entries(config.get("dependencies"), "dependencies")
 
     certificate = build_node_certificate(
         workflow_id=workflow_id,
@@ -46,6 +47,7 @@ def run(config: dict[str, object], *, compose_hash: str | None = None) -> None:
         ephemeral_keypairs=keypairs,
         results=results,
         outputs=outputs,
+        dependencies=dependencies,
         attestation_config=config.get("attestation")
         if isinstance(config.get("attestation"), dict)
         else None,

@@ -87,7 +87,13 @@ def _stub_attestation_runtime(monkeypatch):
             "report_data": report_data.hex(),
         }
 
-    def fake_verify_attestation_bundle(attestation_bundle, *, expected_report_data: bytes):
+    def fake_verify_attestation_bundle(
+        attestation_bundle,
+        *,
+        expected_report_data: bytes,
+        expected_compose_hash: str,
+        expected_deployed_compose_text: str | None = None,
+    ):
         attestation_format = attestation_bundle.get("format")
         if attestation_format == "phala_dstack_v1":
             report_data = attestation_bundle.get("report_data")
@@ -192,7 +198,6 @@ def test_compile_uses_default_workflow_path(tmp_path, monkeypatch, capsys) -> No
     assert normalized["owners"] == {
         "alice": ALICE_OWNER_URL,
         "bob": BOB_OWNER_URL,
-        "carol": CAROL_OWNER_URL,
     }
     assert normalized["artifacts"]["alice_secret_word"]["owner"] == "alice"
     expected_ciphertext_hash = sha256_literal(

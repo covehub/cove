@@ -439,12 +439,20 @@ cove hub inspect \
 ```
 
 Get the final service endpoint from the final CVM status output and use the
-TLS-passthrough form by appending `s` to the `-18443` port segment:
+TLS-passthrough form by appending `s` to the `-18443` port segment. This raw
+endpoint is useful for locating the service, but direct `curl -k` calls do not
+verify the Cove certificate body hash, quote report data, RTMR3 compose
+binding, dependency certificates, or live RA-TLS certificate pin:
 
 ```bash
 FINAL_URL="https://<final-app-id>-18443.dstack-pha-prod5.phala.network"
 FINAL_URL="${FINAL_URL/-18443./-18443s.}"
+```
 
-curl -kfsS "${FINAL_URL}/health"
-curl -kfsS "${FINAL_URL}/message"
+Exercise the final service through the verified client proxy started by the
+scripted stack:
+
+```bash
+curl -fsS "http://127.0.0.1:${CLIENT_PROXY_LOCAL_PORT:-9701}/health"
+curl -fsS "http://127.0.0.1:${CLIENT_PROXY_LOCAL_PORT:-9701}/message"
 ```

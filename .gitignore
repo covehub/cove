@@ -42,6 +42,9 @@ server/data/
 server/covehub.sqlite3
 server/*.sqlite3
 server/*.sqlite3-*
+materialized_workflows/
+client-proxy-workflows/
+demos/**/.run/
 demos/**/build/
 
 # Logs and temporary files

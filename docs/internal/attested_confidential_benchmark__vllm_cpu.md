@@ -45,15 +45,18 @@ Pinned public bases:
 - vLLM `v0.17.0` at `b31e9326a7d9394aab8c767f8ebe225c65594b60`
 - Inspect AI at `953f813c039d7b435a710ba7931d755424c8fc83`
 - HarmBench at `8e1604d1171fe8a48d8febecd22f600e462bdcdd`
-- audit model default `Qwen/Qwen3.5-9B`
+- audit model default `Qwen/Qwen3.5-9B`, trusted as a public Hugging Face path
+  assumption
 
 The private model archive uses `Qwen/Qwen2.5-0.5B-Instruct` for this CPU demo.
 The originally proposed Qwen3.5 hybrid path requires kernels that are not
 available in the CPU vLLM wheel on Phala.
 The audit nodes still load `Qwen/Qwen3.5-9B` directly for code-review decisions.
-An audit certificate is only acceptable downstream when Qwen generated a parsed
-decision with `llm_used: true` and `pass: true`; heuristic-only audit results
-must not satisfy the workflow.
+The audit certificate does not independently certify the `Qwen/Qwen3.5-9B`
+model id. It certifies the measured public audit container/compose, and the
+public Hugging Face model path remains a stated trust assumption. Downstream
+preconditions require `llm_used: true` and `pass: true`; heuristic-only audit
+results must not satisfy the workflow.
 
 Audit scope is intentionally narrow. `audit_serving_code` allows Alice's private
 model to be renamed and registered as `CoveDemoForConditionalGeneration`; that
@@ -328,7 +331,7 @@ Expected high-level outcomes:
 - deployment inputs for `alice_private_model` and `compiled_serving_wheel`
   equal the benchmark-attested model and wheel hashes
 
-## 9. Verify The RA-TLS Serving Endpoint
+## 9. Resolve The RA-TLS Serving Endpoint
 
 Get the deployment endpoint from Phala:
 
@@ -357,16 +360,13 @@ use:
 https://<app-id>-18443s.dstack-pha-prod5.phala.network
 ```
 
-Then verify:
+Use this endpoint with the client verifier in the next step. Direct `curl -k`
+checks are only useful for debugging reachability because they do not verify the
+Cove certificate body hash, quote report data, RTMR3 compose binding,
+dependency-certificate closure, live TLS DER pin, or response receipt.
 
 ```bash
 SERVE_URL="https://<app-id>-18443s.dstack-pha-prod5.phala.network"
-
-curl -kfsS "${SERVE_URL}/health"
-curl -kfsS "${SERVE_URL}/v1/models"
-curl -kfsS "${SERVE_URL}/v1/chat/completions" \
-  -H 'Content-Type: application/json' \
-  -d '{"model":"CoveDemoModel","messages":[{"role":"user","content":"Reply with exactly: ok"}],"max_tokens":4,"temperature":0}'
 ```
 
 The TLS certificate common name is shortened when the workflow-derived name would exceed
@@ -395,12 +395,24 @@ Open:
 http://127.0.0.1:5177
 ```
 
-The main panel sends non-streaming OpenAI-compatible chat requests to
-`CoveDemoModel`. The sidebar fetches the Cove certificates from Covehub,
-inspects the RA-TLS certificate, and verifies:
+The browser asks the local Node backend to run `/api/verify`. The backend
+verifies the signed workflow bundle, publisher identity/signature, manifest
+hash, bundle file hashes, terminal certificate body hash, embedded dependency
+certificates, Phala quote report data, RTMR3 compose-hash replay, expected
+compose hashes, endpoint health/model list, and the live TLS peer certificate
+DER. Successful verification returns a short-lived verification id.
 
-- all expected node certificates are present,
-- all certificates bind to the selected workflow and node ids,
+The main panel sends non-streaming OpenAI-compatible chat requests to
+`CoveDemoModel` only with a recent verification id. The Node backend pins the
+same TLS DER on the chat connection before sending the request body, and it
+rejects responses unless the `cove_receipt` signature verifies against the
+attested RA-TLS Ed25519 public key and the receipt request/response hashes,
+nonce, model, and sampling fields match.
+
+The sidebar displays:
+
+- signed workflow bundle and publisher identity verification,
+- dependency certificate closure and RTMR3 compose measurements,
 - serving patch and eval-code audit hashes match the consumed artifacts,
 - compile output hash matches the dynamic wheel artifact,
 - benchmark consumed the audited eval code, audited patch, model archive, eval

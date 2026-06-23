@@ -24,9 +24,15 @@ def test_phala_dstack_quote_verifier_delegates_to_shared_attestation_verifier(
     expected_report_data = b"verified-report-data"
     captured: dict[str, object] = {}
 
-    def fake_verify_attestation_bundle(attestation_bundle, *, expected_report_data):
+    def fake_verify_attestation_bundle(
+        attestation_bundle,
+        *,
+        expected_report_data,
+        expected_compose_hash,
+    ):
         captured["attestation_bundle"] = attestation_bundle
         captured["expected_report_data"] = expected_report_data
+        captured["expected_compose_hash"] = expected_compose_hash
         return attestation_bundle
 
     monkeypatch.setattr(
@@ -39,7 +45,8 @@ def test_phala_dstack_quote_verifier_delegates_to_shared_attestation_verifier(
         RuntimeAttestation(
             format="phala_dstack_v1",
             quote="phala-quote",
-            event_log=None,
+            event_log="[]",
+            info={"tcb_info": {"event_log": []}},
             node_id="benchmark_model_node",
             compose_hash="sha256:" + ("a" * 64),
             report_data=expected_report_data.hex(),
@@ -51,9 +58,12 @@ def test_phala_dstack_quote_verifier_delegates_to_shared_attestation_verifier(
         "attestation_bundle": {
             "format": "phala_dstack_v1",
             "quote": "phala-quote",
+            "event_log": "[]",
+            "info": {"tcb_info": {"event_log": []}},
             "report_data": expected_report_data.hex(),
         },
         "expected_report_data": expected_report_data,
+        "expected_compose_hash": "sha256:" + ("a" * 64),
     }
 
 
@@ -66,6 +76,7 @@ def test_phala_dstack_quote_verifier_rejects_invalid_format() -> None:
                 format="mock_tdx_v1",
                 quote="mock-quote",
                 event_log=None,
+                info=None,
                 node_id="benchmark_model_node",
                 compose_hash="sha256:" + ("a" * 64),
                 report_data="00",
@@ -77,7 +88,7 @@ def test_phala_dstack_quote_verifier_rejects_invalid_format() -> None:
 def test_phala_dstack_quote_verifier_wraps_shared_verifier_errors(monkeypatch) -> None:
     monkeypatch.setattr(
         "cove_server.quote_verifier.verify_attestation_bundle",
-        lambda _attestation_bundle, *, expected_report_data: _raise_runtime_error(
+        lambda _attestation_bundle, *, expected_report_data, expected_compose_hash: _raise_runtime_error(
             f"bad quote for {expected_report_data.hex()}"
         ),
     )
@@ -89,6 +100,7 @@ def test_phala_dstack_quote_verifier_wraps_shared_verifier_errors(monkeypatch) -
                 format="phala_dstack_v1",
                 quote="phala-quote",
                 event_log=None,
+                info=None,
                 node_id="benchmark_model_node",
                 compose_hash="sha256:" + ("a" * 64),
                 report_data="00",

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 from cove_container_runtime.attestation import (
     PHALA_DSTACK_ATTESTATION_FORMAT,
@@ -19,6 +19,7 @@ class RuntimeAttestation:
     format: str
     quote: str
     event_log: str | None
+    info: dict[str, Any] | None
     node_id: str
     compose_hash: str
     report_data: str
@@ -39,9 +40,12 @@ class PhalaDstackQuoteVerifier:
                 {
                     "format": attestation.format,
                     "quote": attestation.quote,
+                    "event_log": attestation.event_log,
+                    "info": attestation.info,
                     "report_data": attestation.report_data,
                 },
                 expected_report_data=attestation.expected_report_data,
+                expected_compose_hash=attestation.compose_hash,
             )
         except RuntimeErrorBase as exc:
             raise QuoteVerificationError(str(exc)) from exc
