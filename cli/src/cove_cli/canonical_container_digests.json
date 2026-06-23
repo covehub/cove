@@ -6,7 +6,7 @@
     },
     {
       "image_name": "cove-artifact-provisioner",
-      "canonical_ref": "covehub/cove-artifact-provisioner@sha256:23c0500c73e788d61aaa5fe692815d856725575d0de78a92adcb0e37a71fbdb7"
+      "canonical_ref": "covehub/cove-artifact-provisioner@sha256:8e06a0a27b2ce1a69359ccfdee5d40538e2acd02ff5c1d1ed1eeb3652e46b5aa"
     },
     {
       "image_name": "cove-precondition-checker",
