@@ -92,7 +92,6 @@ export async function verifyDemoTarget({
   const certificateContext = {
     composeByNode: bundle.composeByNode,
     dependencyEdges: bundle.dependencyEdges,
-    composeTextByNode: bundle.composeTextByNode,
     certificates: new Map(),
     certificateBodyHashes: new Map(),
   };
@@ -346,7 +345,6 @@ function verifyWorkflowObject(workflowObject, { expectedPublisher, expectedWorkf
   }
   const dependencyEdges = parseWorkflowDependencies(normalizedWorkflow.toString("utf-8"));
   const composeByNode = new Map();
-  const composeTextByNode = new Map();
   for (const node of requiredArray(manifest.nodes, "workflow manifest nodes")) {
     const nodeId = requiredString(node.node_id, "workflow manifest node_id");
     const composeHash = requiredString(node.compose_hash, `manifest node ${nodeId} compose_hash`);
@@ -356,10 +354,6 @@ function verifyWorkflowObject(workflowObject, { expectedPublisher, expectedWorkf
     if (!composeBytes) {
       throw new VerificationError(`workflow bundle is missing compose file for node ${nodeId}`);
     }
-    if (sha256Literal(composeBytes) !== composeHash) {
-      throw new VerificationError(`compose file hash mismatch for node ${nodeId}`);
-    }
-    composeTextByNode.set(nodeId, composeBytes.toString("utf-8"));
     if (!dependencyEdges.has(nodeId)) {
       dependencyEdges.set(nodeId, []);
     }
@@ -370,7 +364,6 @@ function verifyWorkflowObject(workflowObject, { expectedPublisher, expectedWorkf
     files,
     dependencyEdges,
     composeByNode,
-    composeTextByNode,
     publisherIdentity,
   };
 }
@@ -572,7 +565,6 @@ async function verifyNodeCertificate(certificate, {
   await verifyAttestationBundle(attestationBundle, {
     expectedReportData: reportData,
     expectedComposeHash: composeHash,
-    expectedComposeText: context.composeTextByNode.get(nodeId),
   });
 
   const dependencies = requiredObject(body.dependencies, "certificate_body.dependencies");
@@ -604,7 +596,6 @@ async function verifyNodeCertificate(certificate, {
 async function verifyAttestationBundle(attestationBundle, {
   expectedReportData,
   expectedComposeHash,
-  expectedComposeText,
 }) {
   if (requiredString(attestationBundle.format, "attestation_bundle.format") !== PHALA_DSTACK_ATTESTATION_FORMAT) {
     throw new VerificationError("unsupported attestation format");
@@ -648,9 +639,14 @@ async function verifyAttestationBundle(attestationBundle, {
     if (appComposeHash !== replayed.composeEventPayload) {
       throw new VerificationError("RTMR3 compose-hash event does not match attested app_compose");
     }
-    if (expectedComposeText !== undefined) {
-      verifyAppCompose(appCompose, expectedComposeText);
+    const attestedComposeHash = optionalAttestedComposeHash(attestationBundle);
+    if (
+      attestedComposeHash !== null &&
+      normalizeSha256Literal(attestedComposeHash) !== replayed.composeEventPayload
+    ) {
+      throw new VerificationError("attested compose hash does not match RTMR3 compose-hash event");
     }
+    verifyAppComposeReferencesGeneratedComposeHash(appCompose, expectedComposeHash);
   } else if (replayed.composeEventPayload !== normalizeSha256Literal(expectedComposeHash)) {
     throw new VerificationError("RTMR3 compose-hash event does not match expected compose hash");
   }
@@ -702,7 +698,8 @@ function replayRtmr3(eventLog) {
       throw new VerificationError("RTMR3 event has unsupported event_type");
     }
     const eventName = requiredString(event.event, "event_log[].event");
-    const payloadBytes = hexBytes(requiredString(event.event_payload, "event_log[].event_payload"), "event_log[].event_payload");
+    const eventPayload = requiredStringValue(event.event_payload, "event_log[].event_payload");
+    const payloadBytes = hexBytes(eventPayload, "event_log[].event_payload");
     const expectedEventDigest = eventDigest({
       eventType,
       eventName,
@@ -714,7 +711,11 @@ function replayRtmr3(eventLog) {
     }
     digest = crypto.createHash("sha384").update(Buffer.concat([digest, eventDigestBytes])).digest();
     if (eventName === "compose-hash") {
-      composePayloads.push(normalizeHex(requiredString(event.event_payload, "event_log[].event_payload")));
+      const composePayload = normalizeHex(eventPayload);
+      if (!composePayload) {
+        throw new VerificationError("RTMR3 compose-hash event payload is empty");
+      }
+      composePayloads.push(composePayload);
     }
   }
   if (!observedAny) {
@@ -747,13 +748,29 @@ function optionalAppCompose(attestationBundle) {
   return typeof appCompose === "string" && appCompose.trim() ? appCompose : null;
 }
 
-function verifyAppCompose(appCompose, expectedComposeText) {
-  const payload = JSON.parse(appCompose);
+function optionalAttestedComposeHash(attestationBundle) {
+  const info = attestationBundle.info;
+  const tcbInfo = info?.tcb_info;
+  const value = tcbInfo?.compose_hash ?? info?.compose_hash;
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function verifyAppComposeReferencesGeneratedComposeHash(appCompose, expectedComposeHash) {
+  let payload;
+  try {
+    payload = JSON.parse(appCompose);
+  } catch (error) {
+    throw new VerificationError("attested app_compose is not valid JSON");
+  }
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     throw new VerificationError("attested app_compose must be a JSON object");
   }
-  if (payload.docker_compose_file !== expectedComposeText) {
-    throw new VerificationError("attested docker_compose_file does not match signed compose file");
+  const dockerComposeFile = payload.docker_compose_file;
+  if (typeof dockerComposeFile !== "string" || !dockerComposeFile.trim()) {
+    throw new VerificationError("attested app_compose is missing docker_compose_file");
+  }
+  if (!dockerComposeFile.includes(`COVE_COMPOSE_HASH: ${expectedComposeHash}`)) {
+    throw new VerificationError("attested docker_compose_file does not reference expected generated compose hash");
   }
 }
 
@@ -1108,7 +1125,14 @@ function requiredString(value, label) {
   if (typeof value !== "string" || !value.trim()) {
     throw new VerificationError(`${label} must be a non-empty string`);
   }
-  return value.trim();
+  return value;
+}
+
+function requiredStringValue(value, label) {
+  if (typeof value !== "string") {
+    throw new VerificationError(`${label} must be a string`);
+  }
+  return value;
 }
 
 function requiredInteger(value, label) {
