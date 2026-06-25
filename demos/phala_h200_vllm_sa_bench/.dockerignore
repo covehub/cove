@@ -1,0 +1,6 @@
+build/
+results/
+phala.env
+__pycache__/
+*.pyc
+.git/
