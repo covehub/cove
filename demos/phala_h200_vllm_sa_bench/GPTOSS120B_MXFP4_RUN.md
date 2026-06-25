@@ -136,6 +136,33 @@ https://cfa281af15905e4624d3b7fdc413334595d4c5ff-8080.dstack-pha-use1.phala.netw
 
 All saved requests completed successfully.
 
+## 1k/1k Native CUDA Rerun
+
+Rerun date: 2026-06-25 UTC
+
+This repeated the same Phala 1k/1k benchmark on the same CVM, image, model,
+and workload, changing only:
+
+```text
+VLLM_ENABLE_CUDA_COMPATIBILITY=0
+RESULT_DIR=/logs/gptoss120b-mxfp4-1k1k-compat0-20260625-064528Z
+```
+
+Startup was healthy. Weight loading took 583.41s, model loading used 64.67 GiB
+GPU memory and took 587.44s, and CUDA graph capture finished in 83s using
+1.22 GiB.
+
+| Concurrency | Completed | Output tok/s | Req/s | Mean TTFT ms | Mean TPOT ms | Mean E2E ms |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 10 | 173.12 | 0.19 | 62.56 | 5.71 | 5321.97 |
+| 4 | 40 | 494.79 | 0.54 | 80.70 | 7.79 | 7217.21 |
+| 8 | 80 | 781.13 | 0.84 | 99.05 | 9.96 | 9342.59 |
+| 16 | 160 | 1197.25 | 1.31 | 126.78 | 12.97 | 12001.95 |
+
+Compared with the original `VLLM_ENABLE_CUDA_COMPATIBILITY=1` run, output
+throughput changed by +0.14%, +0.51%, +0.09%, and -0.43% at concurrencies
+1, 4, 8, and 16 respectively.
+
 ## Smoke Results
 
 Result directory:
