@@ -23,6 +23,7 @@ DEFAULT_RESULT_DIR = Path("/logs")
 VLLM_HOST = "127.0.0.1"
 VLLM_PORT = 8000
 RESULT_PORT = 8080
+CUDA_COMPATIBILITY_PATH_DEFAULT = "/usr/local/cuda/compat"
 
 
 @dataclass(frozen=True)
@@ -253,24 +254,23 @@ def clipped(value: str, limit: int = 4000) -> str:
     return value[-limit:]
 
 
-def cuda_preflight() -> None:
-    if env_text("SKIP_CUDA_PREFLIGHT", "0").lower() in {"1", "true", "yes"}:
-        log("skipping CUDA preflight")
-        return
-
-    code = r"""
+CUDA_PROBE_CODE = r"""
 import json
 import os
 import traceback
+import ctypes.util
 
 try:
     import vllm.env_override  # noqa: F401
     import torch
 
     payload = {
+        "ctypes_find_libcuda": ctypes.util.find_library("cuda"),
         "cuda_available": torch.cuda.is_available(),
         "cuda_device_count": torch.cuda.device_count(),
+        "cuda_compatibility_mode": os.environ.get("CUDA_COMPATIBILITY_MODE"),
         "ld_library_path": os.environ.get("LD_LIBRARY_PATH"),
+        "nvidia_visible_devices": os.environ.get("NVIDIA_VISIBLE_DEVICES"),
         "torch_cuda": torch.version.cuda,
         "torch_version": torch.__version__,
         "vllm_cuda_compatibility_path": os.environ.get("VLLM_CUDA_COMPATIBILITY_PATH"),
@@ -293,6 +293,9 @@ except Exception as exc:
             {
                 "error": str(exc),
                 "traceback": traceback.format_exc(),
+                "cuda_compatibility_mode": os.environ.get("CUDA_COMPATIBILITY_MODE"),
+                "ld_library_path": os.environ.get("LD_LIBRARY_PATH"),
+                "nvidia_visible_devices": os.environ.get("NVIDIA_VISIBLE_DEVICES"),
                 "vllm_cuda_compatibility_path": os.environ.get(
                     "VLLM_CUDA_COMPATIBILITY_PATH"
                 ),
@@ -305,27 +308,141 @@ except Exception as exc:
     )
     raise
 """
+
+
+def parse_probe_payload(stdout: str) -> dict[str, Any] | None:
+    for line in reversed(stdout.splitlines()):
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            return payload
+    return None
+
+
+def library_path_without(path: str, value: str) -> str:
+    norm_path = os.path.normpath(path)
+    parts = [
+        part
+        for part in value.split(os.pathsep)
+        if part and os.path.normpath(part) != norm_path
+    ]
+    return os.pathsep.join(parts)
+
+
+def cuda_probe_env(*, use_compatibility: bool) -> dict[str, str]:
+    env = dict(os.environ)
+    compat_path = env.get("VLLM_CUDA_COMPATIBILITY_PATH") or CUDA_COMPATIBILITY_PATH_DEFAULT
+    env["VLLM_CUDA_COMPATIBILITY_PATH"] = compat_path
+    env["LD_LIBRARY_PATH"] = library_path_without(
+        compat_path,
+        env.get("LD_LIBRARY_PATH", ""),
+    )
+
+    if use_compatibility:
+        env["VLLM_ENABLE_CUDA_COMPATIBILITY"] = "1"
+        env["LD_LIBRARY_PATH"] = (
+            compat_path
+            if not env["LD_LIBRARY_PATH"]
+            else compat_path + os.pathsep + env["LD_LIBRARY_PATH"]
+        )
+    else:
+        env["VLLM_ENABLE_CUDA_COMPATIBILITY"] = "0"
+    return env
+
+
+def run_cuda_probe(mode_name: str, *, use_compatibility: bool) -> tuple[bool, dict[str, Any], dict[str, str]]:
+    env = cuda_probe_env(use_compatibility=use_compatibility)
+    env["CUDA_COMPATIBILITY_MODE"] = mode_name
     completed = subprocess.run(
-        ["python3", "-c", code],
+        ["python3", "-c", CUDA_PROBE_CODE],
+        env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
         timeout=120,
     )
-    if completed.returncode != 0:
-        if completed.stdout.strip():
-            log("CUDA preflight stdout: " + clipped(completed.stdout.strip()))
-        if completed.stderr.strip():
-            log("CUDA preflight stderr: " + clipped(completed.stderr.strip()))
-        raise RuntimeError(
-            "CUDA preflight failed before vLLM start. This usually means the "
-            "container CUDA stack cannot use the host NVIDIA driver; on "
-            "datacenter GPUs keep VLLM_ENABLE_CUDA_COMPATIBILITY=1 and set "
-            "VLLM_CUDA_COMPATIBILITY_PATH=/usr/local/cuda/compat, or use a "
-            "host driver/image pair that supports this CUDA version."
+    payload = parse_probe_payload(completed.stdout) or {}
+    payload.update(
+        {
+            "mode": mode_name,
+            "returncode": completed.returncode,
+            "stderr_tail": clipped(completed.stderr.strip()),
+            "stdout_tail": clipped(completed.stdout.strip()),
+            "use_compatibility": use_compatibility,
+        }
+    )
+    return completed.returncode == 0, payload, env
+
+
+def apply_cuda_probe_env(env: dict[str, str]) -> None:
+    for name in (
+        "CUDA_COMPATIBILITY_MODE",
+        "LD_LIBRARY_PATH",
+        "VLLM_CUDA_COMPATIBILITY_PATH",
+        "VLLM_ENABLE_CUDA_COMPATIBILITY",
+    ):
+        if name in env:
+            os.environ[name] = env[name]
+
+
+def cuda_probe_modes() -> list[tuple[str, bool]]:
+    mode = env_text("CUDA_COMPATIBILITY_MODE", "auto").strip().lower()
+    if mode in {"auto", ""}:
+        return [("native", False), ("compat", True)]
+    if mode in {"native", "off", "0", "false", "no"}:
+        return [("native", False)]
+    if mode in {"compat", "compatibility", "on", "1", "true", "yes"}:
+        return [("compat", True)]
+    raise RuntimeError(
+        "CUDA_COMPATIBILITY_MODE must be auto, native/off, or compat/on; "
+        f"got {mode!r}"
+    )
+
+
+def configure_cuda(result_dir: Path) -> dict[str, Any]:
+    if env_text("SKIP_CUDA_PREFLIGHT", "0").lower() in {"1", "true", "yes"}:
+        log("skipping CUDA preflight")
+        payload = {"mode": "skipped", "status": "skipped"}
+        write_json(result_dir / "cuda-preflight.json", payload)
+        return payload
+
+    attempts = []
+    for mode_name, use_compatibility in cuda_probe_modes():
+        log(f"CUDA preflight mode={mode_name}")
+        passed, payload, env = run_cuda_probe(
+            mode_name,
+            use_compatibility=use_compatibility,
         )
-    if completed.stdout.strip():
-        log("CUDA preflight passed: " + clipped(completed.stdout.strip()))
+        attempts.append(payload)
+        if passed:
+            apply_cuda_probe_env(env)
+            payload = dict(payload)
+            payload["attempts"] = attempts
+            payload["selected_mode"] = mode_name
+            payload["status"] = "passed"
+            write_json(result_dir / "cuda-preflight.json", payload)
+            log("CUDA preflight passed: " + clipped(json.dumps(payload, sort_keys=True)))
+            return payload
+
+        if payload.get("stdout_tail"):
+            log(f"CUDA preflight {mode_name} stdout: {payload['stdout_tail']}")
+        if payload.get("stderr_tail"):
+            log(f"CUDA preflight {mode_name} stderr: {payload['stderr_tail']}")
+
+    failure = {"attempts": attempts, "status": "failed"}
+    write_json(result_dir / "cuda-preflight.json", failure)
+    modes = ", ".join(str(item.get("mode")) for item in attempts)
+    raise RuntimeError(
+        "CUDA preflight failed before vLLM start for mode(s): "
+        f"{modes}. With a CUDA 13.0 capable H200 host, try forcing "
+        "CUDA_COMPATIBILITY_MODE=native and verify that the container itself "
+        "can run nvidia-smi and see /dev/nvidia*."
+    )
 
 
 def write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -508,14 +625,20 @@ def serve_results(result_dir: Path) -> None:
     server.serve_forever()
 
 
-def metadata(profile: BenchmarkProfile, serve_command: list[str]) -> dict[str, Any]:
+def metadata(
+    profile: BenchmarkProfile,
+    serve_command: list[str],
+    cuda_preflight: dict[str, Any],
+) -> dict[str, Any]:
     return {
         "benchmark_profile": asdict(profile),
         "bench_image_ref": os.environ.get("BENCH_IMAGE_REF") or os.environ.get("IMAGE_REF"),
         "cuda_compatibility": {
             "enabled": os.environ.get("VLLM_ENABLE_CUDA_COMPATIBILITY"),
+            "mode": os.environ.get("CUDA_COMPATIBILITY_MODE"),
             "path": os.environ.get("VLLM_CUDA_COMPATIBILITY_PATH"),
         },
+        "cuda_preflight": cuda_preflight,
         "cuda_version": cuda_version(),
         "gpus": gpu_metadata(),
         "phala": {
@@ -531,9 +654,12 @@ def metadata(profile: BenchmarkProfile, serve_command: list[str]) -> dict[str, A
 
 
 def run_benchmark(profile: BenchmarkProfile, result_dir: Path) -> None:
+    cuda_preflight = configure_cuda(result_dir)
     serve_command = build_serve_command(profile)
-    write_json(result_dir / "environment.json", metadata(profile, serve_command))
-    cuda_preflight()
+    write_json(
+        result_dir / "environment.json",
+        metadata(profile, serve_command, cuda_preflight),
+    )
 
     vllm_process: subprocess.Popen[Any] | None = None
     try:
