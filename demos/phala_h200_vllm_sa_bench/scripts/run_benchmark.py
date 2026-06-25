@@ -247,6 +247,87 @@ def vllm_version() -> str | None:
     return command_output(["python3", "-c", "import vllm; print(vllm.__version__)"])
 
 
+def clipped(value: str, limit: int = 4000) -> str:
+    if len(value) <= limit:
+        return value
+    return value[-limit:]
+
+
+def cuda_preflight() -> None:
+    if env_text("SKIP_CUDA_PREFLIGHT", "0").lower() in {"1", "true", "yes"}:
+        log("skipping CUDA preflight")
+        return
+
+    code = r"""
+import json
+import os
+import traceback
+
+try:
+    import vllm.env_override  # noqa: F401
+    import torch
+
+    payload = {
+        "cuda_available": torch.cuda.is_available(),
+        "cuda_device_count": torch.cuda.device_count(),
+        "ld_library_path": os.environ.get("LD_LIBRARY_PATH"),
+        "torch_cuda": torch.version.cuda,
+        "torch_version": torch.__version__,
+        "vllm_cuda_compatibility_path": os.environ.get("VLLM_CUDA_COMPATIBILITY_PATH"),
+        "vllm_enable_cuda_compatibility": os.environ.get("VLLM_ENABLE_CUDA_COMPATIBILITY"),
+    }
+    if not payload["cuda_available"]:
+        raise RuntimeError("torch.cuda.is_available() returned false")
+    payload["devices"] = [
+        {
+            "index": index,
+            "name": torch.cuda.get_device_name(index),
+            "capability": torch.cuda.get_device_capability(index),
+        }
+        for index in range(payload["cuda_device_count"])
+    ]
+    print(json.dumps(payload, sort_keys=True))
+except Exception as exc:
+    print(
+        json.dumps(
+            {
+                "error": str(exc),
+                "traceback": traceback.format_exc(),
+                "vllm_cuda_compatibility_path": os.environ.get(
+                    "VLLM_CUDA_COMPATIBILITY_PATH"
+                ),
+                "vllm_enable_cuda_compatibility": os.environ.get(
+                    "VLLM_ENABLE_CUDA_COMPATIBILITY"
+                ),
+            },
+            sort_keys=True,
+        )
+    )
+    raise
+"""
+    completed = subprocess.run(
+        ["python3", "-c", code],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        timeout=120,
+    )
+    if completed.returncode != 0:
+        if completed.stdout.strip():
+            log("CUDA preflight stdout: " + clipped(completed.stdout.strip()))
+        if completed.stderr.strip():
+            log("CUDA preflight stderr: " + clipped(completed.stderr.strip()))
+        raise RuntimeError(
+            "CUDA preflight failed before vLLM start. This usually means the "
+            "container CUDA stack cannot use the host NVIDIA driver; on "
+            "datacenter GPUs keep VLLM_ENABLE_CUDA_COMPATIBILITY=1 and set "
+            "VLLM_CUDA_COMPATIBILITY_PATH=/usr/local/cuda/compat, or use a "
+            "host driver/image pair that supports this CUDA version."
+        )
+    if completed.stdout.strip():
+        log("CUDA preflight passed: " + clipped(completed.stdout.strip()))
+
+
 def write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -431,6 +512,10 @@ def metadata(profile: BenchmarkProfile, serve_command: list[str]) -> dict[str, A
     return {
         "benchmark_profile": asdict(profile),
         "bench_image_ref": os.environ.get("BENCH_IMAGE_REF") or os.environ.get("IMAGE_REF"),
+        "cuda_compatibility": {
+            "enabled": os.environ.get("VLLM_ENABLE_CUDA_COMPATIBILITY"),
+            "path": os.environ.get("VLLM_CUDA_COMPATIBILITY_PATH"),
+        },
         "cuda_version": cuda_version(),
         "gpus": gpu_metadata(),
         "phala": {
@@ -448,6 +533,7 @@ def metadata(profile: BenchmarkProfile, serve_command: list[str]) -> dict[str, A
 def run_benchmark(profile: BenchmarkProfile, result_dir: Path) -> None:
     serve_command = build_serve_command(profile)
     write_json(result_dir / "environment.json", metadata(profile, serve_command))
+    cuda_preflight()
 
     vllm_process: subprocess.Popen[Any] | None = None
     try:
@@ -513,11 +599,12 @@ def main() -> int:
 
     profile = selected_profile()
     result_dir = Path(env_text("RESULT_DIR", str(DEFAULT_RESULT_DIR)))
-    result_dir.mkdir(parents=True, exist_ok=True)
 
     if args.dry_run or env_text("DRY_RUN", "0") in {"1", "true", "yes"}:
         dry_run(profile, result_dir)
         return 0
+
+    result_dir.mkdir(parents=True, exist_ok=True)
 
     try:
         run_benchmark(profile, result_dir)

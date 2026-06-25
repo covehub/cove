@@ -29,9 +29,11 @@ ENV HUGGINGFACE_HUB_CACHE=/root/.cache/huggingface/hub
 ENV TRANSFORMERS_CACHE=/root/.cache/huggingface/transformers
 ENV VLLM_CACHE_ROOT=/root/.cache/vllm
 ENV VLLM_ENABLE_CUDA_COMPATIBILITY=1
+ENV VLLM_CUDA_COMPATIBILITY_PATH=/usr/local/cuda/compat
+ENV TINI_SUBREAPER=1
 ENV PYTHONUNBUFFERED=1
 ENV RESULT_DIR=/logs
 
 EXPOSE 8080
 
-ENTRYPOINT ["tini", "--", "python3", "/opt/phala-h200-bench/run_benchmark.py"]
+ENTRYPOINT ["tini", "-s", "--", "python3", "/opt/phala-h200-bench/run_benchmark.py"]

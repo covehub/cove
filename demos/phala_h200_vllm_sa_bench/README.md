@@ -65,6 +65,36 @@ This validates profile parsing and command rendering without starting vLLM:
 DRY_RUN=1 BENCH_PROFILE=smoke python3 scripts/run_benchmark.py --dry-run
 ```
 
+## Run Outside Phala
+
+The pushed image can also run on a normal NVIDIA Docker host:
+
+```bash
+docker run --rm --gpus all \
+  --ipc=host --shm-size=64g \
+  -p 8080:8080 \
+  -v hf-cache:/root/.cache/huggingface \
+  -v vllm-cache:/root/.cache/vllm \
+  -v bench-results:/logs \
+  -e BENCH_PROFILE=smoke \
+  -e VLLM_ENABLE_CUDA_COMPATIBILITY=1 \
+  -e VLLM_CUDA_COMPATIBILITY_PATH=/usr/local/cuda/compat \
+  <registry>/<namespace>/phala-h200-vllm-sa-bench:<tag>
+```
+
+This image is based on `vllm/vllm-openai:v0.23.0`, which currently carries
+PyTorch `2.11.0+cu130` and CUDA `13.0`. If vLLM fails with
+`Error 803: system has unsupported display driver / cuda driver combination`,
+the container CUDA stack cannot use the host NVIDIA driver. On datacenter GPUs
+such as H100/H200, keep CUDA compatibility enabled and make sure
+`VLLM_CUDA_COMPATIBILITY_PATH=/usr/local/cuda/compat` is set. On consumer GPUs,
+CUDA forward compatibility is not supported; use a host driver that supports
+the image CUDA version, or rebuild on an older CUDA/vLLM base image.
+
+The startup `tini` subreaper warning sometimes appears when platforms such as
+Runpod wrap the container entrypoint. It is not the vLLM failure; the CUDA 803
+line is the failure to fix.
+
 ## Update The Existing CVM
 
 This reboots/updates `gpu-tee-45vfi` in place with the one-container compose:
@@ -151,6 +181,8 @@ VLLM_EXTRA_ARGS=
 CUDA_LAUNCH_BLOCKING=
 VLLM_DISABLE_COMPILE_CACHE=
 VLLM_COMPILE_CACHE_SAVE_FORMAT=
+VLLM_CUDA_COMPATIBILITY_PATH=
+SKIP_CUDA_PREFLIGHT=
 SA_BENCH_EXTRA_ARGS=
 ```
 
