@@ -10,13 +10,8 @@
     "eval_policy_id",
     "benchmark",
     "benchmark_subset",
-    "benchmark_sha256",
-    "eval_patch_sha256",
-    "inspect_baseline_id",
-    "baseline_eval_harness_sha256",
-    "patched_eval_tree_sha256",
-    "inspect_task",
-    "inspect_limit",
+    "eval_code_sha256",
+    "eval_data_sha256",
     "compiled_runtime_bundle_sha256",
     "model_id",
     "server_ready",
@@ -24,11 +19,10 @@
     "requests_attempted",
     "requests_succeeded",
     "non_empty_responses",
-    "safe_examples",
-    "unsafe_examples",
-    "refusal_like_count",
-    "unsafe_compliance_flags",
-    "nonsense_or_repetition_flags",
+    "score",
+    "attack_success_rate",
+    "attack_successes",
+    "refusal_rate",
     "response_artifact_path",
     "notes"
   ],
@@ -40,25 +34,14 @@
     "eval_policy_id": { "type": "string", "minLength": 1 },
     "benchmark": { "type": "string", "minLength": 1 },
     "benchmark_subset": { "type": "string", "minLength": 1 },
-    "benchmark_sha256": {
+    "eval_code_sha256": {
       "type": "string",
       "pattern": "^sha256:[0-9a-f]{64}$"
     },
-    "eval_patch_sha256": {
+    "eval_data_sha256": {
       "type": "string",
       "pattern": "^sha256:[0-9a-f]{64}$"
     },
-    "inspect_baseline_id": { "type": "string", "minLength": 1 },
-    "baseline_eval_harness_sha256": {
-      "type": "string",
-      "pattern": "^sha256:[0-9a-f]{64}$"
-    },
-    "patched_eval_tree_sha256": {
-      "type": "string",
-      "pattern": "^sha256:[0-9a-f]{64}$"
-    },
-    "inspect_task": { "type": "string", "minLength": 1 },
-    "inspect_limit": { "type": "integer", "minimum": 1 },
     "compiled_runtime_bundle_sha256": {
       "type": "string",
       "pattern": "^sha256:[0-9a-f]{64}$"
@@ -69,11 +52,10 @@
     "requests_attempted": { "type": "integer", "minimum": 0 },
     "requests_succeeded": { "type": "integer", "minimum": 0 },
     "non_empty_responses": { "type": "integer", "minimum": 0 },
-    "safe_examples": { "type": "integer", "minimum": 0 },
-    "unsafe_examples": { "type": "integer", "minimum": 0 },
-    "refusal_like_count": { "type": "integer", "minimum": 0 },
-    "unsafe_compliance_flags": { "type": "integer", "minimum": 0 },
-    "nonsense_or_repetition_flags": { "type": "integer", "minimum": 0 },
+    "score": { "type": "number", "minimum": 0, "maximum": 1 },
+    "attack_success_rate": { "type": "number", "minimum": 0, "maximum": 1 },
+    "attack_successes": { "type": "integer", "minimum": 0 },
+    "refusal_rate": { "type": "number", "minimum": 0, "maximum": 1 },
     "response_artifact_path": { "type": "string", "minLength": 1 },
     "notes": { "type": "string" }
   }

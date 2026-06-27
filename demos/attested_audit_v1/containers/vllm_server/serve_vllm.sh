@@ -38,17 +38,17 @@ PY
 
 trap 'write_failure "$LINENO" "$BASH_COMMAND"' ERR
 
-require_env MODEL_BUNDLE
-
 VLLM_HOST="${VLLM_HOST:-0.0.0.0}"
 VLLM_PORT="${VLLM_PORT:-8000}"
 VLLM_GPU_MEMORY_UTILIZATION="${VLLM_GPU_MEMORY_UTILIZATION:-0.8}"
 VLLM_SERVED_MODEL_NAME="${VLLM_SERVED_MODEL_NAME:-served-model}"
 VLLM_READY_TIMEOUT_SECONDS="${VLLM_READY_TIMEOUT_SECONDS:-1800}"
 MODEL_PATH="${MODEL_PATH:-/tmp/model}"
+MODEL_ID="${MODEL_ID:-}"
 OUTPUT_DIR="${OUTPUT_DIR:-/workspace/output}"
 LOG_PATH="${LOG_PATH:-${OUTPUT_DIR}/vllm_server.log}"
 REQUIRE_CUDA="${REQUIRE_CUDA:-1}"
+MODEL_BUNDLE="${MODEL_BUNDLE:-}"
 COMPILED_RUNTIME_BUNDLE="${COMPILED_RUNTIME_BUNDLE:-}"
 
 mkdir -p "$OUTPUT_DIR"
@@ -84,16 +84,24 @@ if [[ -n "$COMPILED_RUNTIME_BUNDLE" ]]; then
   rm -rf "$runtime_wheelhouse"
 fi
 
-echo "==> ${ROLE}: preparing model bundle"
-test -f "$MODEL_BUNDLE"
-
-rm -rf "$MODEL_PATH"
-mkdir -p "$MODEL_PATH"
-tar -xf "$MODEL_BUNDLE" -C "$MODEL_PATH"
+if [[ -n "$MODEL_BUNDLE" ]]; then
+  echo "==> ${ROLE}: preparing private model bundle"
+  test -f "$MODEL_BUNDLE"
+  rm -rf "$MODEL_PATH"
+  mkdir -p "$MODEL_PATH"
+  tar -xf "$MODEL_BUNDLE" -C "$MODEL_PATH"
+  SERVE_MODEL_PATH="$MODEL_PATH"
+elif [[ -n "$MODEL_ID" ]]; then
+  echo "==> ${ROLE}: using public model id ${MODEL_ID}"
+  SERVE_MODEL_PATH="$MODEL_ID"
+else
+  echo "ERROR: set MODEL_BUNDLE for a private model or MODEL_ID for a public model" >&2
+  exit 2
+fi
 
 echo "==> Starting vLLM on ${VLLM_HOST}:${VLLM_PORT}"
 vllm serve \
-  --model "$MODEL_PATH" \
+  --model "$SERVE_MODEL_PATH" \
   --served-model-name "$VLLM_SERVED_MODEL_NAME" \
   --host "$VLLM_HOST" \
   --port "$VLLM_PORT" \

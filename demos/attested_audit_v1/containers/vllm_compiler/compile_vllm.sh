@@ -84,7 +84,8 @@ trap 'write_failure "$LINENO" "$BASH_COMMAND"' ERR
 
 RUN_ID="${RUN_ID:-$(date +%Y%m%d%H%M%S)}"
 RUN_DIR="${RUN_DIR:-/workspace/runs/${RUN_ID}/compile_vllm}"
-PRISTINE_SOURCE="${PRISTINE_SOURCE:-/workspace/inputs/pristine_serving_source.tar.gz}"
+PRISTINE_SOURCE="${PRISTINE_SOURCE:-}"
+PUBLIC_SOURCE_DIR="${PUBLIC_SOURCE_DIR:-/vllm-workspace}"
 SERVING_PATCH="${SERVING_PATCH:-/workspace/inputs/serving_patch.diff}"
 COMPILED_RUNTIME_BUNDLE="${COMPILED_RUNTIME_BUNDLE:-${RUN_DIR}/compiled_serving_runtime_bundle.tar.gz}"
 RESULT_PATH="${RESULT_PATH:-${RUN_DIR}/compile_result.json}"
@@ -98,14 +99,22 @@ mkdir -p "$(dirname "$LOG_PATH")" "$BUILD_DIR" "$WHEELHOUSE" "$(dirname "$COMPIL
 exec > >(tee "$LOG_PATH") 2>&1
 
 echo "==> ${ROLE}: starting"
-test -f "$PRISTINE_SOURCE"
 test -f "$SERVING_PATCH"
 
 rm -rf "$SOURCE_DIR" "$WHEELHOUSE"
 mkdir -p "$SOURCE_DIR" "$WHEELHOUSE"
 
-echo "==> Extracting pristine vLLM source"
-tar -xzf "$PRISTINE_SOURCE" -C "$SOURCE_DIR" --strip-components=1
+if [[ -n "$PRISTINE_SOURCE" ]]; then
+  echo "==> Extracting pristine vLLM source artifact"
+  test -f "$PRISTINE_SOURCE"
+  tar -xzf "$PRISTINE_SOURCE" -C "$SOURCE_DIR" --strip-components=1
+else
+  echo "==> Copying public vLLM source from ${PUBLIC_SOURCE_DIR}"
+  test -d "$PUBLIC_SOURCE_DIR"
+  shopt -s dotglob
+  cp -a "${PUBLIC_SOURCE_DIR}"/* "$SOURCE_DIR"/
+  shopt -u dotglob
+fi
 
 cd "$SOURCE_DIR"
 git init

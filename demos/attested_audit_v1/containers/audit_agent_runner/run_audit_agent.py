@@ -96,13 +96,35 @@ def preview_text(text: str, *, limit: int = RAW_RESPONSE_PREVIEW_CHARS) -> str:
     return text[:limit] + "\n... [truncated]"
 
 
-def build_prompt(policy: dict[str, Any], patch_text: str) -> str:
+DEFAULT_POLICIES = {
+    "serving_patch": (
+        "Audit this private vLLM serving-code patch for security bugs in the "
+        "serving path. Focus on arbitrary code execution, unsafe native or FFI "
+        "code, unsafe deserialization, hidden shell or subprocess behavior, "
+        "external network calls, credential or artifact exfiltration, and "
+        "filesystem access unrelated to loading or serving the model."
+    ),
+    "eval_code": (
+        "Audit that this private Inspect evaluation code only defines the "
+        "benchmark task and scorer. It may read private eval data to build "
+        "samples and score model outputs supplied by Inspect. It must not "
+        "read, copy, upload, print, or otherwise exfiltrate model weights, "
+        "compiled runtime bundles, credentials, raw prompts, raw responses, "
+        "or private data; must not make external network calls; and must not "
+        "use hidden shell, subprocess, or unrelated filesystem behavior."
+    ),
+}
+
+
+def build_prompt(policy: dict[str, Any], artifact_kind: str, artifact_text: str) -> str:
+    policy_text = policy.get(artifact_kind) or DEFAULT_POLICIES.get(artifact_kind, "")
     return (
-        "You are an audit agent for confidential model-serving deployments.\n"
-        "Audit the git diff against the provided policy. Return only JSON with the "
+        "You are an audit agent for confidential AI deployments.\n"
+        "Audit the private artifact against the provided policy. Return only JSON with the "
         "single key passed, whose value must be true or false.\n\n"
-        f"Audit policy:\n{json.dumps(policy, indent=2, sort_keys=True)}\n\n"
-        f"Serving patch:\n{patch_text}\n"
+        f"Artifact kind: {artifact_kind}\n"
+        f"Audit policy:\n{policy_text or json.dumps(policy, indent=2, sort_keys=True)}\n\n"
+        f"Artifact contents:\n{artifact_text}\n"
     )
 
 
@@ -114,9 +136,11 @@ def write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
 
 
 def main() -> int:
-    serving_patch = Path(required_env("SERVING_PATCH"))
-    pristine_source = Path(required_env("PRISTINE_SOURCE"))
-    audit_policy_path = Path(required_env("AUDIT_POLICY"))
+    artifact_kind = os.getenv("AUDIT_KIND", "serving_patch")
+    artifact_path = Path(os.getenv("AUDIT_INPUT", os.getenv("SERVING_PATCH", "")))
+    if not str(artifact_path):
+        raise RuntimeError("AUDIT_INPUT or SERVING_PATCH is required")
+    audit_policy_path = Path(os.getenv("AUDIT_POLICY", "/opt/cove_public/audit_policy.json"))
     result_path = Path(os.getenv("RESULT_PATH", "/workspace/output/audit_result.json"))
     raw_response_path = Path(
         os.getenv("RAW_MODEL_RESPONSE_PATH", "/workspace/output/audit_model_response.txt")
@@ -127,12 +151,11 @@ def main() -> int:
     timeout_seconds = int(os.getenv("MODEL_READY_TIMEOUT_SECONDS", "600"))
     force_pass = os.getenv("AUDIT_AGENT_FORCE_PASS", "0") == "1"
 
-    for path in (serving_patch, pristine_source, audit_policy_path):
+    for path in (artifact_path, audit_policy_path):
         if not path.exists():
             raise FileNotFoundError(path)
 
-    serving_patch_sha = sha256_prefixed(serving_patch)
-    pristine_source_sha = sha256_prefixed(pristine_source)
+    artifact_sha = sha256_prefixed(artifact_path)
     audit_policy_sha = sha256_prefixed(audit_policy_path)
     policy = json.loads(audit_policy_path.read_text(encoding="utf-8"))
     if not isinstance(policy, dict):
@@ -140,7 +163,7 @@ def main() -> int:
 
     wait_for_health(openai_base_url, timeout_seconds)
     client = OpenAI(base_url=openai_base_url, api_key=openai_api_key)
-    prompt = build_prompt(policy, read_text(serving_patch))
+    prompt = build_prompt(policy, artifact_kind, read_text(artifact_path))
     completion = client.chat.completions.create(
         model=audit_model_id,
         messages=[
@@ -180,8 +203,8 @@ def main() -> int:
 
     result = {
         "pass": passed,
-        "serving_patch_sha256": serving_patch_sha,
-        "pristine_source_sha256": pristine_source_sha,
+        "audit_kind": artifact_kind,
+        "audited_sha256": artifact_sha,
         "audit_policy_sha256": audit_policy_sha,
         "audit_model_id": audit_model_id,
         "audit_agent_version": AUDIT_AGENT_VERSION,
@@ -204,8 +227,8 @@ if __name__ == "__main__":
         failure_path = Path(os.getenv("RESULT_PATH", "/workspace/output/audit_result.json"))
         failure = {
             "pass": False,
-            "serving_patch_sha256": "sha256:" + ("0" * 64),
-            "pristine_source_sha256": "sha256:" + ("0" * 64),
+            "audit_kind": os.getenv("AUDIT_KIND", "serving_patch"),
+            "audited_sha256": "sha256:" + ("0" * 64),
             "audit_policy_sha256": "sha256:" + ("0" * 64),
             "audit_model_id": os.getenv("AUDIT_MODEL_ID", "audit-model"),
             "audit_agent_version": AUDIT_AGENT_VERSION,

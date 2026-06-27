@@ -8,30 +8,15 @@ platform:
   runtime: dstack
 
 owners:
-    eval_owner: https://cove-attested-eval-owner.erika-lee.net
-    model_owner: https://cove-attested-model-owner.erika-lee.net
+  eval_owner: https://cove-attested-eval-owner.erika-lee.net
+  model_owner: https://cove-attested-model-owner.erika-lee.net
 
 artifacts:
-  audit_model_weights:
-    type: static
-    owner: eval_owner
-    hub_path: v1/artifacts/cove-attested-eval-owner.erika-lee.net/audit_model_weights/latest
-    plaintext_hash: "sha256:f8bccd70ec9308431ee9ba2c28c8708aba01817a39a7241737d1abb1f5f5b704"
-  serving_patch:
+  private_serving_patch:
     type: static
     owner: model_owner
-    hub_path: v1/artifacts/cove-attested-model-owner.erika-lee.net/serving_patch/latest
+    hub_path: v1/artifacts/cove-attested-model-owner.erika-lee.net/private_serving_patch/latest
     plaintext_hash: "sha256:a5cc3f8374249b2e459a14edfef996579e16b18a4bb6d1d8dd98fd0418e23867"
-  pristine_serving_source:
-    type: static
-    owner: model_owner
-    hub_path: v1/artifacts/cove-attested-model-owner.erika-lee.net/pristine_serving_source/latest
-    plaintext_hash: "sha256:98c0cbfc45975ea779c4ed3b1184097c36e60f7f4946c19c43c16bbb4df07904"
-  audit_policy:
-    type: static
-    owner: eval_owner
-    hub_path: v1/artifacts/cove-attested-eval-owner.erika-lee.net/audit_policy/latest
-    plaintext_hash: "sha256:d2f5a2f66182eced1bb47b866ae2af9f2b5b760e92125f084c922b2037531981"
 
 nodes:
   audit_serving_code:
@@ -39,29 +24,13 @@ nodes:
     services:
       audit_model_server:
         should_terminate: false
-        inputs:
-          /workspace/input/audit_model_weights.tar: audit_model_weights
-        preconditions:
-          "==":
-            - { "var": "inputs.audit_model_weights.plaintext_hash" }
-            - "sha256:f8bccd70ec9308431ee9ba2c28c8708aba01817a39a7241737d1abb1f5f5b704"
-
       audit_agent_runner:
         inputs:
-          /workspace/input/serving_patch.diff: serving_patch
-          /workspace/input/pristine_serving_source.tar.gz: pristine_serving_source
-          /workspace/input/audit_policy.json: audit_policy
+          /workspace/input/private_serving_patch.diff: private_serving_patch
         custom_certificate_field:
           schema: schemas/audit_result.v1.json
           path: /workspace/output/audit_result.json
         preconditions:
-          and:
-            - "==":
-                - { "var": "inputs.serving_patch.plaintext_hash" }
-                - "sha256:a5cc3f8374249b2e459a14edfef996579e16b18a4bb6d1d8dd98fd0418e23867"
-            - "==":
-                - { "var": "inputs.pristine_serving_source.plaintext_hash" }
-                - "sha256:98c0cbfc45975ea779c4ed3b1184097c36e60f7f4946c19c43c16bbb4df07904"
-            - "==":
-                - { "var": "inputs.audit_policy.plaintext_hash" }
-                - "sha256:d2f5a2f66182eced1bb47b866ae2af9f2b5b760e92125f084c922b2037531981"
+          "==":
+            - { "var": "inputs.private_serving_patch.plaintext_hash" }
+            - "sha256:a5cc3f8374249b2e459a14edfef996579e16b18a4bb6d1d8dd98fd0418e23867"

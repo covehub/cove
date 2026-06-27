@@ -1,24 +1,20 @@
 {
   "containers": [
     {
-      "canonical_ref": "erikaleeey/cove-demo-attested-audit-v1-vllm-server@sha256:66e1a02ad49a0bd6564c44cc243583b2d020adc9308f1fc2881adfbcfe600e8e",
+      "canonical_ref": "erikaleeey/cove-demo-attested-audit-v1-vllm-server@sha256:fb8c553999f7864788b53371b243888115c1c3f8180884e703c3f9ad205cb8e2",
       "image_name": "cove-demo-attested-audit-v1-vllm-server"
     },
     {
-      "canonical_ref": "erikaleeey/cove-demo-attested-audit-v1-audit-agent-runner@sha256:3c260e1ecea965d561a0d9eb38c45b1a56c26e449bec1f718b062adb8b32c79e",
+      "canonical_ref": "erikaleeey/cove-demo-attested-audit-v1-audit-agent-runner@sha256:8da016778b8404dae6a944a35ab4f392b052eb345a585a88275c22cc48b6b5a1",
       "image_name": "cove-demo-attested-audit-v1-audit-agent-runner"
     },
     {
-      "canonical_ref": "erikaleeey/cove-demo-attested-audit-v1-vllm-compiler@sha256:929869d0f97fdcb79c153ada3de3016db824c8aaaa60dea51f95c8004cfd462a",
+      "canonical_ref": "erikaleeey/cove-demo-attested-audit-v1-vllm-compiler@sha256:fe4ad8347e699016ffdda8786159002a32fb28db9979724ab2e8b5bc327798c2",
       "image_name": "cove-demo-attested-audit-v1-vllm-compiler"
     },
     {
-      "canonical_ref": "erikaleeey/cove-demo-attested-audit-v1-eval-runner@sha256:2c57968c349a6071d0abae79b884597fb7e40e6263b5a3703c1b35bbd26e89a2",
+      "canonical_ref": "erikaleeey/cove-demo-attested-audit-v1-eval-runner@sha256:ba37d16963b1b9e1f337e35202454627971bf48b972b1fa9348a7cba2a26cc1a",
       "image_name": "cove-demo-attested-audit-v1-eval-runner"
-    },
-    {
-      "canonical_ref": "erikaleeey/cove-demo-attested-audit-v1-eval-patch-audit-runner@sha256:0d015a24bd71dcd80b65e719ce49c1b4c97a355fde1c977116237a8dccf2bf16",
-      "image_name": "cove-demo-attested-audit-v1-eval-patch-audit-runner"
     }
   ]
 }

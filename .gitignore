@@ -46,6 +46,7 @@ materialized_workflows/
 client-proxy-workflows/
 demos/**/.run/
 demos/**/build/
+demos/attested_audit_v1/runtime_inputs/
 code_audit_bench/data/private_artifacts/
 
 # Logs and temporary files

@@ -3,7 +3,7 @@ services:
     image: "erikaleeey/cove-demo-attested-audit-v1-vllm-server@sha256:fb8c553999f7864788b53371b243888115c1c3f8180884e703c3f9ad205cb8e2"
     environment:
       MODEL_BUNDLE: /workspace/input/private_model.tar
-      MODEL_PATH: /tmp/audit_model
+      MODEL_PATH: /tmp/audit_eval_model
       VLLM_HOST: 0.0.0.0
       VLLM_PORT: "8000"
       VLLM_GPU_MEMORY_UTILIZATION: "0.8"
@@ -32,9 +32,9 @@ services:
       OPENAI_BASE_URL: http://audit_model_server:8000/v1
       OPENAI_API_KEY: vllm
       AUDIT_MODEL_ID: audit-model
-      AUDIT_KIND: serving_patch
-      AUDIT_INPUT: /workspace/input/private_serving_patch.diff
+      AUDIT_KIND: eval_code
+      AUDIT_INPUT: /workspace/input/private_eval_code.py
       AUDIT_POLICY: /opt/cove_public/audit_policy.json
-      RESULT_PATH: /workspace/output/audit_result.json
-      RAW_MODEL_RESPONSE_PATH: /workspace/output/audit_model_response.txt
+      RESULT_PATH: /workspace/output/audit_eval_result.json
+      RAW_MODEL_RESPONSE_PATH: /workspace/output/audit_eval_model_response.txt
       AUDIT_AGENT_FORCE_PASS: "1"

@@ -11,6 +11,7 @@ RUN apt-get update -y \
 
 RUN uv pip install --system "openai>=1.0.0"
 
+COPY fixtures/audit_policy.json /opt/cove_public/audit_policy.json
 COPY containers/audit_agent_runner/run_audit_agent.py /app/bin/run_audit_agent.py
 RUN chmod +x /app/bin/run_audit_agent.py
 

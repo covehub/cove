@@ -1,52 +1,36 @@
 cove_version: 1
-
 workflow:
   id: attested_audit_v1
-
 platform:
   provider: phala
   runtime: dstack
-
 owners:
-    eval_owner: https://cove-attested-eval-owner.erika-lee.net
-    model_owner: https://cove-attested-model-owner.erika-lee.net
-
+  eval_owner: https://cove-attested-eval-owner.erika-lee.net
+  model_owner: https://cove-attested-model-owner.erika-lee.net
+ephemeral_keypairs:
+  ratls_key:
+    algorithm: ed25519
 artifacts:
-  audit_model_weights:
-    type: static
-    owner: eval_owner
-    hub_path: v1/artifacts/cove-attested-eval-owner.erika-lee.net/audit_model_weights/latest
-    plaintext_hash: "sha256:f8bccd70ec9308431ee9ba2c28c8708aba01817a39a7241737d1abb1f5f5b704"
-  serving_patch:
+  private_model:
     type: static
     owner: model_owner
-    hub_path: v1/artifacts/cove-attested-model-owner.erika-lee.net/serving_patch/latest
-    plaintext_hash: "sha256:a5cc3f8374249b2e459a14edfef996579e16b18a4bb6d1d8dd98fd0418e23867"
-  pristine_serving_source:
+    hub_path: v1/artifacts/cove-attested-model-owner.erika-lee.net/private_model/latest
+    plaintext_hash: sha256:0f72135975656a19b76a4e5bb81bf286f9949fc4d0293711be31517de7a3fe37
+  private_serving_patch:
     type: static
     owner: model_owner
-    hub_path: v1/artifacts/cove-attested-model-owner.erika-lee.net/pristine_serving_source/latest
-    plaintext_hash: "sha256:98c0cbfc45975ea779c4ed3b1184097c36e60f7f4946c19c43c16bbb4df07904"
-  audit_policy:
+    hub_path: v1/artifacts/cove-attested-model-owner.erika-lee.net/private_serving_patch/latest
+    plaintext_hash: sha256:a5cc3f8374249b2e459a14edfef996579e16b18a4bb6d1d8dd98fd0418e23867
+  private_eval_code:
     type: static
     owner: eval_owner
-    hub_path: v1/artifacts/cove-attested-eval-owner.erika-lee.net/audit_policy/latest
-    plaintext_hash: "sha256:d2f5a2f66182eced1bb47b866ae2af9f2b5b760e92125f084c922b2037531981"
-  eval_benchmark:
+    hub_path: v1/artifacts/cove-attested-eval-owner.erika-lee.net/private_eval_code/latest
+    plaintext_hash: sha256:7be83b64aa552545f5c2c92026f104d9994b0dceb99390f0d476eb555b3a8621
+  private_eval_data:
     type: static
     owner: eval_owner
-    hub_path: v1/artifacts/cove-attested-eval-owner.erika-lee.net/eval_benchmark/latest
-    plaintext_hash: "sha256:de7719dcabed5e081f8847b4eca47efc1d87bc194f8ab3bdfdbe08d3200ac6cb"
-  eval_policy:
-    type: static
-    owner: eval_owner
-    hub_path: v1/artifacts/cove-attested-eval-owner.erika-lee.net/eval_policy/latest
-    plaintext_hash: "sha256:eb08cfcb45d0effdfc61eb69b166c6b2c097d85640d8d99dbdb6bb82ecd933b4"
-  eval_patch:
-    type: static
-    owner: eval_owner
-    hub_path: v1/artifacts/cove-attested-eval-owner.erika-lee.net/eval_patch/latest
-    plaintext_hash: "sha256:5b0ea7e736586c213179807607b4225988f545d6a7559e44ca1ea4e3f9126c2b"
+    hub_path: v1/artifacts/cove-attested-eval-owner.erika-lee.net/private_eval_data/latest
+    plaintext_hash: sha256:dfea533c335650c5b3133d0bd0953b533d915bd45890e1edb46c78f161f374b5
   compiled_serving_runtime_bundle:
     type: dynamic
     owner: model_owner
@@ -55,7 +39,6 @@ artifacts:
     type: dynamic
     owner: eval_owner
     hub_path: runtime/attested_audit_v1/artifacts/eval_responses/latest
-
 nodes:
   audit_serving_code:
     compose: nodes/audit_serving_code.compose.yaml
@@ -63,41 +46,29 @@ nodes:
       audit_model_server:
         should_terminate: false
         inputs:
-          /workspace/input/audit_model_weights.tar: audit_model_weights
+          /workspace/input/private_model.tar: private_model
         preconditions:
-          "==":
-            - { "var": "inputs.audit_model_weights.plaintext_hash" }
-            - "sha256:f8bccd70ec9308431ee9ba2c28c8708aba01817a39a7241737d1abb1f5f5b704"
-
+          ==:
+          - var: inputs.private_model.plaintext_hash
+          - sha256:0f72135975656a19b76a4e5bb81bf286f9949fc4d0293711be31517de7a3fe37
       audit_agent_runner:
         inputs:
-          /workspace/input/serving_patch.diff: serving_patch
-          /workspace/input/pristine_serving_source.tar.gz: pristine_serving_source
-          /workspace/input/audit_policy.json: audit_policy
+          /workspace/input/private_serving_patch.diff: private_serving_patch
         custom_certificate_field:
           schema: schemas/audit_result.v1.json
           path: /workspace/output/audit_result.json
         preconditions:
-          and:
-            - "==":
-                - { "var": "inputs.serving_patch.plaintext_hash" }
-                - "sha256:a5cc3f8374249b2e459a14edfef996579e16b18a4bb6d1d8dd98fd0418e23867"
-            - "==":
-                - { "var": "inputs.pristine_serving_source.plaintext_hash" }
-                - "sha256:98c0cbfc45975ea779c4ed3b1184097c36e60f7f4946c19c43c16bbb4df07904"
-            - "==":
-                - { "var": "inputs.audit_policy.plaintext_hash" }
-                - "sha256:d2f5a2f66182eced1bb47b866ae2af9f2b5b760e92125f084c922b2037531981"
-
+          ==:
+          - var: inputs.private_serving_patch.plaintext_hash
+          - sha256:a5cc3f8374249b2e459a14edfef996579e16b18a4bb6d1d8dd98fd0418e23867
   compile_vllm:
     compose: nodes/compile_vllm.compose.yaml
     dependencies:
-      - audit_serving_code
+    - audit_serving_code
     services:
       vllm_compiler:
         inputs:
-          /workspace/input/pristine_serving_source.tar.gz: pristine_serving_source
-          /workspace/input/serving_patch.diff: serving_patch
+          /workspace/input/private_serving_patch.diff: private_serving_patch
         outputs:
           /workspace/output/compiled_serving_runtime_bundle.tar.gz: compiled_serving_runtime_bundle
         custom_certificate_field:
@@ -105,82 +76,61 @@ nodes:
           path: /workspace/output/compile_result.json
         preconditions:
           and:
-            - "==":
-                - { "var": "certificates.audit_serving_code.certificate_body.results.audit_agent_runner.pass" }
-                - true
-            - "==":
-                - { "var": "certificates.audit_serving_code.certificate_body.inputs.serving_patch.plaintext_hash" }
-                - { "var": "inputs.serving_patch.plaintext_hash" }
-            - "==":
-                - { "var": "certificates.audit_serving_code.certificate_body.inputs.pristine_serving_source.plaintext_hash" }
-                - { "var": "inputs.pristine_serving_source.plaintext_hash" }
-            - "==":
-                - { "var": "inputs.serving_patch.plaintext_hash" }
-                - "sha256:a5cc3f8374249b2e459a14edfef996579e16b18a4bb6d1d8dd98fd0418e23867"
-            - "==":
-                - { "var": "inputs.pristine_serving_source.plaintext_hash" }
-                - "sha256:98c0cbfc45975ea779c4ed3b1184097c36e60f7f4946c19c43c16bbb4df07904"
-
-  audit_eval_patch:
-    compose: nodes/audit_eval_patch.compose.yaml
+          - ==:
+            - var: certificates.audit_serving_code.certificate_body.results.audit_agent_runner.pass
+            - true
+          - ==:
+            - var: inputs.private_serving_patch.plaintext_hash
+            - sha256:a5cc3f8374249b2e459a14edfef996579e16b18a4bb6d1d8dd98fd0418e23867
+          - ==:
+            - var: inputs.private_serving_patch.plaintext_hash
+            - var: certificates.audit_serving_code.certificate_body.results.audit_agent_runner.audited_sha256
+  audit_eval_code:
+    compose: nodes/audit_eval_code.compose.yaml
+    dependencies:
+    - compile_vllm
     services:
       audit_model_server:
         should_terminate: false
         inputs:
-          /workspace/input/audit_model_weights.tar: audit_model_weights
+          /workspace/input/private_model.tar: private_model
         preconditions:
-          "==":
-            - { "var": "inputs.audit_model_weights.plaintext_hash" }
-            - "sha256:f8bccd70ec9308431ee9ba2c28c8708aba01817a39a7241737d1abb1f5f5b704"
-
-      eval_patch_audit_runner:
+          ==:
+          - var: inputs.private_model.plaintext_hash
+          - sha256:0f72135975656a19b76a4e5bb81bf286f9949fc4d0293711be31517de7a3fe37
+      audit_agent_runner:
         inputs:
-          /workspace/input/eval_patch.diff: eval_patch
-          /workspace/input/xstest_smoke_v1.jsonl: eval_benchmark
-          /workspace/input/eval_policy.json: eval_policy
+          /workspace/input/private_eval_code.py: private_eval_code
         custom_certificate_field:
-          schema: schemas/eval_patch_audit_result.v1.json
-          path: /workspace/output/eval_patch_audit_result.json
+          schema: schemas/audit_result.v1.json
+          path: /workspace/output/audit_eval_result.json
         preconditions:
-          and:
-            - "==":
-                - { "var": "inputs.eval_patch.plaintext_hash" }
-                - "sha256:5b0ea7e736586c213179807607b4225988f545d6a7559e44ca1ea4e3f9126c2b"
-            - "==":
-                - { "var": "inputs.eval_benchmark.plaintext_hash" }
-                - "sha256:de7719dcabed5e081f8847b4eca47efc1d87bc194f8ab3bdfdbe08d3200ac6cb"
-            - "==":
-                - { "var": "inputs.eval_policy.plaintext_hash" }
-                - "sha256:eb08cfcb45d0effdfc61eb69b166c6b2c097d85640d8d99dbdb6bb82ecd933b4"
-
+          ==:
+          - var: inputs.private_eval_code.plaintext_hash
+          - sha256:7be83b64aa552545f5c2c92026f104d9994b0dceb99390f0d476eb555b3a8621
   run_eval:
     compose: nodes/run_eval.compose.yaml
     dependencies:
-      - compile_vllm
-      - audit_eval_patch
+    - compile_vllm
+    - audit_eval_code
     services:
       eval_model_server:
         should_terminate: false
         inputs:
-          /workspace/input/audit_model_weights.tar: audit_model_weights
+          /workspace/input/private_model.tar: private_model
           /workspace/input/compiled_serving_runtime_bundle.tar.gz: compiled_serving_runtime_bundle
         preconditions:
           and:
-            - "==":
-                - { "var": "certificates.compile_vllm.certificate_body.results.vllm_compiler.pass" }
-                - true
-            - "==":
-                - { "var": "certificates.audit_eval_patch.certificate_body.results.eval_patch_audit_runner.pass" }
-                - true
-            - "==":
-                - { "var": "inputs.audit_model_weights.plaintext_hash" }
-                - "sha256:f8bccd70ec9308431ee9ba2c28c8708aba01817a39a7241737d1abb1f5f5b704"
-
+          - ==:
+            - var: certificates.compile_vllm.certificate_body.results.vllm_compiler.pass
+            - true
+          - ==:
+            - var: inputs.private_model.plaintext_hash
+            - sha256:0f72135975656a19b76a4e5bb81bf286f9949fc4d0293711be31517de7a3fe37
       eval_runner:
         inputs:
-          /workspace/input/xstest_smoke_v1.jsonl: eval_benchmark
-          /workspace/input/eval_patch.diff: eval_patch
-          /workspace/input/eval_policy.json: eval_policy
+          /workspace/input/private_eval_code.py: private_eval_code
+          /workspace/input/private_eval_data.jsonl: private_eval_data
           /workspace/input/compiled_serving_runtime_bundle.tar.gz: compiled_serving_runtime_bundle
         outputs:
           /workspace/output/eval_responses.jsonl: eval_responses
@@ -189,30 +139,51 @@ nodes:
           path: /workspace/output/eval_result.json
         preconditions:
           and:
-            - "==":
-                - { "var": "certificates.compile_vllm.certificate_body.results.vllm_compiler.pass" }
-                - true
-            - "==":
-                - { "var": "certificates.audit_eval_patch.certificate_body.results.eval_patch_audit_runner.pass" }
-                - true
-            - "==":
-                - { "var": "inputs.eval_benchmark.plaintext_hash" }
-                - "sha256:de7719dcabed5e081f8847b4eca47efc1d87bc194f8ab3bdfdbe08d3200ac6cb"
-            - "==":
-                - { "var": "inputs.eval_patch.plaintext_hash" }
-                - "sha256:5b0ea7e736586c213179807607b4225988f545d6a7559e44ca1ea4e3f9126c2b"
-            - "==":
-                - { "var": "inputs.eval_policy.plaintext_hash" }
-                - "sha256:eb08cfcb45d0effdfc61eb69b166c6b2c097d85640d8d99dbdb6bb82ecd933b4"
-            - "==":
-                - { "var": "inputs.eval_benchmark.plaintext_hash" }
-                - { "var": "certificates.audit_eval_patch.certificate_body.inputs.eval_benchmark.plaintext_hash" }
-            - "==":
-                - { "var": "inputs.eval_patch.plaintext_hash" }
-                - { "var": "certificates.audit_eval_patch.certificate_body.inputs.eval_patch.plaintext_hash" }
-            - "==":
-                - { "var": "inputs.eval_policy.plaintext_hash" }
-                - { "var": "certificates.audit_eval_patch.certificate_body.inputs.eval_policy.plaintext_hash" }
-            - "==":
-                - { "var": "inputs.compiled_serving_runtime_bundle.plaintext_hash" }
-                - { "var": "certificates.compile_vllm.certificate_body.outputs.compiled_serving_runtime_bundle.plaintext_hash" }
+          - ==:
+            - var: certificates.compile_vllm.certificate_body.results.vllm_compiler.pass
+            - true
+          - ==:
+            - var: certificates.audit_eval_code.certificate_body.results.audit_agent_runner.pass
+            - true
+          - ==:
+            - var: inputs.private_eval_code.plaintext_hash
+            - sha256:7be83b64aa552545f5c2c92026f104d9994b0dceb99390f0d476eb555b3a8621
+          - ==:
+            - var: inputs.private_eval_data.plaintext_hash
+            - sha256:dfea533c335650c5b3133d0bd0953b533d915bd45890e1edb46c78f161f374b5
+          - ==:
+            - var: inputs.private_eval_code.plaintext_hash
+            - var: certificates.audit_eval_code.certificate_body.results.audit_agent_runner.audited_sha256
+          - ==:
+            - var: inputs.compiled_serving_runtime_bundle.plaintext_hash
+            - var: certificates.compile_vllm.certificate_body.outputs.compiled_serving_runtime_bundle.plaintext_hash
+  model_deployment:
+    compose: nodes/model_deployment.compose.yaml
+    dependencies:
+    - compile_vllm
+    - run_eval
+    services:
+      serve:
+        should_terminate: false
+        inputs:
+          /workspace/input/private_model.tar: private_model
+          /workspace/input/compiled_serving_runtime_bundle.tar.gz: compiled_serving_runtime_bundle
+        ephemeral_keypairs:
+        - ratls_key
+        preconditions:
+          and:
+          - ==:
+            - var: certificates.compile_vllm.certificate_body.results.vllm_compiler.pass
+            - true
+          - ==:
+            - var: certificates.run_eval.certificate_body.results.eval_runner.pass
+            - true
+          - ==:
+            - var: inputs.private_model.plaintext_hash
+            - sha256:0f72135975656a19b76a4e5bb81bf286f9949fc4d0293711be31517de7a3fe37
+          - ==:
+            - var: inputs.compiled_serving_runtime_bundle.plaintext_hash
+            - var: certificates.run_eval.certificate_body.inputs.compiled_serving_runtime_bundle.plaintext_hash
+          - ==:
+            - var: inputs.private_model.plaintext_hash
+            - var: certificates.run_eval.certificate_body.inputs.private_model.plaintext_hash
