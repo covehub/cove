@@ -45,12 +45,6 @@ nodes:
     services:
       audit_model_server:
         should_terminate: false
-        inputs:
-          /workspace/input/private_model.tar: private_model
-        preconditions:
-          ==:
-          - var: inputs.private_model.plaintext_hash
-          - sha256:0f72135975656a19b76a4e5bb81bf286f9949fc4d0293711be31517de7a3fe37
       audit_agent_runner:
         inputs:
           /workspace/input/private_serving_patch.diff: private_serving_patch
@@ -92,12 +86,6 @@ nodes:
     services:
       audit_model_server:
         should_terminate: false
-        inputs:
-          /workspace/input/private_model.tar: private_model
-        preconditions:
-          ==:
-          - var: inputs.private_model.plaintext_hash
-          - sha256:0f72135975656a19b76a4e5bb81bf286f9949fc4d0293711be31517de7a3fe37
       audit_agent_runner:
         inputs:
           /workspace/input/private_eval_code.py: private_eval_code

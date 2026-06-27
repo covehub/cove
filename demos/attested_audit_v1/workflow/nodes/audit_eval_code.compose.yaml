@@ -2,12 +2,12 @@ services:
   audit_model_server:
     image: "erikaleeey/cove-demo-attested-audit-v1-vllm-server@sha256:fb8c553999f7864788b53371b243888115c1c3f8180884e703c3f9ad205cb8e2"
     environment:
-      MODEL_BUNDLE: /workspace/input/private_model.tar
+      MODEL_ID: Qwen/Qwen3.5-9B
       MODEL_PATH: /tmp/audit_eval_model
       VLLM_HOST: 0.0.0.0
       VLLM_PORT: "8000"
       VLLM_GPU_MEMORY_UTILIZATION: "0.8"
-      VLLM_SERVED_MODEL_NAME: audit-model
+      VLLM_SERVED_MODEL_NAME: Qwen/Qwen3.5-9B
       OUTPUT_DIR: /workspace/output
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
@@ -31,7 +31,7 @@ services:
     environment:
       OPENAI_BASE_URL: http://audit_model_server:8000/v1
       OPENAI_API_KEY: vllm
-      AUDIT_MODEL_ID: audit-model
+      AUDIT_MODEL_ID: Qwen/Qwen3.5-9B
       AUDIT_KIND: eval_code
       AUDIT_INPUT: /workspace/input/private_eval_code.py
       AUDIT_POLICY: /opt/cove_public/audit_policy.json

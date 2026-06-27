@@ -19,8 +19,6 @@ STATIC_ARTIFACT_FILES = {
 
 PRECONDITION_PATHS = {
     "private_model": [
-        ("nodes", "audit_serving_code", "services", "audit_model_server", "preconditions", "==", 1),
-        ("nodes", "audit_eval_code", "services", "audit_model_server", "preconditions", "==", 1),
         ("nodes", "run_eval", "services", "eval_model_server", "preconditions", "and", 1, "==", 1),
         ("nodes", "model_deployment", "services", "serve", "preconditions", "and", 2, "==", 1),
     ],
