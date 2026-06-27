@@ -15,7 +15,6 @@ artifacts:
   private_serving_patch:
     type: static
     owner: model_owner
-    hub_path: v1/artifacts/cove-attested-model-owner.erika-lee.net/private_serving_patch/latest
     plaintext_hash: "sha256:a5cc3f8374249b2e459a14edfef996579e16b18a4bb6d1d8dd98fd0418e23867"
 
 nodes:

@@ -14,31 +14,25 @@ artifacts:
   private_model:
     type: static
     owner: model_owner
-    hub_path: v1/artifacts/cove-attested-model-owner.erika-lee.net/private_model/latest
     plaintext_hash: sha256:0f72135975656a19b76a4e5bb81bf286f9949fc4d0293711be31517de7a3fe37
   private_serving_patch:
     type: static
     owner: model_owner
-    hub_path: v1/artifacts/cove-attested-model-owner.erika-lee.net/private_serving_patch/latest
     plaintext_hash: sha256:a5cc3f8374249b2e459a14edfef996579e16b18a4bb6d1d8dd98fd0418e23867
   private_eval_code:
     type: static
     owner: eval_owner
-    hub_path: v1/artifacts/cove-attested-eval-owner.erika-lee.net/private_eval_code/latest
     plaintext_hash: sha256:7be83b64aa552545f5c2c92026f104d9994b0dceb99390f0d476eb555b3a8621
   private_eval_data:
     type: static
     owner: eval_owner
-    hub_path: v1/artifacts/cove-attested-eval-owner.erika-lee.net/private_eval_data/latest
     plaintext_hash: sha256:dfea533c335650c5b3133d0bd0953b533d915bd45890e1edb46c78f161f374b5
   compiled_serving_runtime_bundle:
     type: dynamic
     owner: model_owner
-    hub_path: runtime/attested_audit_v1/artifacts/compiled_serving_runtime_bundle/latest
   eval_responses:
     type: dynamic
     owner: eval_owner
-    hub_path: runtime/attested_audit_v1/artifacts/eval_responses/latest
 nodes:
   audit_serving_code:
     compose: nodes/audit_serving_code.compose.yaml
