@@ -48,6 +48,7 @@ _STATIC_EXACT_HUB_PATH_RE = re.compile(
 _COMPOSE_ENV_RE = re.compile(r"\$\{(?P<name>[A-Za-z_][A-Za-z0-9_]*)(:-?(?P<default>[^}]*))?\}")
 _COMPOSE_HASH_PLACEHOLDER = "sha256:" + ("0" * 64)
 _COVE_RUNTIME_VOLUME = "cove_runtime"
+_COVE_METRICS_VOLUME = "cove_metrics"
 _X509_COMMON_NAME_MAX_BYTES = 64
 _FNV1A64_OFFSET = 0xCBF29CE484222325
 _FNV1A64_PRIME = 0x100000001B3
@@ -249,7 +250,10 @@ def _compile_node(
 ) -> tuple[Path, str]:
     node_dir.mkdir(parents=True, exist_ok=True)
     services: dict[str, Any] = {}
-    generated_volumes: dict[str, dict[str, Any]] = {_COVE_RUNTIME_VOLUME: {}}
+    generated_volumes: dict[str, dict[str, Any]] = {
+        _COVE_RUNTIME_VOLUME: {},
+        _COVE_METRICS_VOLUME: {},
+    }
 
     if node.used_keypairs:
         key_manager_config = {
@@ -507,6 +511,14 @@ def _compile_node(
                 }
                 for dependency_name in node.dependencies
             ],
+            "runtime_metrics": [
+                {
+                    "name": service_name,
+                    "path": f"/cove_metrics/{service_name}.json",
+                }
+                for service_name in services
+                if service_name != "cove_node_certificate_writer"
+            ],
             "attestation": attestation_config,
         },
         depends_on=_node_certificate_writer_dependencies(node),
@@ -711,7 +723,16 @@ def _compile_workload_service(
             f"authored Compose service '{service.name}' for node '{node.name}' must define an image"
         )
     compose_service["image"] = resolve_image_reference_to_digest(image_value)
+    environment = compose_service.setdefault("environment", {})
+    if not isinstance(environment, dict):
+        raise CompileCommandError(
+            f"authored Compose service '{service.name}' for node '{node.name}' must use mapping environment"
+        )
+    environment["COVE_SERVICE_NAME"] = service.name
+    environment["COVE_SERVICE_ROLE"] = "workload"
+    environment["COVE_RUNTIME_METRICS_PATH"] = f"/cove_metrics/{service.name}.json"
     volumes = _normalize_volumes(compose_service.get("volumes"))
+    volumes.append(_named_volume_mount(_COVE_METRICS_VOLUME, "/cove_metrics", read_only=False))
     depends_on = _normalize_depends_on(compose_service.get("depends_on"))
 
     depends_on[f"cove_preconditions_{service.name}"] = {
@@ -830,10 +851,13 @@ def _compiled_sidecar_service(
         "environment": {
             "COVE_CONFIG_JSON": json.dumps(config_payload, indent=2, sort_keys=True),
             "COVE_SERVICE_NAME": service_name,
+            "COVE_SERVICE_ROLE": role,
             "COVE_COMPOSE_HASH": _COMPOSE_HASH_PLACEHOLDER,
+            "COVE_RUNTIME_METRICS_PATH": f"/cove_metrics/{service_name}.json",
         },
         "volumes": [
             _named_volume_mount(_COVE_RUNTIME_VOLUME, "/cove", read_only=False),
+            _named_volume_mount(_COVE_METRICS_VOLUME, "/cove_metrics", read_only=False),
         ],
     }
     if extra_volumes:
@@ -938,23 +962,43 @@ def _input_copy_service(
     volume_name: str,
     parent_target: str,
 ) -> dict[str, Any]:
+    metrics_path = f"/cove_metrics/{service_name}.json"
     return {
         "image": _canonical_image("cove-base"),
         "command": [
             "python",
             "-c",
             (
-                "import os, shutil; "
+                "import json, os, shutil, time; "
                 "from pathlib import Path; "
+                "started=time.monotonic(); "
+                "started_iso=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()); "
                 "source = Path(os.environ['COVE_INPUT_SOURCE']); "
                 "target = Path(os.environ['COVE_INPUT_TARGET']); "
                 "target.parent.mkdir(parents=True, exist_ok=True); "
-                "shutil.copyfile(source, target)"
+                "copy_started=time.monotonic(); "
+                "shutil.copyfile(source, target); "
+                "payload={"
+                "'schema_version':'cove_runtime_metrics_v1',"
+                "'service_name':os.environ['COVE_SERVICE_NAME'],"
+                "'role':'input_copy',"
+                "'started_at':started_iso,"
+                "'ended_at':time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),"
+                "'wall_seconds':round(time.monotonic()-started,6),"
+                "'phase_timings_seconds':{'copy_input_seconds':round(time.monotonic()-copy_started,6)},"
+                "'exit_code':0,"
+                "'ok':True}; "
+                "metrics=Path(os.environ['COVE_RUNTIME_METRICS_PATH']); "
+                "metrics.parent.mkdir(parents=True, exist_ok=True); "
+                "metrics.write_text(json.dumps(payload, indent=2, sort_keys=True)+'\\n', encoding='utf-8')"
             ),
         ],
         "environment": {
             "COVE_INPUT_SOURCE": source_path,
             "COVE_INPUT_TARGET": target_path,
+            "COVE_SERVICE_NAME": service_name,
+            "COVE_SERVICE_ROLE": "input_copy",
+            "COVE_RUNTIME_METRICS_PATH": metrics_path,
         },
         "depends_on": {
             dependency_service: {
@@ -963,6 +1007,7 @@ def _input_copy_service(
         },
         "volumes": [
             _named_volume_mount(_COVE_RUNTIME_VOLUME, "/cove", read_only=True),
+            _named_volume_mount(_COVE_METRICS_VOLUME, "/cove_metrics", read_only=False),
             _named_volume_mount(volume_name, parent_target, read_only=False),
         ],
     }

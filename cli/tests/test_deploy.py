@@ -183,6 +183,7 @@ def test_deploy_pulls_bundle_before_submitting_and_orders_nodes_topologically(
     assert payload["workflow_id"] == "hello_world"
     assert [deployment["deployment_name"] for deployment in payload["deployments"]] == expected_names
     assert payload["deployments"][-1]["cvm_id"] == "cvm-app-4"
+    assert "node_deploy_wall_seconds" in payload["deployments"][-1]["timings_seconds"]
 
     final_payload = fake_client.provision_calls[-1]
     assert final_payload["name"] == expected_names[-1]
@@ -295,20 +296,23 @@ def test_deploy_returns_structured_json(tmp_path, monkeypatch) -> None:
     assert payload["bundle_path"] == str(bundle.root_path)
     assert payload["manifest_hash"] == bundle.manifest_hash
     assert payload["deleted_finished_cvms"] == []
-    assert payload["deployments"] == [
-        {
-            "node_id": "node_one",
-            "deployment_name": _deployment_name(
-                publisher=PUBLISHER_DOMAIN,
-                workflow_id="demo",
-                node_id="node_one",
-            ),
-            "cvm_id": "cvm-app-1",
-            "status": "pending",
-            "app_id": "app-1",
-            "compose_hash": "compose-1",
-        }
-    ]
+    assert len(payload["deployments"]) == 1
+    deployment = payload["deployments"][0]
+    assert deployment == {
+        "node_id": "node_one",
+        "deployment_name": _deployment_name(
+            publisher=PUBLISHER_DOMAIN,
+            workflow_id="demo",
+            node_id="node_one",
+        ),
+        "cvm_id": "cvm-app-1",
+        "status": "pending",
+        "app_id": "app-1",
+        "compose_hash": "compose-1",
+        "timings_seconds": deployment["timings_seconds"],
+    }
+    assert "provision_cvm_seconds" in deployment["timings_seconds"]
+    assert "commit_cvm_provision_seconds" in deployment["timings_seconds"]
 
 
 def test_deploy_deletes_finished_phala_cvms_for_workflow_before_provision(
@@ -879,16 +883,19 @@ def test_deploy_workflow_node_reuses_existing_phala_cvm(
     ]
     payload = json.loads(output)
     assert payload["deleted_finished_cvms"] == []
-    assert payload["deployments"] == [
-        {
-            "node_id": "node_one",
-            "deployment_name": expected_name,
-            "cvm_id": "cvm-existing",
-            "status": "updating",
-            "app_id": "existing-app",
-            "compose_hash": "compose-update-1",
-        }
-    ]
+    assert len(payload["deployments"]) == 1
+    deployment = payload["deployments"][0]
+    assert deployment == {
+        "node_id": "node_one",
+        "deployment_name": expected_name,
+        "cvm_id": "cvm-existing",
+        "status": "updating",
+        "app_id": "existing-app",
+        "compose_hash": "compose-update-1",
+        "timings_seconds": deployment["timings_seconds"],
+    }
+    assert "provision_cvm_compose_update_seconds" in deployment["timings_seconds"]
+    assert "commit_cvm_compose_update_seconds" in deployment["timings_seconds"]
     assert "docker-read-token" not in output
 
 

@@ -1,10 +1,20 @@
 services:
   audit_agent:
-    image: "covehub/cove-demo-attested-confidential-eval-vllm-gpu-audit-agent@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    image: "covehub/cove-demo-attested-confidential-eval-vllm-gpu-audit-agent@sha256:50057ab65778f0ad6f6c4c84087ed6d956f9533577a7f4ca37c3658d68e11f52"
     environment:
       AUDIT_KIND: eval_code
       AUDIT_DEVICE_MAP: auto
       AUDIT_MODEL_ID: Qwen/Qwen3.5-9B
+      COVE_DEMO_ENABLE_TIMING: "1"
       INPUT_PATH: /workspace/input/bob_private_eval_code.py
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+      NVIDIA_VISIBLE_DEVICES: all
       REQUIRE_CUDA: "1"
       RESULT_PATH: /workspace/output/audit_eval_result.json
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

@@ -17,6 +17,7 @@ from cove_container_runtime.attestation import (
 from cove_container_runtime.common import (
     COVE_RUNTIME_USER_AGENT,
     RuntimeErrorBase,
+    RuntimeMetricsRecorder,
     SidecarConfigError,
     decode_key_b64,
     decrypt_ciphertext_bytes,
@@ -33,6 +34,8 @@ from cove_container_runtime.common import (
     read_json_file,
     required_mapping,
     required_string,
+    runtime_metrics_recorder_from_env,
+    runtime_phase,
     sha256_file_literal,
     sha256_literal,
     url_with_query,
@@ -82,6 +85,7 @@ def run(
     *,
     compose_hash: str | None = None,
     artifact_provisioner_image: str | None = None,
+    metrics: RuntimeMetricsRecorder | None = None,
 ) -> None:
     mode = optional_string(config.get("mode"), "mode") or "static_input"
     if mode == "static_input":
@@ -89,6 +93,7 @@ def run(
             config,
             compose_hash=compose_hash,
             artifact_provisioner_image=artifact_provisioner_image,
+            metrics=metrics,
         )
         return
     if mode == "dynamic_input":
@@ -96,6 +101,7 @@ def run(
             config,
             compose_hash=compose_hash,
             artifact_provisioner_image=artifact_provisioner_image,
+            metrics=metrics,
         )
         return
     if mode == "dynamic_output":
@@ -103,6 +109,7 @@ def run(
             config,
             compose_hash=compose_hash,
             artifact_provisioner_image=artifact_provisioner_image,
+            metrics=metrics,
         )
         return
     raise SidecarConfigError(f"unsupported artifact provisioner mode: {mode}")
@@ -116,6 +123,7 @@ def _materialize_encrypted_artifact(
     expected_ciphertext_hash: str,
     expected_plaintext_hash: str,
     key_bytes: bytes,
+    metrics: RuntimeMetricsRecorder | None = None,
 ) -> None:
     target_path = Path(staged_plaintext_path)
     target_path.parent.mkdir(parents=True, exist_ok=True)
@@ -125,26 +133,30 @@ def _materialize_encrypted_artifact(
         scratch_path.unlink(missing_ok=True)
 
     try:
-        http_get_to_file(url=download_url, output_path=ciphertext_path)
-        observed_ciphertext_hash = sha256_file_literal(ciphertext_path)
+        with runtime_phase(metrics, "download_ciphertext_seconds"):
+            http_get_to_file(url=download_url, output_path=ciphertext_path)
+        with runtime_phase(metrics, "verify_ciphertext_hash_seconds"):
+            observed_ciphertext_hash = sha256_file_literal(ciphertext_path)
         if observed_ciphertext_hash != expected_ciphertext_hash:
             raise RuntimeErrorBase(
                 "ciphertext hash mismatch for "
                 f"{artifact_name}: {observed_ciphertext_hash} != {expected_ciphertext_hash}"
             )
 
-        observed_plaintext_hash = decrypt_ciphertext_file(
-            ciphertext_path=ciphertext_path,
-            plaintext_path=plaintext_path,
-            key_bytes=key_bytes,
-        )
+        with runtime_phase(metrics, "decrypt_artifact_seconds"):
+            observed_plaintext_hash = decrypt_ciphertext_file(
+                ciphertext_path=ciphertext_path,
+                plaintext_path=plaintext_path,
+                key_bytes=key_bytes,
+            )
         if observed_plaintext_hash != expected_plaintext_hash:
             raise RuntimeErrorBase(
                 "decrypted plaintext hash mismatch for "
                 f"{artifact_name}: {observed_plaintext_hash} != {expected_plaintext_hash}"
             )
 
-        plaintext_path.replace(target_path)
+        with runtime_phase(metrics, "stage_plaintext_seconds"):
+            plaintext_path.replace(target_path)
     finally:
         ciphertext_path.unlink(missing_ok=True)
         plaintext_path.unlink(missing_ok=True)
@@ -155,57 +167,61 @@ def _run_static_input(
     *,
     compose_hash: str | None,
     artifact_provisioner_image: str | None,
+    metrics: RuntimeMetricsRecorder | None = None,
 ) -> None:
-    artifact_name = required_string(config, "artifact_name")
-    owner_config = _resolve_owner_config(config)
-    hub_path = required_string(config, "hub_path")
-    materialized_hub_path = _materialize_hub_path(
-        config,
-        hub_path=hub_path,
-        owner_config=owner_config,
-    )
-    static_hub_match = _validate_static_hub_path(
-        hub_path=materialized_hub_path,
-        artifact_name=artifact_name,
-        owner_config=owner_config,
-    )
-    expected_plaintext_hash = required_string(config, "expected_plaintext_hash")
-    staged_plaintext_path = required_string(config, "staged_plaintext_path")
-    metadata_path = required_string(config, "metadata_path")
-
-    provision_response = _fetch_key_release_response(
-        config,
-        owner_config=owner_config,
-        hub_path=materialized_hub_path,
-        compose_hash=compose_hash,
-        artifact_provisioner_image=artifact_provisioner_image,
-        require_allow_rule=False,
-    )
-
-    plaintext_hash = required_string(provision_response, "plaintext_hash")
-    ciphertext_hash = required_string(provision_response, "ciphertext_hash")
-    encryption_algorithm = required_string(provision_response, "encryption_algorithm")
-    key_bytes = decode_key_b64(required_string(provision_response, "key_b64"))
-
-    _verify_owner_response_binding(
-        provision_response,
-        owner_config=owner_config,
-        artifact_name=artifact_name,
-        hub_path=materialized_hub_path,
-        require_owner_url=True,
-    )
-    if encryption_algorithm != "aes-256-gcm":
-        raise RuntimeErrorBase(
-            f"unsupported encryption algorithm for {artifact_name}: {encryption_algorithm}"
+    with runtime_phase(metrics, "resolve_static_input_seconds"):
+        artifact_name = required_string(config, "artifact_name")
+        owner_config = _resolve_owner_config(config)
+        hub_path = required_string(config, "hub_path")
+        materialized_hub_path = _materialize_hub_path(
+            config,
+            hub_path=hub_path,
+            owner_config=owner_config,
         )
-    if plaintext_hash != expected_plaintext_hash:
-        raise RuntimeErrorBase(
-            f"plaintext hash mismatch for {artifact_name}: {plaintext_hash} != {expected_plaintext_hash}"
+        static_hub_match = _validate_static_hub_path(
+            hub_path=materialized_hub_path,
+            artifact_name=artifact_name,
+            owner_config=owner_config,
         )
-    if static_hub_match.group("reference") != ciphertext_hash:
-        raise RuntimeErrorBase(
-            f"ciphertext hash path mismatch for {artifact_name}: {static_hub_match.group('reference')} != {ciphertext_hash}"
+        expected_plaintext_hash = required_string(config, "expected_plaintext_hash")
+        staged_plaintext_path = required_string(config, "staged_plaintext_path")
+        metadata_path = required_string(config, "metadata_path")
+
+    with runtime_phase(metrics, "key_release_seconds"):
+        provision_response = _fetch_key_release_response(
+            config,
+            owner_config=owner_config,
+            hub_path=materialized_hub_path,
+            compose_hash=compose_hash,
+            artifact_provisioner_image=artifact_provisioner_image,
+            require_allow_rule=False,
         )
+
+    with runtime_phase(metrics, "verify_key_release_seconds"):
+        plaintext_hash = required_string(provision_response, "plaintext_hash")
+        ciphertext_hash = required_string(provision_response, "ciphertext_hash")
+        encryption_algorithm = required_string(provision_response, "encryption_algorithm")
+        key_bytes = decode_key_b64(required_string(provision_response, "key_b64"))
+
+        _verify_owner_response_binding(
+            provision_response,
+            owner_config=owner_config,
+            artifact_name=artifact_name,
+            hub_path=materialized_hub_path,
+            require_owner_url=True,
+        )
+        if encryption_algorithm != "aes-256-gcm":
+            raise RuntimeErrorBase(
+                f"unsupported encryption algorithm for {artifact_name}: {encryption_algorithm}"
+            )
+        if plaintext_hash != expected_plaintext_hash:
+            raise RuntimeErrorBase(
+                f"plaintext hash mismatch for {artifact_name}: {plaintext_hash} != {expected_plaintext_hash}"
+            )
+        if static_hub_match.group("reference") != ciphertext_hash:
+            raise RuntimeErrorBase(
+                f"ciphertext hash path mismatch for {artifact_name}: {static_hub_match.group('reference')} != {ciphertext_hash}"
+            )
 
     _materialize_encrypted_artifact(
         artifact_name=artifact_name,
@@ -214,21 +230,23 @@ def _run_static_input(
         expected_ciphertext_hash=ciphertext_hash,
         expected_plaintext_hash=plaintext_hash,
         key_bytes=key_bytes,
+        metrics=metrics,
     )
-    write_json_file(
-        metadata_path,
-        {
-            "artifact_name": artifact_name,
-            "owner_domain": owner_config.owner_domain,
-            "hub_path": materialized_hub_path,
-            "plaintext_hash": plaintext_hash,
-            "ciphertext_hash": ciphertext_hash,
-            "content_type": provision_response.get("content_type", "application/octet-stream"),
-            "transport_mode": provision_response.get("transport_mode", "encrypted"),
-            "key_path": provision_response.get("key_path"),
-            "encryption_algorithm": encryption_algorithm,
-        },
-    )
+    with runtime_phase(metrics, "write_input_metadata_seconds"):
+        write_json_file(
+            metadata_path,
+            {
+                "artifact_name": artifact_name,
+                "owner_domain": owner_config.owner_domain,
+                "hub_path": materialized_hub_path,
+                "plaintext_hash": plaintext_hash,
+                "ciphertext_hash": ciphertext_hash,
+                "content_type": provision_response.get("content_type", "application/octet-stream"),
+                "transport_mode": provision_response.get("transport_mode", "encrypted"),
+                "key_path": provision_response.get("key_path"),
+                "encryption_algorithm": encryption_algorithm,
+            },
+        )
     log("artifact_provisioner", f"provisioned static input {artifact_name} from {materialized_hub_path}")
 
 
@@ -237,51 +255,56 @@ def _run_dynamic_input(
     *,
     compose_hash: str | None,
     artifact_provisioner_image: str | None,
+    metrics: RuntimeMetricsRecorder | None = None,
 ) -> None:
-    artifact_name = required_string(config, "artifact_name")
-    owner_config = _resolve_owner_config(config)
-    hub_path = required_string(config, "hub_path")
-    materialized_hub_path = _materialize_hub_path(
-        config,
-        hub_path=hub_path,
-        owner_config=owner_config,
-    )
-    producer_certificate_path = required_string(config, "producer_certificate_path")
-    staged_plaintext_path = required_string(config, "staged_plaintext_path")
-    metadata_path = required_string(config, "metadata_path")
-
-    output_metadata = _load_dynamic_output_metadata(
-        certificate_path=producer_certificate_path,
-        artifact_name=artifact_name,
-        expected_owner_domain=owner_config.owner_domain,
-        expected_channel_hub_path=materialized_hub_path,
-    )
-    exact_hub_path = required_string(output_metadata, "hub_path")
-    channel_hub_path = optional_string(
-        output_metadata.get("channel_hub_path"),
-        "channel_hub_path",
-    ) or materialized_hub_path
-    provision_response = _fetch_key_release_response(
-        config,
-        owner_config=owner_config,
-        hub_path=channel_hub_path,
-        compose_hash=compose_hash,
-        artifact_provisioner_image=artifact_provisioner_image,
-        require_allow_rule=True,
-    )
-    _verify_owner_response_binding(
-        provision_response,
-        owner_config=owner_config,
-        artifact_name=artifact_name,
-        hub_path=channel_hub_path,
-        require_owner_url=False,
-    )
-    encryption_algorithm = required_string(provision_response, "encryption_algorithm")
-    key_bytes = decode_key_b64(required_string(provision_response, "key_b64"))
-    if encryption_algorithm != "aes-256-gcm":
-        raise RuntimeErrorBase(
-            f"unsupported encryption algorithm for {artifact_name}: {encryption_algorithm}"
+    with runtime_phase(metrics, "resolve_dynamic_input_seconds"):
+        artifact_name = required_string(config, "artifact_name")
+        owner_config = _resolve_owner_config(config)
+        hub_path = required_string(config, "hub_path")
+        materialized_hub_path = _materialize_hub_path(
+            config,
+            hub_path=hub_path,
+            owner_config=owner_config,
         )
+        producer_certificate_path = required_string(config, "producer_certificate_path")
+        staged_plaintext_path = required_string(config, "staged_plaintext_path")
+        metadata_path = required_string(config, "metadata_path")
+
+    with runtime_phase(metrics, "verify_producer_certificate_seconds"):
+        output_metadata = _load_dynamic_output_metadata(
+            certificate_path=producer_certificate_path,
+            artifact_name=artifact_name,
+            expected_owner_domain=owner_config.owner_domain,
+            expected_channel_hub_path=materialized_hub_path,
+        )
+        exact_hub_path = required_string(output_metadata, "hub_path")
+        channel_hub_path = optional_string(
+            output_metadata.get("channel_hub_path"),
+            "channel_hub_path",
+        ) or materialized_hub_path
+    with runtime_phase(metrics, "key_release_seconds"):
+        provision_response = _fetch_key_release_response(
+            config,
+            owner_config=owner_config,
+            hub_path=channel_hub_path,
+            compose_hash=compose_hash,
+            artifact_provisioner_image=artifact_provisioner_image,
+            require_allow_rule=True,
+        )
+    with runtime_phase(metrics, "verify_key_release_seconds"):
+        _verify_owner_response_binding(
+            provision_response,
+            owner_config=owner_config,
+            artifact_name=artifact_name,
+            hub_path=channel_hub_path,
+            require_owner_url=False,
+        )
+        encryption_algorithm = required_string(provision_response, "encryption_algorithm")
+        key_bytes = decode_key_b64(required_string(provision_response, "key_b64"))
+        if encryption_algorithm != "aes-256-gcm":
+            raise RuntimeErrorBase(
+                f"unsupported encryption algorithm for {artifact_name}: {encryption_algorithm}"
+            )
 
     _materialize_encrypted_artifact(
         artifact_name=artifact_name,
@@ -290,15 +313,17 @@ def _run_dynamic_input(
         expected_ciphertext_hash=required_string(output_metadata, "ciphertext_hash"),
         expected_plaintext_hash=required_string(output_metadata, "plaintext_hash"),
         key_bytes=key_bytes,
+        metrics=metrics,
     )
-    write_json_file(
-        metadata_path,
-        {
-            **output_metadata,
-            "key_path": provision_response.get("key_path"),
-            "transport_mode": output_metadata.get("transport_mode", "encrypted"),
-        },
-    )
+    with runtime_phase(metrics, "write_input_metadata_seconds"):
+        write_json_file(
+            metadata_path,
+            {
+                **output_metadata,
+                "key_path": provision_response.get("key_path"),
+                "transport_mode": output_metadata.get("transport_mode", "encrypted"),
+            },
+        )
     log("artifact_provisioner", f"provisioned dynamic input {artifact_name} from {exact_hub_path}")
 
 
@@ -307,103 +332,113 @@ def _run_dynamic_output(
     *,
     compose_hash: str | None,
     artifact_provisioner_image: str | None,
+    metrics: RuntimeMetricsRecorder | None = None,
 ) -> None:
-    artifact_name = required_string(config, "artifact_name")
-    owner_config = _resolve_owner_config(config)
-    hub_path = required_string(config, "hub_path")
-    materialized_hub_path = _materialize_hub_path(
-        config,
-        hub_path=hub_path,
-        owner_config=owner_config,
-    )
-    workflow_id = required_string(config, "workflow_id")
-    node_id = required_string(config, "node_id")
-    output_source_path = required_string(config, "output_source_path")
-    metadata_path = required_string(config, "metadata_path")
-    if compose_hash is None:
-        compose_hash = required_string(config, "compose_hash")
+    with runtime_phase(metrics, "resolve_dynamic_output_seconds"):
+        artifact_name = required_string(config, "artifact_name")
+        owner_config = _resolve_owner_config(config)
+        hub_path = required_string(config, "hub_path")
+        materialized_hub_path = _materialize_hub_path(
+            config,
+            hub_path=hub_path,
+            owner_config=owner_config,
+        )
+        workflow_id = required_string(config, "workflow_id")
+        node_id = required_string(config, "node_id")
+        output_source_path = required_string(config, "output_source_path")
+        metadata_path = required_string(config, "metadata_path")
+        if compose_hash is None:
+            compose_hash = required_string(config, "compose_hash")
 
-    provision_response = _fetch_key_release_response(
-        config,
-        owner_config=owner_config,
-        hub_path=materialized_hub_path,
-        compose_hash=compose_hash,
-        artifact_provisioner_image=artifact_provisioner_image,
-        require_allow_rule=True,
-    )
-    _verify_owner_response_binding(
-        provision_response,
-        owner_config=owner_config,
-        artifact_name=artifact_name,
-        hub_path=materialized_hub_path,
-        require_owner_url=False,
-    )
-    encryption_algorithm = required_string(provision_response, "encryption_algorithm")
-    key_bytes = decode_key_b64(required_string(provision_response, "key_b64"))
-    if encryption_algorithm != "aes-256-gcm":
-        raise RuntimeErrorBase(
-            f"unsupported encryption algorithm for {artifact_name}: {encryption_algorithm}"
+    with runtime_phase(metrics, "key_release_seconds"):
+        provision_response = _fetch_key_release_response(
+            config,
+            owner_config=owner_config,
+            hub_path=materialized_hub_path,
+            compose_hash=compose_hash,
+            artifact_provisioner_image=artifact_provisioner_image,
+            require_allow_rule=True,
+        )
+    with runtime_phase(metrics, "verify_key_release_seconds"):
+        _verify_owner_response_binding(
+            provision_response,
+            owner_config=owner_config,
+            artifact_name=artifact_name,
+            hub_path=materialized_hub_path,
+            require_owner_url=False,
+        )
+        encryption_algorithm = required_string(provision_response, "encryption_algorithm")
+        key_bytes = decode_key_b64(required_string(provision_response, "key_b64"))
+        if encryption_algorithm != "aes-256-gcm":
+            raise RuntimeErrorBase(
+                f"unsupported encryption algorithm for {artifact_name}: {encryption_algorithm}"
+            )
+
+    with runtime_phase(metrics, "wait_for_output_seconds"):
+        output_path = wait_for_file(output_source_path)
+    with runtime_phase(metrics, "read_output_seconds"):
+        plaintext = output_path.read_bytes()
+        plaintext_hash = sha256_literal(plaintext)
+    with runtime_phase(metrics, "encrypt_output_seconds"):
+        ciphertext = encrypt_plaintext_bytes(plaintext=plaintext, key_bytes=key_bytes)
+        ciphertext_hash = sha256_literal(ciphertext)
+        exact_hub_path = _exact_hub_path(materialized_hub_path, ciphertext_hash)
+        content_type = mimetypes.guess_type(output_path.name)[0] or "application/octet-stream"
+
+    with runtime_phase(metrics, "collect_output_attestation_seconds"):
+        attestation_bundle = collect_attestation_bundle(
+            load_attestation_settings(config),
+            report_data=build_runtime_artifact_report_data(
+                workflow_id=workflow_id,
+                node_id=node_id,
+                compose_hash=compose_hash,
+                artifact_name=artifact_name,
+            ),
+        )
+        event_log = attestation_bundle.get("event_log")
+        if event_log is None:
+            raise RuntimeErrorBase("runtime artifact attestation bundle is missing event_log")
+        attestation_payload: dict[str, object] = {
+            "quote": required_string(attestation_bundle, "quote"),
+            "event_log": event_log,
+            "workflow_id": workflow_id,
+            "artifact_name": artifact_name,
+            "node_id": node_id,
+            "compose_hash": compose_hash,
+            "attestation_format": required_string(attestation_bundle, "format"),
+            "report_data": required_string(attestation_bundle, "report_data"),
+        }
+        info = attestation_bundle.get("info")
+        if isinstance(info, dict):
+            attestation_payload["info"] = info
+
+    with runtime_phase(metrics, "upload_output_seconds"):
+        http_put_bytes_upload_session(
+            url=join_url(_server_url(config), exact_hub_path),
+            payload=ciphertext,
+            headers={"Content-Type": "application/octet-stream"},
+            session_create_payload={
+                "upload_length": len(ciphertext),
+                "attestation": attestation_payload,
+            },
         )
 
-    output_path = wait_for_file(output_source_path)
-    plaintext = output_path.read_bytes()
-    plaintext_hash = sha256_literal(plaintext)
-    ciphertext = encrypt_plaintext_bytes(plaintext=plaintext, key_bytes=key_bytes)
-    ciphertext_hash = sha256_literal(ciphertext)
-    exact_hub_path = _exact_hub_path(materialized_hub_path, ciphertext_hash)
-    content_type = mimetypes.guess_type(output_path.name)[0] or "application/octet-stream"
-
-    attestation_bundle = collect_attestation_bundle(
-        load_attestation_settings(config),
-        report_data=build_runtime_artifact_report_data(
-            workflow_id=workflow_id,
-            node_id=node_id,
-            compose_hash=compose_hash,
-            artifact_name=artifact_name,
-        ),
-    )
-    event_log = attestation_bundle.get("event_log")
-    if event_log is None:
-        raise RuntimeErrorBase("runtime artifact attestation bundle is missing event_log")
-    attestation_payload: dict[str, object] = {
-        "quote": required_string(attestation_bundle, "quote"),
-        "event_log": event_log,
-        "workflow_id": workflow_id,
-        "artifact_name": artifact_name,
-        "node_id": node_id,
-        "compose_hash": compose_hash,
-        "attestation_format": required_string(attestation_bundle, "format"),
-        "report_data": required_string(attestation_bundle, "report_data"),
-    }
-    info = attestation_bundle.get("info")
-    if isinstance(info, dict):
-        attestation_payload["info"] = info
-
-    http_put_bytes_upload_session(
-        url=join_url(_server_url(config), exact_hub_path),
-        payload=ciphertext,
-        headers={"Content-Type": "application/octet-stream"},
-        session_create_payload={
-            "upload_length": len(ciphertext),
-            "attestation": attestation_payload,
-        },
-    )
-
-    write_json_file(
-        metadata_path,
-        {
-            "artifact_name": artifact_name,
-            "owner_domain": owner_config.owner_domain,
-            "hub_path": exact_hub_path,
-            "channel_hub_path": materialized_hub_path,
-            "plaintext_hash": plaintext_hash,
-            "ciphertext_hash": ciphertext_hash,
-            "content_type": content_type,
-            "transport_mode": "encrypted",
-            "key_path": provision_response.get("key_path"),
-            "encryption_algorithm": encryption_algorithm,
-        },
-    )
+    with runtime_phase(metrics, "write_output_metadata_seconds"):
+        write_json_file(
+            metadata_path,
+            {
+                "artifact_name": artifact_name,
+                "owner_domain": owner_config.owner_domain,
+                "hub_path": exact_hub_path,
+                "channel_hub_path": materialized_hub_path,
+                "plaintext_hash": plaintext_hash,
+                "ciphertext_hash": ciphertext_hash,
+                "content_type": content_type,
+                "transport_mode": "encrypted",
+                "key_path": provision_response.get("key_path"),
+                "encryption_algorithm": encryption_algorithm,
+            },
+        )
     log("artifact_provisioner", f"published dynamic output {artifact_name} to {exact_hub_path}")
 
 
@@ -446,7 +481,7 @@ def _fetch_key_release_response(
         artifact_provisioner_digest = _artifact_provisioner_digest(artifact_provisioner_image)
         attestation_bundle = collect_attestation_bundle(
             load_attestation_settings(config),
-                report_data=build_key_release_report_data(
+            report_data=build_key_release_report_data(
                 workflow_publisher_domain=workflow_publisher_domain,
                 workflow_id=workflow_id,
                 node_id=node_id,
@@ -763,11 +798,20 @@ def _server_url(config: dict[str, object]) -> str:
 
 
 def main() -> int:
+    metrics: RuntimeMetricsRecorder | None = None
     try:
         context = load_inline_sidecar_context()
-        run(context.config, compose_hash=context.compose_hash)
+        mode = optional_string(context.config.get("mode"), "mode") or "static_input"
+        metrics = runtime_metrics_recorder_from_env(
+            service_name=context.service_name,
+            role=f"artifact_provisioner:{mode}",
+        )
+        run(context.config, compose_hash=context.compose_hash, metrics=metrics)
+        metrics.write(exit_code=0)
         return 0
     except (RuntimeErrorBase, SidecarConfigError) as exc:
+        if metrics is not None:
+            metrics.write(exit_code=1, error=str(exc))
         print(f"ERROR: {exc}", flush=True)
         return 1
 

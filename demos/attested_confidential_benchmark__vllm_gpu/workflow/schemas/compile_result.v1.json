@@ -44,6 +44,46 @@
     },
     "vllm_version": {
       "type": "string"
+    },
+    "timings_seconds": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "number",
+        "minimum": 0
+      }
+    },
+    "total_wall_seconds": {
+      "type": "number",
+      "minimum": 0
+    },
+    "benchmark_profile": {
+      "type": "object",
+      "properties": {
+        "artifact_io_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "outer_wall_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "startup_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "teardown_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "workload_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "public_assets_already_cached": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": true
     }
   },
   "additionalProperties": true

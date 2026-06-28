@@ -149,3 +149,13 @@ source-build fallback for a CUDA 12.x vLLM wheel instead of this prebuilt CUDA
 - Result schemas include provenance hashes for the public base, private inputs,
   Alice's patch, and the compiled wheel so downstream preconditions can bind
   each node to the bytes attested upstream.
+- The GPU node compose files set `COVE_DEMO_ENABLE_TIMING=1`. Terminating
+  audit, compile, and benchmark nodes include `timings_seconds` and
+  `total_wall_seconds` in their certificate result payloads; the final
+  deployment node logs startup timings because it is intentionally
+  non-terminating.
+- Generated runtime certificates also include `certificate_body.runtime_metrics`
+  for sidecars, generated input-copy services, and the main workload service.
+  Use these records to separate artifact/key-release/dependency/precondition
+  sidecar time from workload time. `cove deploy` JSON includes per-node Phala
+  deploy/update wall-clock timings separately.

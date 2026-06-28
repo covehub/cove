@@ -112,6 +112,30 @@ def test_build_mock_certificate_binds_quote_to_certificate_body_hash() -> None:
     assert verify_mock_certificate(certificate)["certificate_body"]["node_id"] == "node_one"
 
 
+def test_mock_certificate_includes_runtime_metrics_in_body() -> None:
+    metrics = {
+        "worker": {
+            "schema_version": "cove_runtime_metrics_v1",
+            "service_name": "worker",
+            "role": "workload",
+            "wall_seconds": 1.25,
+        }
+    }
+    certificate = build_mock_certificate(
+        workflow_id="hello_world",
+        node_name="node_one",
+        generated_node_compose_hash="sha256:1234",
+        inputs={},
+        ephemeral_keypairs={},
+        results={"worker": {"pass": True}},
+        runtime_metrics=metrics,
+    )
+
+    verified = verify_mock_certificate(certificate, expected_node_name="node_one")
+
+    assert verified["certificate_body"]["runtime_metrics"] == metrics
+
+
 def test_verify_mock_certificate_rejects_mismatched_quote() -> None:
     certificate = build_mock_certificate(
         workflow_id="hello_world",

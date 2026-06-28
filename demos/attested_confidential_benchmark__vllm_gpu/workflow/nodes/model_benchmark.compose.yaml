@@ -1,7 +1,8 @@
 services:
   benchmark_runner:
-    image: "covehub/cove-demo-attested-confidential-eval-vllm-gpu-benchmark-runner@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    image: "covehub/cove-demo-attested-confidential-eval-vllm-gpu-benchmark-runner@sha256:49f0b0a93063ab041cf7aba972b427e6274ec9626a1b3d1cc48c589e93bb1796"
     environment:
+      COVE_DEMO_ENABLE_TIMING: "1"
       EVAL_CODE_PATH: /workspace/input/bob_private_eval_code.py
       EVAL_DATA_PATH: /workspace/input/bob_private_eval_data.jsonl
       MODEL_NAME: CoveDemoModel

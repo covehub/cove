@@ -65,6 +65,21 @@ def test_summarize_confidential_compute_status() -> None:
     )
 
 
+def test_vllm_log_observer_extracts_model_and_cuda_graph_events(monkeypatch) -> None:
+    module = _load_gpu_common()
+    times = iter([100.0, 101.0, 105.0, 108.0, 109.0])
+    monkeypatch.setattr(module.time, "monotonic", lambda: next(times))
+
+    observer = module.VllmLogObserver()
+    observer.observe("Loading model weights took 3.2 GiB")
+    observer.observe("Capturing CUDA graph for decoding")
+    observer.observe("CUDA graph capture finished")
+    metrics = observer.metrics()
+
+    assert metrics["vllm_log_model_load_observed_seconds"] == 0.0
+    assert metrics["vllm_log_cuda_graph_observed_seconds"] == 3.0
+
+
 def test_require_cuda_preflight_accepts_cuda13_r580(monkeypatch) -> None:
     module = _load_gpu_common()
     monkeypatch.setattr(
@@ -120,3 +135,44 @@ def test_wheel_install_filename_uses_wheel_metadata(tmp_path) -> None:
         module.wheel_install_filename(wheel_path)
         == "vllm-0.17.0+cu130-cp38-abi3-manylinux_2_35_x86_64.whl"
     )
+
+
+def test_timing_recorder_is_env_gated(monkeypatch) -> None:
+    module = _load_gpu_common()
+    monkeypatch.setenv("COVE_DEMO_ENABLE_TIMING", "1")
+    recorder = module.TimingRecorder()
+    payload = {}
+
+    with module.timed_step(recorder, "example_seconds"):
+        pass
+    recorder.add_to_payload(payload)
+
+    assert payload["total_wall_seconds"] >= 0
+    assert payload["timings_seconds"]["example_seconds"] >= 0
+
+
+def test_add_timing_metadata_builds_benchmark_profile(monkeypatch) -> None:
+    module = _load_gpu_common()
+    monkeypatch.setenv("COVE_DEMO_ENABLE_TIMING", "1")
+    recorder = module.TimingRecorder()
+    recorder.timings = {
+        "load_seconds": 1.25,
+        "run_seconds": 2.5,
+        "cleanup_seconds": 0.25,
+    }
+    payload = {}
+
+    module.add_timing_metadata(
+        payload,
+        recorder,
+        workload_keys=["run_seconds"],
+        startup_keys=["load_seconds"],
+        teardown_keys=["cleanup_seconds"],
+        public_assets_already_cached=True,
+    )
+
+    assert payload["benchmark_profile"]["workload_seconds"] == 2.5
+    assert payload["benchmark_profile"]["startup_seconds"] == 1.25
+    assert payload["benchmark_profile"]["teardown_seconds"] == 0.25
+    assert payload["benchmark_profile"]["outer_wall_seconds"] == payload["total_wall_seconds"]
+    assert payload["benchmark_profile"]["public_assets_already_cached"] is True

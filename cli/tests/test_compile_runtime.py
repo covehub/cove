@@ -357,11 +357,23 @@ def test_compile_emits_generated_compose_hash_and_sidecars(tmp_path) -> None:
     )
     assert "COVE_COMPOSE_PATH" not in services["cove_provision_alice_secret_word_transformed"]["environment"]
     assert compose_payload["volumes"]["cove_runtime"] == {}
+    assert compose_payload["volumes"]["cove_metrics"] == {}
     assert alice_payload["volumes"]["cove_runtime"] == {}
+    assert alice_payload["volumes"]["cove_metrics"] == {}
+    assert (
+        services["cove_provision_alice_secret_word_transformed"]["environment"]["COVE_RUNTIME_METRICS_PATH"]
+        == "/cove_metrics/cove_provision_alice_secret_word_transformed.json"
+    )
     assert services["cove_provision_alice_secret_word_transformed"]["volumes"][0] == {
         "type": "volume",
         "source": "cove_runtime",
         "target": "/cove",
+        "read_only": False,
+    }
+    assert services["cove_provision_alice_secret_word_transformed"]["volumes"][1] == {
+        "type": "volume",
+        "source": "cove_metrics",
+        "target": "/cove_metrics",
         "read_only": False,
     }
     alice_copy_services = {
@@ -405,6 +417,16 @@ def test_compile_emits_generated_compose_hash_and_sidecars(tmp_path) -> None:
         and volume["read_only"] is True
         for volume in services["final_server"]["volumes"]
     )
+    assert services["final_server"]["environment"]["COVE_RUNTIME_METRICS_PATH"] == (
+        "/cove_metrics/final_server.json"
+    )
+    assert any(
+        volume["type"] == "volume"
+        and volume["source"] == "cove_metrics"
+        and volume["target"] == "/cove_metrics"
+        and volume["read_only"] is False
+        for volume in services["final_server"]["volumes"]
+    )
     assert "COVE_RUNTIME_IMAGE" not in compose_text
     assert "cove-runtime-sidecar" not in compose_text
     assert "COVE_CONFIG_JSON: |" in compose_text
@@ -428,6 +450,13 @@ def test_compile_emits_generated_compose_hash_and_sidecars(tmp_path) -> None:
     assert node_certificate_writer_config["covehub_server_url"] == "http://127.0.0.1:8000"
     assert node_certificate_writer_config["workflow_publisher_domain"] == PUBLISHER_DOMAIN
     assert "generated_node_compose_hash" not in node_certificate_writer_config
+    runtime_metric_names = {
+        entry["name"]
+        for entry in node_certificate_writer_config["runtime_metrics"]
+    }
+    assert "final_server" in runtime_metric_names
+    assert "cove_preconditions_final_server" in runtime_metric_names
+    assert "cove_node_certificate_writer" not in runtime_metric_names
     assert node_certificate_writer_config["attestation"] == {
         "mode": "phala_dstack",
         "provider": "phala",

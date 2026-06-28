@@ -1,4 +1,4 @@
-FROM vllm/vllm-openai@sha256:14ea8b431aaaf75eb873c46c8ebfbad2b4b0790d30c66126d789d8cb9bd0aab9
+FROM vllm/vllm-openai@sha256:a811fd3cd85d1bece3ffd32342e2567c754efa92a08e49bcf18ae9571ac936d9
 
 ARG VLLM_VERSION=0.17.0
 WORKDIR /app

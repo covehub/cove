@@ -21,12 +21,18 @@ from cryptography.hazmat.primitives.asymmetric import ed25519
 from cryptography.hazmat.primitives.serialization import load_pem_private_key
 
 from cove_demo_common import (
+    TimingRecorder,
+    VllmLogObserver,
+    add_timing_metadata,
     extract_tarball,
     install_private_wheel,
     log,
     optional_env,
     require_env,
     require_cuda_preflight,
+    run_openai_chat_probe,
+    start_logged_process,
+    timed_step,
     wait_for_http,
 )
 
@@ -54,7 +60,11 @@ def _resolve_model_dir(extract_root: Path) -> Path:
     return extract_root
 
 
-def _start_vllm_server(model_dir: Path, model_name: str) -> subprocess.Popen[str]:
+def _start_vllm_server(
+    model_dir: Path,
+    model_name: str,
+    timings: TimingRecorder,
+) -> subprocess.Popen[str]:
     env = os.environ.copy()
     env["VLLM_DEVICE"] = env.get("VLLM_DEVICE", "cuda")
     command = [
@@ -79,12 +89,12 @@ def _start_vllm_server(model_dir: Path, model_name: str) -> subprocess.Popen[str
         command.extend(["--max-model-len", max_model_len])
     if env.get("VLLM_ENFORCE_EAGER", "0").strip().lower() in {"1", "true", "yes"}:
         command.append("--enforce-eager")
-    process = subprocess.Popen(
-        command,
-        env=env,
-        text=True,
-    )
-    wait_for_http("http://127.0.0.1:8000/health", timeout_seconds=300)
+    observer = VllmLogObserver()
+    with timed_step(timings, "vllm_process_start_seconds"):
+        process = start_logged_process(command, env=env, service=SERVICE, observer=observer)
+    with timed_step(timings, "vllm_health_wait_seconds"):
+        wait_for_http("http://127.0.0.1:8000/health", timeout_seconds=300)
+    timings.merge(observer.metrics())
     return process
 
 
@@ -208,6 +218,8 @@ class ForwardingHandler(BaseHTTPRequestHandler):
         connection.close()
 
     def _forward_signed_chat_completion(self) -> None:
+        request_started = time.monotonic()
+        phase_timings: dict[str, float] = {}
         nonce = self.headers.get("X-Cove-Nonce", "").strip()
         if not nonce:
             self._send_json(400, {"error": "X-Cove-Nonce header is required"})
@@ -215,12 +227,16 @@ class ForwardingHandler(BaseHTTPRequestHandler):
         if self.receipt_private_key is None:
             self._send_json(500, {"error": "receipt signer is not initialized"})
             return
+        phase_started = time.monotonic()
         body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
+        phase_timings["proxy_receive_seconds"] = round(time.monotonic() - phase_started, 6)
+        phase_started = time.monotonic()
         try:
             request_payload = json.loads(body.decode("utf-8"))
         except json.JSONDecodeError:
             self._send_json(400, {"error": "chat request body must be JSON"})
             return
+        phase_timings["request_parse_seconds"] = round(time.monotonic() - phase_started, 6)
         if not isinstance(request_payload, dict):
             self._send_json(400, {"error": "chat request body must be a JSON object"})
             return
@@ -228,6 +244,7 @@ class ForwardingHandler(BaseHTTPRequestHandler):
             self._send_json(400, {"error": "response receipts require stream=false"})
             return
 
+        phase_started = time.monotonic()
         connection = HTTPConnection(self.backend_host, self.backend_port, timeout=120)
         connection.request(
             self.command,
@@ -239,6 +256,7 @@ class ForwardingHandler(BaseHTTPRequestHandler):
         backend_payload = backend_response.read()
         backend_headers = backend_response.getheaders()
         connection.close()
+        phase_timings["vllm_backend_roundtrip_seconds"] = round(time.monotonic() - phase_started, 6)
 
         if backend_response.status >= 400:
             self.send_response(backend_response.status)
@@ -251,6 +269,7 @@ class ForwardingHandler(BaseHTTPRequestHandler):
             self.wfile.write(backend_payload)
             return
 
+        phase_started = time.monotonic()
         try:
             response_payload = json.loads(backend_payload.decode("utf-8"))
         except json.JSONDecodeError:
@@ -259,7 +278,9 @@ class ForwardingHandler(BaseHTTPRequestHandler):
         if not isinstance(response_payload, dict):
             self._send_json(502, {"error": "backend chat response was not a JSON object"})
             return
+        phase_timings["response_parse_seconds"] = round(time.monotonic() - phase_started, 6)
 
+        phase_started = time.monotonic()
         receipt = _receipt_payload(
             private_key=self.receipt_private_key,
             keypair_name=self.receipt_keypair_name,
@@ -269,11 +290,17 @@ class ForwardingHandler(BaseHTTPRequestHandler):
             response_payload=response_payload,
             model_name=self.model_name,
         )
+        phase_timings["receipt_sign_seconds"] = round(time.monotonic() - phase_started, 6)
         signed_payload = {
             **response_payload,
             "cove_receipt": receipt,
         }
+        phase_started = time.monotonic()
         encoded = json.dumps(signed_payload, separators=(",", ":")).encode("utf-8")
+        phase_timings["response_encode_seconds"] = round(time.monotonic() - phase_started, 6)
+        phase_timings["total_request_seconds"] = round(time.monotonic() - request_started, 6)
+        timings_header = json.dumps(phase_timings, sort_keys=True, separators=(",", ":"))
+        log(SERVICE, f"request timings: {timings_header}")
         self.send_response(backend_response.status)
         for key, value in backend_headers:
             if key.lower() in {
@@ -285,6 +312,7 @@ class ForwardingHandler(BaseHTTPRequestHandler):
                 continue
             self.send_header(key, value)
         self.send_header("Content-Type", "application/json")
+        self.send_header("X-Cove-Request-Timings", timings_header)
         self.send_header("Content-Length", str(len(encoded)))
         self.end_headers()
         self.wfile.write(encoded)
@@ -320,6 +348,7 @@ class ForwardingHandler(BaseHTTPRequestHandler):
 
 
 def main() -> int:
+    timings = TimingRecorder()
     serving_wheel_path = Path(require_env("SERVING_WHEEL_PATH"))
     model_archive_path = Path(require_env("MODEL_ARCHIVE_PATH"))
     tls_cert_path = require_env("TLS_CERT_PATH")
@@ -328,30 +357,59 @@ def main() -> int:
     port = int(optional_env("PORT", "8443"))
     model_name = optional_env("MODEL_NAME", "CoveDemoModel")
 
-    gpu_status = require_cuda_preflight(SERVICE)
+    with timed_step(timings, "cuda_preflight_seconds"):
+        gpu_status = require_cuda_preflight(SERVICE)
     log(SERVICE, f"GPU status: {json.dumps(gpu_status, sort_keys=True)}")
 
     with tempfile.TemporaryDirectory(prefix="cove-model-server-") as temp_dir:
         temp_root = Path(temp_dir)
         # Alice's private compiled serving wheel is installed before exposing
         # the attested model endpoint.
-        install_private_wheel(serving_wheel_path, temp_root)
+        with timed_step(timings, "install_serving_wheel_seconds"):
+            install_private_wheel(serving_wheel_path, temp_root)
 
         # Alice's private model archive is unpacked only inside this final
         # serving node and loaded by the local vLLM process.
-        model_root = extract_tarball(model_archive_path, temp_root / "model")
-        model_dir = _resolve_model_dir(model_root)
-        process = _start_vllm_server(model_dir, model_name)
+        with timed_step(timings, "extract_model_archive_seconds"):
+            model_root = extract_tarball(model_archive_path, temp_root / "model")
+            model_dir = _resolve_model_dir(model_root)
+        with timed_step(timings, "start_vllm_server_seconds"):
+            process = _start_vllm_server(model_dir, model_name, timings)
         try:
-            receipt_private_key = _load_receipt_private_key(tls_key_path)
-            ForwardingHandler.model_name = model_name
-            ForwardingHandler.receipt_private_key = receipt_private_key
-            ForwardingHandler.receipt_keypair_name = _keypair_name_from_path(tls_key_path)
-            ForwardingHandler.receipt_public_key_hash = _public_key_hash(receipt_private_key)
-            server = ThreadingHTTPServer((host, port), ForwardingHandler)
-            ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-            ssl_context.load_cert_chain(certfile=tls_cert_path, keyfile=tls_key_path)
-            server.socket = ssl_context.wrap_socket(server.socket, server_side=True)
+            with timed_step(timings, "single_request_probe_seconds"):
+                run_openai_chat_probe(
+                    base_url="http://127.0.0.1:8000/v1",
+                    model=model_name,
+                    timeout_seconds=60,
+                )
+            with timed_step(timings, "initialize_ratls_proxy_seconds"):
+                receipt_private_key = _load_receipt_private_key(tls_key_path)
+                ForwardingHandler.model_name = model_name
+                ForwardingHandler.receipt_private_key = receipt_private_key
+                ForwardingHandler.receipt_keypair_name = _keypair_name_from_path(tls_key_path)
+                ForwardingHandler.receipt_public_key_hash = _public_key_hash(receipt_private_key)
+                server = ThreadingHTTPServer((host, port), ForwardingHandler)
+                ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+                ssl_context.load_cert_chain(certfile=tls_cert_path, keyfile=tls_key_path)
+                server.socket = ssl_context.wrap_socket(server.socket, server_side=True)
+            if timings.enabled:
+                timing_payload: dict[str, object] = {}
+                add_timing_metadata(
+                    timing_payload,
+                    timings,
+                    workload_keys=[],
+                    startup_keys=[
+                        "cuda_preflight_seconds",
+                        "start_vllm_server_seconds",
+                        "initialize_ratls_proxy_seconds",
+                    ],
+                    artifact_io_keys=[
+                        "install_serving_wheel_seconds",
+                        "extract_model_archive_seconds",
+                    ],
+                    public_assets_already_cached=True,
+                )
+                log(SERVICE, f"startup timings: {json.dumps(timing_payload, sort_keys=True)}")
             log(SERVICE, f"serving RA-TLS proxy on https://{host}:{port}")
             server.serve_forever()
         finally:

@@ -6,9 +6,11 @@ import json
 import os
 import ssl
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 from urllib import error as urllib_error
 from urllib import parse as urllib_parse
 from urllib import request as urllib_request
@@ -39,6 +41,88 @@ class SidecarContext:
     service_name: str
     compose_hash: str
     config: dict[str, Any]
+
+
+def utc_now_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+class RuntimeMetricsRecorder:
+    def __init__(
+        self,
+        *,
+        service_name: str,
+        role: str,
+        metrics_path: str | Path | None = None,
+    ) -> None:
+        self.service_name = service_name
+        self.role = role
+        self.metrics_path = Path(metrics_path) if metrics_path else None
+        self.started_at = utc_now_iso()
+        self._started_monotonic = time.monotonic()
+        self.phase_timings_seconds: dict[str, float] = {}
+        self.extra: dict[str, Any] = {}
+
+    @contextmanager
+    def phase(self, name: str) -> Iterator[None]:
+        started = time.monotonic()
+        try:
+            yield
+        finally:
+            self.phase_timings_seconds[name] = round(time.monotonic() - started, 6)
+
+    def add_phase(self, name: str, seconds: float) -> None:
+        self.phase_timings_seconds[name] = round(max(0.0, float(seconds)), 6)
+
+    def update_extra(self, **values: Any) -> None:
+        self.extra.update(values)
+
+    def payload(self, *, exit_code: int | None, error: str | None = None) -> dict[str, Any]:
+        ended_at = utc_now_iso()
+        payload: dict[str, Any] = {
+            "schema_version": "cove_runtime_metrics_v1",
+            "service_name": self.service_name,
+            "role": self.role,
+            "started_at": self.started_at,
+            "ended_at": ended_at,
+            "wall_seconds": round(time.monotonic() - self._started_monotonic, 6),
+            "phase_timings_seconds": dict(sorted(self.phase_timings_seconds.items())),
+            "exit_code": exit_code,
+            "ok": exit_code == 0,
+        }
+        if error:
+            payload["error"] = error
+        payload.update(self.extra)
+        return payload
+
+    def write(self, *, exit_code: int | None, error: str | None = None) -> None:
+        if self.metrics_path is None:
+            return
+        write_json_file(self.metrics_path, self.payload(exit_code=exit_code, error=error))
+
+
+def runtime_metrics_recorder_from_env(
+    *,
+    service_name: str,
+    role: str,
+) -> RuntimeMetricsRecorder:
+    return RuntimeMetricsRecorder(
+        service_name=service_name,
+        role=role,
+        metrics_path=os.getenv("COVE_RUNTIME_METRICS_PATH"),
+    )
+
+
+@contextmanager
+def runtime_phase(
+    recorder: RuntimeMetricsRecorder | None,
+    name: str,
+) -> Iterator[None]:
+    if recorder is None:
+        yield
+        return
+    with recorder.phase(name):
+        yield
 
 
 def sha256_literal(payload: bytes) -> str:

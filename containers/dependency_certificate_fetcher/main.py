@@ -5,6 +5,7 @@ import time
 from cove_container_runtime.certificates import verify_node_certificate
 from cove_container_runtime.common import (
     RuntimeErrorBase,
+    RuntimeMetricsRecorder,
     SidecarConfigError,
     http_get_json,
     join_url,
@@ -12,11 +13,13 @@ from cove_container_runtime.common import (
     log,
     required_mapping,
     required_string,
+    runtime_metrics_recorder_from_env,
+    runtime_phase,
     write_json_file,
 )
 
 
-def run(config: dict[str, object]) -> None:
+def run(config: dict[str, object], *, metrics: RuntimeMetricsRecorder | None = None) -> None:
     node_name = required_string(config, "node_name")
     covehub_server_url = required_string(config, "covehub_server_url")
     workflow_publisher_domain = required_string(config, "workflow_publisher_domain")
@@ -41,18 +44,20 @@ def run(config: dict[str, object]) -> None:
             dependency,
             "expected_generated_node_compose_hash",
         )
-        certificate = _wait_for_runtime_certificate(
-            covehub_server_url=covehub_server_url,
-            workflow_publisher_domain=workflow_publisher_domain,
-            workflow_id=workflow_id,
-            dependency_name=dependency_name,
-            expected_workflow_id=expected_workflow_id,
-            expected_node_id=expected_node_id,
-            expected_generated_node_compose_hash=expected_generated_node_compose_hash,
-            timeout_seconds=timeout_seconds,
-            poll_interval_seconds=poll_interval_seconds,
-        )
-        write_json_file(certificate_path, certificate)
+        with runtime_phase(metrics, f"fetch_certificate_{dependency_name}_seconds"):
+            certificate = _wait_for_runtime_certificate(
+                covehub_server_url=covehub_server_url,
+                workflow_publisher_domain=workflow_publisher_domain,
+                workflow_id=workflow_id,
+                dependency_name=dependency_name,
+                expected_workflow_id=expected_workflow_id,
+                expected_node_id=expected_node_id,
+                expected_generated_node_compose_hash=expected_generated_node_compose_hash,
+                timeout_seconds=timeout_seconds,
+                poll_interval_seconds=poll_interval_seconds,
+            )
+        with runtime_phase(metrics, f"write_certificate_{dependency_name}_seconds"):
+            write_json_file(certificate_path, certificate)
         log(
             "dependency_certificate_fetcher",
             f"{node_name} fetched certificate for dependency {dependency_name}",
@@ -118,10 +123,19 @@ def _required_number(value: object, label: str) -> float:
 
 
 def main() -> int:
+    metrics: RuntimeMetricsRecorder | None = None
     try:
-        run(load_inline_sidecar_context().config)
+        context = load_inline_sidecar_context()
+        metrics = runtime_metrics_recorder_from_env(
+            service_name=context.service_name,
+            role="dependency_certificate_fetcher",
+        )
+        run(context.config, metrics=metrics)
+        metrics.write(exit_code=0)
         return 0
     except (RuntimeErrorBase, SidecarConfigError) as exc:
+        if metrics is not None:
+            metrics.write(exit_code=1, error=str(exc))
         print(f"ERROR: {exc}", flush=True)
         return 1
 

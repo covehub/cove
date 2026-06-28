@@ -1,7 +1,8 @@
 services:
   serve:
-    image: "covehub/cove-demo-attested-confidential-eval-vllm-gpu-model-server@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    image: "covehub/cove-demo-attested-confidential-eval-vllm-gpu-model-server@sha256:926ca5e8297f91ac0b75b0f9de67a8882e0698ad0404c116c8f04fc0c9ea35da"
     environment:
+      COVE_DEMO_ENABLE_TIMING: "1"
       HOST: 0.0.0.0
       MODEL_NAME: CoveDemoModel
       MODEL_ARCHIVE_PATH: /workspace/input/alice_private_model.tar
@@ -28,7 +29,7 @@ services:
     healthcheck:
       test:
         - CMD
-        - python
+        - python3
         - -c
         - |
           import json

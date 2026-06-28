@@ -89,6 +89,7 @@ def build_node_certificate(
     results: dict[str, Any],
     outputs: dict[str, Any] | None = None,
     dependencies: dict[str, Any] | None = None,
+    runtime_metrics: dict[str, Any] | None = None,
     attestation_config: dict[str, object] | None = None,
 ) -> dict[str, Any]:
     certificate_body = {
@@ -100,6 +101,7 @@ def build_node_certificate(
         "results": results,
         "outputs": outputs or {},
         "dependencies": dependencies or {},
+        "runtime_metrics": runtime_metrics or {},
     }
     certificate_body_hash = sha256_literal(canonical_json_bytes(certificate_body))
     report_data = build_node_certificate_report_data(

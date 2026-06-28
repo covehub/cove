@@ -87,6 +87,7 @@ class DeployNodeResult:
     status: str
     app_id: str
     compose_hash: str
+    timings_seconds: dict[str, float]
 
 
 @dataclass(frozen=True, slots=True)
@@ -212,7 +213,10 @@ def deploy_workflow(
     deleted_finished_cvm_ids: set[str] = set()
     try:
         for node in nodes:
+            node_started_at = time.monotonic()
+            node_timings: dict[str, float] = {}
             if staged_launch:
+                step_started = time.monotonic()
                 _wait_for_dependency_certificates(
                     covehub_server_url=config.covehub_server_url,
                     workflow_publisher_domain=parsed_ref.publisher,
@@ -223,26 +227,35 @@ def deploy_workflow(
                     timeout_seconds=dependency_timeout_seconds,
                     poll_interval_seconds=dependency_poll_interval_seconds,
                 )
+                node_timings["dependency_wait_seconds"] = round(time.monotonic() - step_started, 6)
 
+            step_started = time.monotonic()
             translated = _translate_node_deployment(bundle, node.node)
+            node_timings["translate_node_compose_seconds"] = round(time.monotonic() - step_started, 6)
             if reuse_cvm_id:
-                results.append(
-                    _update_existing_phala_cvm(
-                        client,
-                        node_id=node.node.node_id,
-                        translated=translated,
-                        options=phala_options,
-                        reuse_cvm_id=reuse_cvm_id,
-                        registry_env_keys=registry_env_keys,
-                    )
+                result = _update_existing_phala_cvm(
+                    client,
+                    node_id=node.node.node_id,
+                    translated=translated,
+                    options=phala_options,
+                    reuse_cvm_id=reuse_cvm_id,
+                    registry_env_keys=registry_env_keys,
+                    timings_seconds=node_timings,
                 )
+                result.timings_seconds["node_deploy_wall_seconds"] = round(
+                    time.monotonic() - node_started_at,
+                    6,
+                )
+                results.append(result)
                 continue
 
+            step_started = time.monotonic()
             new_deleted_cvms = _delete_finished_phala_cvms(
                 client,
                 deployment_names=cleanup_deployment_names,
                 skipped_cvm_ids=deleted_finished_cvm_ids,
             )
+            node_timings["cleanup_finished_cvms_seconds"] = round(time.monotonic() - step_started, 6)
             deleted_finished_cvms.extend(new_deleted_cvms)
             deleted_finished_cvm_ids.update(cvm.cvm_id for cvm in new_deleted_cvms)
             provision_payload = _phala_provision_payload(
@@ -250,7 +263,9 @@ def deploy_workflow(
                 options=phala_options,
                 env_keys=registry_env_keys,
             )
+            step_started = time.monotonic()
             provision_response = client.provision_cvm(provision_payload)
+            node_timings["provision_cvm_seconds"] = round(time.monotonic() - step_started, 6)
             app_id = _required_model_string(provision_response, "app_id")
             compose_hash = _required_model_string(provision_response, "compose_hash")
             commit_payload: dict[str, Any] = {
@@ -267,7 +282,10 @@ def deploy_workflow(
                     app_env_encrypt_pubkey,
                 )
                 commit_payload["env_keys"] = registry_env_keys
+            step_started = time.monotonic()
             commit_response = client.commit_cvm_provision(commit_payload)
+            node_timings["commit_cvm_provision_seconds"] = round(time.monotonic() - step_started, 6)
+            node_timings["node_deploy_wall_seconds"] = round(time.monotonic() - node_started_at, 6)
             results.append(
                 DeployNodeResult(
                     node_id=node.node.node_id,
@@ -276,6 +294,7 @@ def deploy_workflow(
                     status=_required_model_string(commit_response, "status"),
                     app_id=app_id,
                     compose_hash=compose_hash,
+                    timings_seconds=node_timings,
                 )
             )
     except Exception as exc:
@@ -323,6 +342,7 @@ def _deploy_result_payload(result: DeployWorkflowResult) -> dict[str, Any]:
                 "status": node.status,
                 "app_id": node.app_id,
                 "compose_hash": node.compose_hash,
+                "timings_seconds": node.timings_seconds,
             }
             for node in result.deployments
         ],
@@ -613,6 +633,7 @@ def _update_existing_phala_cvm(
     options: PhalaDeployOptions,
     reuse_cvm_id: str,
     registry_env_keys: list[str],
+    timings_seconds: dict[str, float],
 ) -> DeployNodeResult:
     provision_payload: dict[str, Any] = {
         "id": reuse_cvm_id,
@@ -622,14 +643,24 @@ def _update_existing_phala_cvm(
             env_keys=registry_env_keys,
         ),
     }
+    step_started = time.monotonic()
     provision_response = client.provision_cvm_compose_file_update(provision_payload)
+    timings_seconds["provision_cvm_compose_update_seconds"] = round(
+        time.monotonic() - step_started,
+        6,
+    )
     compose_hash = _required_model_string(provision_response, "compose_hash")
 
     commit_payload: dict[str, Any] = {
         "id": reuse_cvm_id,
         "compose_hash": compose_hash,
     }
+    step_started = time.monotonic()
     commit_response = client.commit_cvm_compose_file_update(commit_payload)
+    timings_seconds["commit_cvm_compose_update_seconds"] = round(
+        time.monotonic() - step_started,
+        6,
+    )
     app_id = (
         _optional_model_string(commit_response, "app_id")
         or _optional_model_string(provision_response, "app_id")
@@ -647,6 +678,7 @@ def _update_existing_phala_cvm(
         status=status,
         app_id=app_id,
         compose_hash=compose_hash,
+        timings_seconds=timings_seconds,
     )
 
 

@@ -16,12 +16,18 @@ from types import ModuleType
 from inspect_ai import Task, eval as inspect_eval
 
 from cove_demo_common import (
+    TimingRecorder,
+    VllmLogObserver,
+    add_timing_metadata,
     extract_tarball,
     install_private_wheel,
     log,
     require_env,
     require_cuda_preflight,
+    run_openai_chat_probe,
+    start_logged_process,
     sha256_file,
+    timed_step,
     wait_for_http,
     write_json,
 )
@@ -38,7 +44,11 @@ def _resolve_model_dir(extract_root: Path) -> Path:
     return extract_root
 
 
-def _start_vllm_server(model_dir: Path, model_name: str) -> tuple[subprocess.Popen[str], str]:
+def _start_vllm_server(
+    model_dir: Path,
+    model_name: str,
+    timings: TimingRecorder,
+) -> tuple[subprocess.Popen[str], str]:
     host = "127.0.0.1"
     port = "8000"
     env = os.environ.copy()
@@ -66,12 +76,12 @@ def _start_vllm_server(model_dir: Path, model_name: str) -> tuple[subprocess.Pop
     if env.get("VLLM_ENFORCE_EAGER", "0").strip().lower() in {"1", "true", "yes"}:
         command.append("--enforce-eager")
     log(SERVICE, f"starting vLLM GPU server for {model_dir}")
-    process = subprocess.Popen(
-        command,
-        env=env,
-        text=True,
-    )
-    wait_for_http(f"http://{host}:{port}/health", timeout_seconds=300)
+    observer = VllmLogObserver()
+    with timed_step(timings, "vllm_process_start_seconds"):
+        process = start_logged_process(command, env=env, service=SERVICE, observer=observer)
+    with timed_step(timings, "vllm_health_wait_seconds"):
+        wait_for_http(f"http://{host}:{port}/health", timeout_seconds=300)
+    timings.merge(observer.metrics())
     return process, f"http://{host}:{port}/v1"
 
 
@@ -225,6 +235,7 @@ def _evaluate_private_task(
 
 
 def main() -> int:
+    timings = TimingRecorder()
     serving_wheel_path = Path(require_env("SERVING_WHEEL_PATH"))
     model_archive_path = Path(require_env("MODEL_ARCHIVE_PATH"))
     serving_patch_path = Path(require_env("SERVING_PATCH_PATH"))
@@ -235,33 +246,46 @@ def main() -> int:
     request_timeout = float(os.environ.get("REQUEST_TIMEOUT", "60"))
 
     model_name = os.environ.get("MODEL_NAME", "CoveDemoModel")
-    gpu_status = require_cuda_preflight(SERVICE)
+    with timed_step(timings, "cuda_preflight_seconds"):
+        gpu_status = require_cuda_preflight(SERVICE)
 
     with tempfile.TemporaryDirectory(prefix="cove-benchmark-") as temp_dir:
         temp_root = Path(temp_dir)
         # Alice's private compiled serving wheel is installed into this
         # attested benchmark node before the local vLLM server is started.
-        install_private_wheel(serving_wheel_path, temp_root)
+        with timed_step(timings, "install_serving_wheel_seconds"):
+            install_private_wheel(serving_wheel_path, temp_root)
 
         temp_root = Path(temp_dir)
         # Alice's private model archive is unpacked only inside this attested
         # node and served locally for Bob's benchmark.
-        model_root = extract_tarball(model_archive_path, temp_root / "model")
-        model_dir = _resolve_model_dir(model_root)
-        server, base_url = _start_vllm_server(model_dir, model_name)
+        with timed_step(timings, "extract_model_archive_seconds"):
+            model_root = extract_tarball(model_archive_path, temp_root / "model")
+            model_dir = _resolve_model_dir(model_root)
+        with timed_step(timings, "start_vllm_server_seconds"):
+            server, base_url = _start_vllm_server(model_dir, model_name, timings)
         try:
+            with timed_step(timings, "single_request_probe_seconds"):
+                probe_payload = run_openai_chat_probe(
+                    base_url=base_url,
+                    model=model_name,
+                    timeout_seconds=request_timeout,
+                )
             # Bob's private Inspect task definition is imported here and run
             # directly against the local vLLM endpoint above.
-            payload = _evaluate_private_task(
-                eval_code_path=eval_code_path,
-                base_url=base_url,
-                data_path=eval_data_path,
-                model=model_name,
-                threshold=score_threshold,
-                request_timeout=request_timeout,
-            )
+            with timed_step(timings, "run_private_eval_seconds"):
+                payload = _evaluate_private_task(
+                    eval_code_path=eval_code_path,
+                    base_url=base_url,
+                    data_path=eval_data_path,
+                    model=model_name,
+                    threshold=score_threshold,
+                    request_timeout=request_timeout,
+                )
+            payload["single_request_probe"] = probe_payload
         finally:
-            _stop_process(server)
+            with timed_step(timings, "stop_vllm_server_seconds"):
+                _stop_process(server)
 
         payload.setdefault("benchmark_name", "CoveDemoHarmBenchEval")
         payload.setdefault("pass", bool(payload.get("passes_threshold")))
@@ -271,6 +295,18 @@ def main() -> int:
         payload["serving_patch_sha256"] = sha256_file(serving_patch_path)
         payload["serving_wheel_sha256"] = sha256_file(serving_wheel_path)
         payload.update(gpu_status)
+        add_timing_metadata(
+            payload,
+            timings,
+            workload_keys=["run_private_eval_seconds"],
+            startup_keys=["cuda_preflight_seconds", "start_vllm_server_seconds"],
+            artifact_io_keys=[
+                "install_serving_wheel_seconds",
+                "extract_model_archive_seconds",
+            ],
+            teardown_keys=["stop_vllm_server_seconds"],
+            public_assets_already_cached=True,
+        )
         write_json(result_path, payload)
         log(
             SERVICE,

@@ -10,13 +10,180 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import threading
 import time
 import zipfile
+from datetime import datetime, timezone
 from email.parser import Parser
 from pathlib import Path
 from typing import Any
 from urllib import error as urllib_error
 from urllib import request as urllib_request
+
+
+def env_flag(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() not in {"", "0", "false", "no", "off"}
+
+
+class TimingRecorder:
+    def __init__(self, *, enabled: bool | None = None) -> None:
+        self.enabled = (
+            env_flag("COVE_DEMO_ENABLE_TIMING", default=False)
+            if enabled is None
+            else enabled
+        )
+        self._started_at = time.monotonic()
+        self._started_at_iso = utc_now_iso()
+        self.timings: dict[str, float] = {}
+
+    def checkpoint(self, name: str, started_at: float) -> None:
+        if self.enabled:
+            self.timings[name] = round(time.monotonic() - started_at, 6)
+
+    def mark_total(self, name: str = "total_wall_seconds") -> None:
+        if self.enabled:
+            self.timings[name] = round(time.monotonic() - self._started_at, 6)
+
+    def add_to_payload(self, payload: dict[str, object]) -> None:
+        if not self.enabled:
+            return
+        self.mark_total()
+        payload["timings_seconds"] = dict(self.timings)
+        payload["total_wall_seconds"] = self.timings["total_wall_seconds"]
+
+    def summary(self) -> dict[str, float]:
+        if not self.enabled:
+            return {}
+        self.mark_total()
+        return dict(self.timings)
+
+    @property
+    def started_at_iso(self) -> str:
+        return self._started_at_iso
+
+    def add(self, name: str, seconds: float) -> None:
+        if self.enabled:
+            self.timings[name] = round(max(0.0, float(seconds)), 6)
+
+    def merge(self, values: dict[str, float]) -> None:
+        for key, value in values.items():
+            self.add(key, value)
+
+
+class timed_step:
+    def __init__(self, timings: TimingRecorder, name: str) -> None:
+        self.timings = timings
+        self.name = name
+        self.started_at = 0.0
+
+    def __enter__(self) -> None:
+        self.started_at = time.monotonic()
+
+    def __exit__(self, _exc_type: object, _exc: object, _traceback: object) -> None:
+        self.timings.checkpoint(self.name, self.started_at)
+
+
+def _sum_timing_keys(timings: dict[str, float], keys: list[str]) -> float:
+    return round(sum(float(timings.get(key, 0.0)) for key in keys), 6)
+
+
+def utc_now_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def write_runtime_metrics_payload(
+    *,
+    service_name: str,
+    role: str,
+    timing_started_at: str,
+    summary: dict[str, float],
+    benchmark_profile: dict[str, object] | None = None,
+    extra: dict[str, object] | None = None,
+) -> None:
+    metrics_path = os.environ.get("COVE_RUNTIME_METRICS_PATH")
+    if not metrics_path:
+        return
+    payload: dict[str, object] = {
+        "schema_version": "cove_runtime_metrics_v1",
+        "service_name": service_name,
+        "role": role,
+        "started_at": timing_started_at,
+        "ended_at": utc_now_iso(),
+        "wall_seconds": float(summary.get("total_wall_seconds", 0.0)),
+        "phase_timings_seconds": {
+            key: value
+            for key, value in sorted(summary.items())
+            if key != "total_wall_seconds"
+        },
+        "exit_code": 0,
+        "ok": True,
+    }
+    if benchmark_profile is not None:
+        payload["benchmark_profile"] = benchmark_profile
+    if extra:
+        payload.update(extra)
+    write_json(metrics_path, payload)
+
+
+def benchmark_profile_from_summary(
+    summary: dict[str, float],
+    *,
+    workload_keys: list[str],
+    startup_keys: list[str] | None = None,
+    artifact_io_keys: list[str] | None = None,
+    teardown_keys: list[str] | None = None,
+    public_assets_already_cached: bool | None = None,
+) -> dict[str, object]:
+    profile: dict[str, object] = {
+        "artifact_io_seconds": _sum_timing_keys(summary, artifact_io_keys or []),
+        "outer_wall_seconds": float(summary.get("total_wall_seconds", 0.0)),
+        "startup_seconds": _sum_timing_keys(summary, startup_keys or []),
+        "teardown_seconds": _sum_timing_keys(summary, teardown_keys or []),
+        "workload_seconds": _sum_timing_keys(summary, workload_keys),
+        "workload_timing_keys": list(workload_keys),
+        "startup_timing_keys": list(startup_keys or []),
+        "artifact_io_timing_keys": list(artifact_io_keys or []),
+        "teardown_timing_keys": list(teardown_keys or []),
+    }
+    if public_assets_already_cached is not None:
+        profile["public_assets_already_cached"] = public_assets_already_cached
+    return profile
+
+
+def add_timing_metadata(
+    payload: dict[str, object],
+    timings: TimingRecorder,
+    *,
+    workload_keys: list[str],
+    startup_keys: list[str] | None = None,
+    artifact_io_keys: list[str] | None = None,
+    teardown_keys: list[str] | None = None,
+    public_assets_already_cached: bool | None = None,
+) -> None:
+    if not timings.enabled:
+        return
+    timings.mark_total()
+    summary = dict(timings.timings)
+    payload["timings_seconds"] = summary
+    payload["total_wall_seconds"] = summary["total_wall_seconds"]
+    payload["benchmark_profile"] = benchmark_profile_from_summary(
+        summary,
+        workload_keys=workload_keys,
+        startup_keys=startup_keys,
+        artifact_io_keys=artifact_io_keys,
+        teardown_keys=teardown_keys,
+        public_assets_already_cached=public_assets_already_cached,
+    )
+    write_runtime_metrics_payload(
+        service_name=os.environ.get("COVE_SERVICE_NAME", "workload"),
+        role=os.environ.get("COVE_SERVICE_ROLE", "workload"),
+        timing_started_at=timings.started_at_iso,
+        summary=summary,
+        benchmark_profile=payload["benchmark_profile"],
+    )
 
 
 def require_env(name: str) -> str:
@@ -112,6 +279,69 @@ def run(
     )
 
 
+class VllmLogObserver:
+    def __init__(self) -> None:
+        self._started_at = time.monotonic()
+        self._events: dict[str, list[float]] = {
+            "model_load": [],
+            "cuda_graph": [],
+            "torch_compile": [],
+        }
+
+    def observe(self, line: str) -> None:
+        lowered = line.lower()
+        elapsed = time.monotonic() - self._started_at
+        if any(pattern in lowered for pattern in ("loading model weights", "loading weights", "model weights")):
+            self._events["model_load"].append(elapsed)
+        if any(pattern in lowered for pattern in ("cuda graph", "cudagraph", "cudagraphs")):
+            self._events["cuda_graph"].append(elapsed)
+        if "torch.compile" in lowered or "compilation" in lowered:
+            self._events["torch_compile"].append(elapsed)
+
+    def metrics(self) -> dict[str, float]:
+        values: dict[str, float] = {}
+        for name, events in self._events.items():
+            if not events:
+                continue
+            values[f"vllm_log_{name}_first_seen_seconds"] = round(min(events), 6)
+            values[f"vllm_log_{name}_last_seen_seconds"] = round(max(events), 6)
+            values[f"vllm_log_{name}_observed_seconds"] = round(max(events) - min(events), 6)
+        return values
+
+
+def start_logged_process(
+    command: list[str],
+    *,
+    env: dict[str, str],
+    service: str,
+    observer: VllmLogObserver | None = None,
+) -> subprocess.Popen[str]:
+    process = subprocess.Popen(
+        command,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        bufsize=1,
+    )
+
+    def forward_logs() -> None:
+        if process.stdout is None:
+            return
+        for line in process.stdout:
+            if observer is not None:
+                observer.observe(line)
+            print(line, end="", flush=True)
+
+    thread = threading.Thread(
+        target=forward_logs,
+        name=f"{service}-vllm-log-forwarder",
+        daemon=True,
+    )
+    thread.start()
+    return process
+
+
 def wait_for_http(url: str, *, timeout_seconds: float, interval_seconds: float = 1.0) -> None:
     deadline = time.time() + timeout_seconds
     last_error = "unknown error"
@@ -128,6 +358,50 @@ def wait_for_http(url: str, *, timeout_seconds: float, interval_seconds: float =
             last_error = f"http {exc.code}"
         time.sleep(interval_seconds)
     raise RuntimeError(f"timed out waiting for {url}: {last_error}")
+
+
+def run_openai_chat_probe(
+    *,
+    base_url: str,
+    model: str,
+    timeout_seconds: float = 60.0,
+    extra_headers: dict[str, str] | None = None,
+) -> dict[str, object]:
+    url = base_url.rstrip("/") + "/chat/completions"
+    payload = {
+        "model": model,
+        "messages": [
+            {
+                "role": "user",
+                "content": "Reply with exactly: cove benchmark probe",
+            }
+        ],
+        "max_tokens": 8,
+        "temperature": 0,
+        "stream": False,
+    }
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer EMPTY",
+    }
+    if extra_headers:
+        headers.update(extra_headers)
+    request = urllib_request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+    with urllib_request.urlopen(request, timeout=timeout_seconds) as response:
+        body = response.read()
+    parsed = json.loads(body.decode("utf-8"))
+    if not isinstance(parsed, dict):
+        raise RuntimeError("single request probe returned a non-object JSON payload")
+    return {
+        "status": "ok",
+        "response_id": parsed.get("id", ""),
+        "model": parsed.get("model", model),
+    }
 
 
 def find_first_existing(paths: list[str]) -> str | None:
