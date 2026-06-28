@@ -17,6 +17,7 @@ const RTMR3_INDEX = 3;
 const RTMR_BYTES = 48;
 const REPORT_DATA_BYTES = 64;
 const RECEIPT_VERSION = "cove_model_response_receipt_v1";
+const RAW_JSON_TEXT = Symbol("raw_json_text");
 const SAMPLING_FIELD_NAMES = [
   "max_tokens",
   "temperature",
@@ -81,19 +82,36 @@ export async function verifyDemoTarget({
     expectedWorkflow: workflow,
   });
 
-  const terminalCertificate = await requestJson(
-    new URL(
-      `/v1/runtime/${encodeURIComponent(publisher)}/${encodeURIComponent(workflow)}/certificates/${TERMINAL_NODE}/latest`,
-      apiBase,
-    ),
-    { timeoutMs: 60_000 },
-  );
+  const latestCertificatesByNode = new Map();
+  const validatedCertificateBodiesByHash = new Map();
+  for (const nodeId of bundle.composeByNode.keys()) {
+    const certificate = await requestJson(
+      new URL(
+        `/v1/runtime/${encodeURIComponent(publisher)}/${encodeURIComponent(workflow)}/certificates/${encodeURIComponent(nodeId)}/latest`,
+        apiBase,
+      ),
+      { timeoutMs: 60_000 },
+    );
+    const body = requiredObject(certificate.certificate_body, "certificate_body");
+    const bodyHash = requiredString(certificate.certificate_body_hash, "certificate_body_hash");
+    const rawHash = certificateBodyHashFromRaw(certificate);
+    if (rawHash !== bodyHash) {
+      throw new VerificationError(`raw certificate body hash mismatch for node ${nodeId}`);
+    }
+    latestCertificatesByNode.set(nodeId, certificate);
+    validatedCertificateBodiesByHash.set(bodyHash, body);
+  }
+  const terminalCertificate = latestCertificatesByNode.get(TERMINAL_NODE);
+  if (!terminalCertificate) {
+    throw new VerificationError(`terminal certificate ${TERMINAL_NODE} was not found`);
+  }
 
   const certificateContext = {
     composeByNode: bundle.composeByNode,
     dependencyEdges: bundle.dependencyEdges,
     certificates: new Map(),
     certificateBodyHashes: new Map(),
+    validatedCertificateBodiesByHash,
   };
   await verifyNodeCertificate(terminalCertificate, {
     expectedWorkflowId: workflow,
@@ -234,6 +252,13 @@ export async function pinnedJsonRequest(url, {
             } catch {
               payload = { raw: text };
             }
+          }
+          if (payload && typeof payload === "object") {
+            Object.defineProperty(payload, RAW_JSON_TEXT, {
+              value: text,
+              enumerable: false,
+              configurable: false,
+            });
           }
           if ((response.statusCode || 0) >= 400) {
             const error = new VerificationError(`HTTP ${response.statusCode} from ${url.href}`);
@@ -520,7 +545,10 @@ async function verifyNodeCertificate(certificate, {
   const body = requiredObject(cert.certificate_body, "certificate_body");
   const bodyHash = requiredString(cert.certificate_body_hash, "certificate_body_hash");
   if (sha256Literal(canonicalJsonBytes(body)) !== bodyHash) {
-    throw new VerificationError("certificate_body_hash does not match canonical certificate body");
+    const validatedBody = context.validatedCertificateBodiesByHash.get(bodyHash);
+    if (!validatedBody || !canonicalJsonEqual(validatedBody, body)) {
+      throw new VerificationError("certificate_body_hash does not match canonical certificate body");
+    }
   }
   const nodeId = requiredString(body.node_id, "certificate_body.node_id");
   if (nodeId !== expectedNodeId) {
@@ -992,6 +1020,13 @@ async function requestJson(url, options = {}) {
               payload = { raw: text };
             }
           }
+          if (payload && typeof payload === "object") {
+            Object.defineProperty(payload, RAW_JSON_TEXT, {
+              value: text,
+              enumerable: false,
+              configurable: false,
+            });
+          }
           if ((response.statusCode || 0) >= 400) {
             const error = new VerificationError(`HTTP ${response.statusCode} from ${url.href}`);
             error.statusCode = response.statusCode;
@@ -1014,6 +1049,155 @@ async function requestJson(url, options = {}) {
 
 function canonicalJsonBytes(value) {
   return Buffer.from(JSON.stringify(sortForCanonicalJson(value)), "utf-8");
+}
+
+function canonicalJsonEqual(left, right) {
+  return canonicalJsonBytes(left).equals(canonicalJsonBytes(right));
+}
+
+function certificateBodyHashFromRaw(certificate) {
+  const rawText = certificate?.[RAW_JSON_TEXT];
+  if (typeof rawText !== "string" || rawText.length === 0) {
+    throw new VerificationError("raw certificate JSON is unavailable for body hash verification");
+  }
+  const bodyRaw = topLevelJsonMemberRaw(rawText, "certificate_body");
+  return sha256Literal(Buffer.from(compactJsonRaw(bodyRaw), "utf-8"));
+}
+
+function topLevelJsonMemberRaw(rawText, key) {
+  let index = skipWhitespace(rawText, 0);
+  if (rawText[index] !== "{") {
+    throw new VerificationError("certificate JSON root must be an object");
+  }
+  index += 1;
+  while (index < rawText.length) {
+    index = skipWhitespace(rawText, index);
+    if (rawText[index] === "}") {
+      break;
+    }
+    if (rawText[index] !== "\"") {
+      throw new VerificationError("certificate JSON object contains a non-string key");
+    }
+    const keyStart = index;
+    const keyEnd = rawJsonStringEnd(rawText, keyStart);
+    const parsedKey = JSON.parse(rawText.slice(keyStart, keyEnd));
+    index = skipWhitespace(rawText, keyEnd);
+    if (rawText[index] !== ":") {
+      throw new VerificationError("certificate JSON object key is missing ':'");
+    }
+    index = skipWhitespace(rawText, index + 1);
+    const valueStart = index;
+    const valueEnd = rawJsonValueEnd(rawText, valueStart);
+    if (parsedKey === key) {
+      return rawText.slice(valueStart, valueEnd);
+    }
+    index = skipWhitespace(rawText, valueEnd);
+    if (rawText[index] === ",") {
+      index += 1;
+      continue;
+    }
+    if (rawText[index] === "}") {
+      break;
+    }
+    throw new VerificationError("certificate JSON object contains malformed separators");
+  }
+  throw new VerificationError(`certificate JSON is missing ${key}`);
+}
+
+function rawJsonValueEnd(rawText, start) {
+  const first = rawText[start];
+  if (first === "\"") {
+    return rawJsonStringEnd(rawText, start);
+  }
+  if (first === "{" || first === "[") {
+    const stack = [first === "{" ? "}" : "]"];
+    let index = start + 1;
+    while (index < rawText.length) {
+      const char = rawText[index];
+      if (char === "\"") {
+        index = rawJsonStringEnd(rawText, index);
+        continue;
+      }
+      if (char === "{" || char === "[") {
+        stack.push(char === "{" ? "}" : "]");
+        index += 1;
+        continue;
+      }
+      if (char === stack[stack.length - 1]) {
+        stack.pop();
+        index += 1;
+        if (stack.length === 0) {
+          return index;
+        }
+        continue;
+      }
+      index += 1;
+    }
+    throw new VerificationError("certificate JSON contains an unterminated object or array");
+  }
+  let index = start;
+  while (index < rawText.length && !/[\s,}\]]/.test(rawText[index])) {
+    index += 1;
+  }
+  return index;
+}
+
+function rawJsonStringEnd(rawText, start) {
+  let index = start + 1;
+  while (index < rawText.length) {
+    const char = rawText[index];
+    if (char === "\\") {
+      index += 2;
+      continue;
+    }
+    if (char === "\"") {
+      return index + 1;
+    }
+    index += 1;
+  }
+  throw new VerificationError("certificate JSON contains an unterminated string");
+}
+
+function compactJsonRaw(rawText) {
+  let output = "";
+  let inString = false;
+  for (let index = 0; index < rawText.length; index += 1) {
+    const char = rawText[index];
+    if (inString) {
+      output += char;
+      if (char === "\\") {
+        index += 1;
+        if (index < rawText.length) {
+          output += rawText[index];
+        }
+        continue;
+      }
+      if (char === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+    if (char === "\"") {
+      inString = true;
+      output += char;
+      continue;
+    }
+    if (!/\s/.test(char)) {
+      output += char;
+    }
+  }
+  if (inString) {
+    throw new VerificationError("certificate JSON contains an unterminated string");
+  }
+  return output;
+}
+
+function skipWhitespace(rawText, start) {
+  let index = start;
+  while (index < rawText.length && /\s/.test(rawText[index])) {
+    index += 1;
+  }
+  return index;
 }
 
 function sortForCanonicalJson(value) {

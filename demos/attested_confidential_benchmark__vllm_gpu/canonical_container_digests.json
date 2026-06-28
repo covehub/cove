@@ -14,7 +14,7 @@
     },
     {
       "image_name": "cove-demo-attested-confidential-eval-vllm-gpu-model-server",
-      "canonical_ref": "covehub/cove-demo-attested-confidential-eval-vllm-gpu-model-server@sha256:7504e142d68dae9819f23c68a57e4c0a919f2114f2d18bccd2629e18f0b94c93"
+      "canonical_ref": "covehub/cove-demo-attested-confidential-eval-vllm-gpu-model-server@sha256:2d157c2719427b501e1dab44b0a02a8dd618ad99d7b0c0dab535cb988a744e50"
     }
   ]
 }
