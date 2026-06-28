@@ -124,6 +124,7 @@ class PhalaDeployOptions:
     docker_registry: str | None = None
     staged_launch: bool | None = None
     workflow_node_id: str | None = None
+    reuse_cvm_id: str | None = None
     dependency_timeout_seconds: float | None = None
     dependency_poll_interval_seconds: float | None = None
 
@@ -163,10 +164,7 @@ def deploy_workflow(
             f"'phala_cloud_api_key' must be configured in {config.path} for cove deploy"
         )
     phala_options = phala_options or PhalaDeployOptions()
-    if not phala_options.instance_type:
-        raise DeployCommandError(
-            "cove deploy requires --phala-instance-type, for example --phala-instance-type tdx.small"
-        )
+    reuse_cvm_id = _validate_phala_deploy_options(phala_options)
     registry_credentials = _resolve_phala_registry_credentials(config, phala_options)
     registry_env = _phala_registry_env(registry_credentials)
     registry_env_keys = [key for key, _value in registry_env]
@@ -227,6 +225,19 @@ def deploy_workflow(
                 )
 
             translated = _translate_node_deployment(bundle, node.node)
+            if reuse_cvm_id:
+                results.append(
+                    _update_existing_phala_cvm(
+                        client,
+                        node_id=node.node.node_id,
+                        translated=translated,
+                        options=phala_options,
+                        reuse_cvm_id=reuse_cvm_id,
+                        registry_env_keys=registry_env_keys,
+                    )
+                )
+                continue
+
             new_deleted_cvms = _delete_finished_phala_cvms(
                 client,
                 deployment_names=cleanup_deployment_names,
@@ -439,6 +450,19 @@ def _select_deployment_nodes(
     raise DeployCommandError(f"workflow node {workflow_node_id!r} does not exist in the pulled bundle")
 
 
+def _validate_phala_deploy_options(options: PhalaDeployOptions) -> str | None:
+    reuse_cvm_id = _normalize_optional_string(options.reuse_cvm_id)
+    if options.reuse_cvm_id is not None and reuse_cvm_id is None:
+        raise DeployCommandError("--phala-reuse-cvm-id must be non-empty")
+    if reuse_cvm_id and not options.workflow_node_id:
+        raise DeployCommandError("--phala-reuse-cvm-id requires --workflow-node")
+    if not reuse_cvm_id and not options.instance_type:
+        raise DeployCommandError(
+            "cove deploy requires --phala-instance-type, for example --phala-instance-type tdx.small"
+        )
+    return reuse_cvm_id
+
+
 def _wait_for_dependency_certificates(
     *,
     covehub_server_url: str,
@@ -542,15 +566,11 @@ def _phala_provision_payload(
 ) -> dict[str, Any]:
     if not options.instance_type:
         raise DeployCommandError("Phala instance_type is required")
-    compose_file: dict[str, Any] = {
-        "runner": "docker-compose",
-        "name": translated.deployment_name,
-        "docker_compose_file": translated.compose_text,
-    }
-    _set_optional(compose_file, "public_logs", options.public_logs)
-    _set_optional(compose_file, "public_sysinfo", options.public_sysinfo)
-    if env_keys:
-        compose_file["allowed_envs"] = env_keys
+    compose_file = _phala_compose_file_payload(
+        translated=translated,
+        options=options,
+        env_keys=env_keys,
+    )
 
     payload: dict[str, Any] = {
         "name": translated.deployment_name,
@@ -565,6 +585,69 @@ def _phala_provision_payload(
     if env_keys:
         payload["env_keys"] = env_keys
     return payload
+
+
+def _phala_compose_file_payload(
+    *,
+    translated: _TranslatedNodeDeployment,
+    options: PhalaDeployOptions,
+    env_keys: list[str],
+) -> dict[str, Any]:
+    compose_file: dict[str, Any] = {
+        "runner": "docker-compose",
+        "name": translated.deployment_name,
+        "docker_compose_file": translated.compose_text,
+    }
+    _set_optional(compose_file, "public_logs", options.public_logs)
+    _set_optional(compose_file, "public_sysinfo", options.public_sysinfo)
+    if env_keys:
+        compose_file["allowed_envs"] = env_keys
+    return compose_file
+
+
+def _update_existing_phala_cvm(
+    client: Any,
+    *,
+    node_id: str,
+    translated: _TranslatedNodeDeployment,
+    options: PhalaDeployOptions,
+    reuse_cvm_id: str,
+    registry_env_keys: list[str],
+) -> DeployNodeResult:
+    provision_payload: dict[str, Any] = {
+        "id": reuse_cvm_id,
+        "app_compose": _phala_compose_file_payload(
+            translated=translated,
+            options=options,
+            env_keys=registry_env_keys,
+        ),
+    }
+    provision_response = client.provision_cvm_compose_file_update(provision_payload)
+    compose_hash = _required_model_string(provision_response, "compose_hash")
+
+    commit_payload: dict[str, Any] = {
+        "id": reuse_cvm_id,
+        "compose_hash": compose_hash,
+    }
+    commit_response = client.commit_cvm_compose_file_update(commit_payload)
+    app_id = (
+        _optional_model_string(commit_response, "app_id")
+        or _optional_model_string(provision_response, "app_id")
+        or reuse_cvm_id
+    )
+    status = (
+        _optional_model_string(commit_response, "status")
+        or _optional_model_string(provision_response, "status")
+        or "updated"
+    )
+    return DeployNodeResult(
+        node_id=node_id,
+        deployment_name=translated.deployment_name,
+        cvm_id=reuse_cvm_id,
+        status=status,
+        app_id=app_id,
+        compose_hash=compose_hash,
+    )
 
 
 def _set_optional(payload: dict[str, Any], key: str, value: Any | None) -> None:

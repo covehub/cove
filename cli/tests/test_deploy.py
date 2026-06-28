@@ -754,6 +754,144 @@ def test_deploy_workflow_node_launches_only_requested_node(
     assert payload["deployments"][0]["deployment_name"] == expected_name
 
 
+def test_deploy_reuse_cvm_requires_single_workflow_node(tmp_path, monkeypatch) -> None:
+    cove_home = tmp_path / ".cove"
+    _write_config(
+        cove_home,
+        {
+            "covehub_server_url": "http://127.0.0.1:8000",
+            "phala_cloud_api_key": "phala-api-key",
+        },
+    )
+
+    monkeypatch.setattr(
+        "cove_cli.deploy.pull_workflow_bundle",
+        lambda **_kwargs: pytest.fail("unexpected pull"),
+    )
+    monkeypatch.setattr("cove_cli.deploy._create_phala_client", _unused_fake_client)
+
+    with pytest.raises(
+        DeployCommandError,
+        match="--phala-reuse-cvm-id requires --workflow-node",
+    ):
+        deploy_workflow(
+            "alice/demo",
+            cove_home=cove_home,
+            phala_options=PhalaDeployOptions(reuse_cvm_id="cvm-existing"),
+        )
+
+
+def test_deploy_workflow_node_reuses_existing_phala_cvm(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    cove_home = tmp_path / ".cove"
+    _write_config(
+        cove_home,
+        {
+            "covehub_server_url": "http://127.0.0.1:8000",
+            "phala_cloud_api_key": "phala-api-key",
+            "phala_docker_username": "alice-docker",
+            "phala_docker_access_token": "docker-read-token",
+        },
+    )
+    bundle = _write_minimal_bundle(tmp_path / "bundle")
+
+    class FakePhalaClient:
+        def __init__(self) -> None:
+            self.provision_update_payloads: list[dict[str, object]] = []
+            self.commit_update_payloads: list[dict[str, object]] = []
+
+        def provision_cvm_compose_file_update(self, payload: dict[str, object]):
+            self.provision_update_payloads.append(payload)
+            return {
+                "app_id": "existing-app",
+                "compose_hash": "compose-update-1",
+            }
+
+        def commit_cvm_compose_file_update(self, payload: dict[str, object]):
+            self.commit_update_payloads.append(payload)
+            return {"status": "updating"}
+
+        def provision_cvm(self, payload: dict[str, object]):
+            raise AssertionError(f"unexpected provision_cvm call: {payload}")
+
+        def commit_cvm_provision(self, payload: dict[str, object]):
+            raise AssertionError(f"unexpected commit_cvm_provision call: {payload}")
+
+        def get_cvm_list(self, request: dict[str, object]):
+            raise AssertionError(f"unexpected get_cvm_list call: {request}")
+
+        def delete_cvm(self, payload: dict[str, object]) -> None:
+            raise AssertionError(f"unexpected delete_cvm call: {payload}")
+
+        def close(self) -> None:
+            return None
+
+    fake_client = FakePhalaClient()
+
+    monkeypatch.setattr("cove_cli.deploy.pull_workflow_bundle", lambda **_kwargs: bundle)
+    monkeypatch.setattr(
+        "cove_cli.deploy._create_phala_client",
+        lambda api_key: _assert_api_key(api_key, fake_client),
+    )
+    monkeypatch.setattr(
+        "cove_cli.deploy._encrypt_phala_env_vars",
+        lambda *_args, **_kwargs: pytest.fail("unexpected registry env rotation"),
+    )
+
+    output = deploy_workflow(
+        f"{PUBLISHER_DOMAIN}/demo",
+        cove_home=cove_home,
+        phala_options=PhalaDeployOptions(
+            workflow_node_id="node_one",
+            reuse_cvm_id="cvm-existing",
+        ),
+    )
+
+    expected_name = _deployment_name(
+        publisher=PUBLISHER_DOMAIN,
+        workflow_id="demo",
+        node_id="node_one",
+    )
+    assert len(fake_client.provision_update_payloads) == 1
+    provision_payload = fake_client.provision_update_payloads[0]
+    assert provision_payload["id"] == "cvm-existing"
+    assert "update_env_vars" not in provision_payload
+    compose_file = provision_payload["app_compose"]
+    assert isinstance(compose_file, dict)
+    assert compose_file["runner"] == "docker-compose"
+    assert compose_file["name"] == expected_name
+    assert compose_file["allowed_envs"] == [
+        "DSTACK_DOCKER_USERNAME",
+        "DSTACK_DOCKER_PASSWORD",
+    ]
+    translated_compose = compose_file["docker_compose_file"]
+    assert isinstance(translated_compose, str)
+    assert "docker-read-token" not in str(fake_client.provision_update_payloads)
+    assert "docker-read-token" not in translated_compose
+
+    assert fake_client.commit_update_payloads == [
+        {
+            "id": "cvm-existing",
+            "compose_hash": "compose-update-1",
+        }
+    ]
+    payload = json.loads(output)
+    assert payload["deleted_finished_cvms"] == []
+    assert payload["deployments"] == [
+        {
+            "node_id": "node_one",
+            "deployment_name": expected_name,
+            "cvm_id": "cvm-existing",
+            "status": "updating",
+            "app_id": "existing-app",
+            "compose_hash": "compose-update-1",
+        }
+    ]
+    assert "docker-read-token" not in output
+
+
 def test_deploy_requires_phala_cloud_api_key_in_local_config(tmp_path) -> None:
     cove_home = tmp_path / ".cove"
     _write_config(cove_home, {"covehub_server_url": "http://127.0.0.1:8000"})

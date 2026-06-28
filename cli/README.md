@@ -52,6 +52,8 @@ External tools used by the CLI:
 - `cove hub inspect <hub_path> [--server-url URL]`
 - `cove deploy <publisher-domain>/<workflow_id> --phala-instance-type <type>`
 - `cove deploy <publisher-domain>/<workflow_id>/sha256:<digest> --phala-instance-type <type>`
+- `cove deploy <publisher-domain>/<workflow_id> --workflow-node <node_id> --phala-instance-type <type>`
+- `cove deploy <publisher-domain>/<workflow_id> --workflow-node <node_id> --phala-reuse-cvm-id <cvm_id>`
 - `cove provision [--overwrite] <artifact_name> <file_path>`
 - `cove provision allow <artifact_id> <compose_file_path>`
 - `cove provision inspect <publisher-domain>/<workflow_id>`
@@ -311,6 +313,21 @@ explicit per deploy:
 cove --cove-home <home> deploy <publisher-domain>/<workflow_id> \
   --phala-instance-type tdx.medium
 ```
+
+To update one node at a time on an existing Phala CVM, select exactly one
+workflow node and pass the CVM id:
+
+```bash
+cove --cove-home <home> deploy <publisher-domain>/<workflow_id> \
+  --workflow-node <node_id> \
+  --phala-reuse-cvm-id <cvm_id>
+```
+
+`--phala-instance-type` is required when creating new CVMs. It is not
+required for `--phala-reuse-cvm-id`, because the existing CVM already fixes
+the hardware shape. Reuse preserves the existing CVM encrypted environment;
+create a fresh CVM when Docker registry credentials need to be installed or
+rotated.
 
 The compiled workflow must already reference public HTTPS Covehub and
 owner URLs that Phala can reach. For the full deploy model, supported
