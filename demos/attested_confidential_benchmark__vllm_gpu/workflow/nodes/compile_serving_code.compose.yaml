@@ -1,6 +1,6 @@
 services:
   compile_serving_wheel:
-    image: "covehub/cove-demo-attested-confidential-eval-vllm-gpu-compile-serving-wheel@sha256:b321cbd3ea8d35535b750fa1f26b40657181f58ae7a12ad4945941dbe66200eb"
+    image: "covehub/cove-demo-attested-confidential-eval-vllm-gpu-compile-serving-wheel@sha256:c3241fa97134b790956f1b8c6b5738e2167929b9d5adf21d826766bc228d7dee"
     environment:
       COVE_DEMO_ENABLE_TIMING: "1"
       OUTPUT_PATH: /workspace/output/compiled_serving_wheel.whl
