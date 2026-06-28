@@ -24,11 +24,11 @@ Pinned public bases:
 
 The workflow DAG is:
 
-- `audit_serving_code`
-- `compile_serving_code`
-- `audit_eval_code`
-- `model_benchmark`
-- `model_deployment`
+- Root nodes: `audit_serving_code`, `compile_serving_code`, and
+  `audit_eval_code`
+- `audit_serving_code`, `compile_serving_code`, and `audit_eval_code` ->
+  `model_benchmark`
+- `compile_serving_code` and `model_benchmark` -> `model_deployment`
 
 The checked-in node compose files use digest-pinned workload images from the
 working CPU demo run. Rebuild and push the images only when changing container
@@ -97,9 +97,9 @@ and Cloudflare tunnel token, then run the stack from `scripts/`. Keep
 `PHALA_DEPENDENCY_TIMEOUT_SECONDS` high enough for the real Qwen-backed audit
 nodes; the template uses `7200` seconds because the audit nodes download and
 load Qwen locally before publishing runtime certificates. The template uses a
-single `tdx.4xlarge`/120GB Phala shape and the workflow serializes the heavy
-CPU nodes so the scripted full DAG can run without launching multiple large
-CVMs at once.
+single `tdx.4xlarge`/120GB Phala shape. The scripted full-DAG deploy launches
+root nodes in topological order; if quota only allows one large CVM at a time,
+deploy the nodes one at a time and delete completed CVMs before continuing.
 
 ## Prototype Choices
 

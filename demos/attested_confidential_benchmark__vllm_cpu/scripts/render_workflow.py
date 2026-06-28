@@ -25,7 +25,7 @@ PRECONDITION_PATHS = {
     ],
     "alice_private_serving_patch": [
         ("nodes", "audit_serving_code", "services", "audit_agent", "preconditions", "==", 1),
-        ("nodes", "compile_serving_code", "services", "compile_serving_wheel", "preconditions", "and", 0, "==", 1),
+        ("nodes", "compile_serving_code", "services", "compile_serving_wheel", "preconditions", "==", 1),
         ("nodes", "model_benchmark", "services", "benchmark_runner", "preconditions", "and", 1, "==", 1),
     ],
     "bob_private_eval_code": [

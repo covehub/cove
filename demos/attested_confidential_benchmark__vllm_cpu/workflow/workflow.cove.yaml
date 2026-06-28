@@ -46,8 +46,6 @@ nodes:
           - sha256:25554ec3ba160cf4917e519c2cbed13874fb1875765ebedb3ebd56c03aa69c17
   audit_eval_code:
     compose: nodes/audit_eval_code.compose.yaml
-    dependencies:
-    - compile_serving_code
     services:
       audit_agent:
         inputs:
@@ -61,8 +59,6 @@ nodes:
           - sha256:c2dab0b9cee503f087bf8b312cf4496e365d5f9312e6536a76b10437d2719a80
   compile_serving_code:
     compose: nodes/compile_serving_code.compose.yaml
-    dependencies:
-    - audit_serving_code
     services:
       compile_serving_wheel:
         inputs:
@@ -73,19 +69,9 @@ nodes:
           schema: schemas/compile_result.v1.json
           path: /workspace/output/compile_result.json
         preconditions:
-          and:
-          - ==:
-            - var: inputs.alice_private_serving_patch.plaintext_hash
-            - sha256:25554ec3ba160cf4917e519c2cbed13874fb1875765ebedb3ebd56c03aa69c17
-          - ==:
-            - var: certificates.audit_serving_code.certificate_body.results.audit_agent.llm_used
-            - true
-          - ==:
-            - var: certificates.audit_serving_code.certificate_body.results.audit_agent.pass
-            - true
-          - ==:
-            - var: inputs.alice_private_serving_patch.plaintext_hash
-            - var: certificates.audit_serving_code.certificate_body.results.audit_agent.audited_sha256
+          ==:
+          - var: inputs.alice_private_serving_patch.plaintext_hash
+          - sha256:25554ec3ba160cf4917e519c2cbed13874fb1875765ebedb3ebd56c03aa69c17
   model_benchmark:
     compose: nodes/model_benchmark.compose.yaml
     dependencies:

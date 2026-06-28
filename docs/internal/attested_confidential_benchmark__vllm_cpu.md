@@ -29,6 +29,11 @@ The demo has five nodes:
 - `model_deployment` serves the same model and compiled wheel over RA-TLS after
   benchmark success.
 
+The two audit nodes and the compile node are independent roots. The benchmark
+node is the join point that checks both audit certificates, the compile
+certificate, and the hash consistency between the audited serving patch and the
+compiled wheel provenance.
+
 Alice owns:
 
 - `alice_private_model`
@@ -93,9 +98,9 @@ credentials for the `covehub` namespace. Alice and Bob do not need deploy
 credentials. For the Compose-scripted run, keep
 `PHALA_DEPENDENCY_TIMEOUT_SECONDS=7200` in `scripts/.env` so Carol waits long
 enough for the real Qwen-backed audit nodes to publish their certificates. Use
-the template's `tdx.4xlarge`/120GB shape for the real Qwen audit path; the
-workflow serializes the heavyweight CPU nodes so the scripted full DAG only
-needs one large CVM at a time.
+the template's `tdx.4xlarge`/120GB shape for the real Qwen audit path. The
+full-DAG deploy launches independent root nodes in topological order, so use the
+manual per-node deploy flow if quota only allows one large CVM at a time.
 
 ## 2. Prepare Private Inputs
 
