@@ -54,6 +54,7 @@ _SUPPORTED_TOP_LEVEL_COMPOSE_KEYS = {"services", "volumes"}
 _SUPPORTED_SERVICE_KEYS = {
     "command",
     "depends_on",
+    "deploy",
     "entrypoint",
     "environment",
     "healthcheck",
@@ -1045,6 +1046,89 @@ def _validate_service_payload(service_name: str, service: dict[str, Any], *, nod
         raise DeployCommandError(
             f"pulled compose service {service_name!r} for node {node_id} must use a digest-pinned image"
         )
+    if "deploy" in service:
+        _validate_service_deploy_payload(service_name, service["deploy"], node_id=node_id)
+
+
+def _validate_service_deploy_payload(service_name: str, deploy: Any, *, node_id: str) -> None:
+    if not isinstance(deploy, dict):
+        raise DeployCommandError(
+            f"pulled compose service {service_name!r} for node {node_id} deploy must be a mapping"
+        )
+    unsupported_deploy_keys = sorted(key for key in deploy if key != "resources")
+    if unsupported_deploy_keys:
+        raise DeployCommandError(
+            "pulled compose service "
+            f"{service_name!r} for node {node_id} deploy uses unsupported keys: "
+            f"{', '.join(unsupported_deploy_keys)}"
+        )
+    resources = deploy.get("resources")
+    if resources is None:
+        return
+    if not isinstance(resources, dict):
+        raise DeployCommandError(
+            f"pulled compose service {service_name!r} for node {node_id} deploy.resources must be a mapping"
+        )
+    unsupported_resource_keys = sorted(key for key in resources if key != "reservations")
+    if unsupported_resource_keys:
+        raise DeployCommandError(
+            "pulled compose service "
+            f"{service_name!r} for node {node_id} deploy.resources uses unsupported keys: "
+            f"{', '.join(unsupported_resource_keys)}"
+        )
+    reservations = resources.get("reservations")
+    if reservations is None:
+        return
+    if not isinstance(reservations, dict):
+        raise DeployCommandError(
+            "pulled compose service "
+            f"{service_name!r} for node {node_id} deploy.resources.reservations must be a mapping"
+        )
+    unsupported_reservation_keys = sorted(key for key in reservations if key != "devices")
+    if unsupported_reservation_keys:
+        raise DeployCommandError(
+            "pulled compose service "
+            f"{service_name!r} for node {node_id} deploy.resources.reservations uses unsupported keys: "
+            f"{', '.join(unsupported_reservation_keys)}"
+        )
+    devices = reservations.get("devices")
+    if devices is None:
+        return
+    if not isinstance(devices, list):
+        raise DeployCommandError(
+            "pulled compose service "
+            f"{service_name!r} for node {node_id} deploy.resources.reservations.devices must be a list"
+        )
+    allowed_device_keys = {"capabilities", "count", "device_ids", "driver", "options"}
+    for index, device in enumerate(devices):
+        if not isinstance(device, dict):
+            raise DeployCommandError(
+                "pulled compose service "
+                f"{service_name!r} for node {node_id} deploy.resources.reservations.devices[{index}] "
+                "must be a mapping"
+            )
+        unsupported_device_keys = sorted(key for key in device if key not in allowed_device_keys)
+        if unsupported_device_keys:
+            raise DeployCommandError(
+                "pulled compose service "
+                f"{service_name!r} for node {node_id} deploy.resources.reservations.devices[{index}] "
+                f"uses unsupported keys: {', '.join(unsupported_device_keys)}"
+            )
+        capabilities = device.get("capabilities")
+        if capabilities is None:
+            raise DeployCommandError(
+                "pulled compose service "
+                f"{service_name!r} for node {node_id} deploy.resources.reservations.devices[{index}] "
+                "must declare capabilities"
+            )
+        if not isinstance(capabilities, list) or not all(
+            isinstance(capability, str) for capability in capabilities
+        ):
+            raise DeployCommandError(
+                "pulled compose service "
+                f"{service_name!r} for node {node_id} deploy.resources.reservations.devices[{index}] "
+                "capabilities must be a list of strings"
+            )
 
 
 def _service_may_mount_dstack_socket(service_name: str) -> bool:

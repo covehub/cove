@@ -1,0 +1,10 @@
+services:
+  audit_agent:
+    image: "covehub/cove-demo-attested-confidential-eval-vllm-gpu-audit-agent@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    environment:
+      AUDIT_KIND: serving_patch
+      AUDIT_DEVICE_MAP: auto
+      AUDIT_MODEL_ID: Qwen/Qwen3.5-9B
+      INPUT_PATH: /workspace/input/alice_private_serving_patch.diff
+      REQUIRE_CUDA: "1"
+      RESULT_PATH: /workspace/output/audit_serving_result.json

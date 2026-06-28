@@ -1,0 +1,20 @@
+{
+  "containers": [
+    {
+      "image_name": "cove-demo-attested-confidential-eval-vllm-gpu-audit-agent",
+      "canonical_ref": "covehub/cove-demo-attested-confidential-eval-vllm-gpu-audit-agent@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "image_name": "cove-demo-attested-confidential-eval-vllm-gpu-compile-serving-wheel",
+      "canonical_ref": "covehub/cove-demo-attested-confidential-eval-vllm-gpu-compile-serving-wheel@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "image_name": "cove-demo-attested-confidential-eval-vllm-gpu-benchmark-runner",
+      "canonical_ref": "covehub/cove-demo-attested-confidential-eval-vllm-gpu-benchmark-runner@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "image_name": "cove-demo-attested-confidential-eval-vllm-gpu-model-server",
+      "canonical_ref": "covehub/cove-demo-attested-confidential-eval-vllm-gpu-model-server@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ]
+}

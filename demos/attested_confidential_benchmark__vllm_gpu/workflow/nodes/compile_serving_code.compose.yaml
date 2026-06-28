@@ -1,0 +1,9 @@
+services:
+  compile_serving_wheel:
+    image: "covehub/cove-demo-attested-confidential-eval-vllm-gpu-compile-serving-wheel@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    environment:
+      OUTPUT_PATH: /workspace/output/compiled_serving_wheel.whl
+      PATCH_PATH: /workspace/input/alice_private_serving_patch.diff
+      RESULT_PATH: /workspace/output/compile_result.json
+      VLLM_GIT_SHA: b31e9326a7d9394aab8c767f8ebe225c65594b60
+      VLLM_WHEEL_FLAVOR: cu130

@@ -1,0 +1,10 @@
+services:
+  audit_agent:
+    image: "covehub/cove-demo-attested-confidential-eval-vllm-gpu-audit-agent@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    environment:
+      AUDIT_KIND: eval_code
+      AUDIT_DEVICE_MAP: auto
+      AUDIT_MODEL_ID: Qwen/Qwen3.5-9B
+      INPUT_PATH: /workspace/input/bob_private_eval_code.py
+      REQUIRE_CUDA: "1"
+      RESULT_PATH: /workspace/output/audit_eval_result.json

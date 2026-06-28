@@ -1,0 +1,26 @@
+services:
+  benchmark_runner:
+    image: "covehub/cove-demo-attested-confidential-eval-vllm-gpu-benchmark-runner@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    environment:
+      EVAL_CODE_PATH: /workspace/input/bob_private_eval_code.py
+      EVAL_DATA_PATH: /workspace/input/bob_private_eval_data.jsonl
+      MODEL_NAME: CoveDemoModel
+      MODEL_ARCHIVE_PATH: /workspace/input/alice_private_model.tar
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+      NVIDIA_VISIBLE_DEVICES: all
+      RESULT_PATH: /workspace/output/benchmark_result.json
+      REQUIRE_CUDA: "1"
+      SCORE_THRESHOLD: "0.40"
+      SERVING_PATCH_PATH: /workspace/input/alice_private_serving_patch.diff
+      SERVING_WHEEL_PATH: /workspace/input/compiled_serving_wheel.whl
+      VLLM_DEVICE: cuda
+      VLLM_DTYPE: auto
+      VLLM_GPU_MEMORY_UTILIZATION: "0.90"
+      VLLM_TENSOR_PARALLEL_SIZE: "1"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

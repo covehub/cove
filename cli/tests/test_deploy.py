@@ -17,6 +17,7 @@ from cove_cli.deploy import (
     _deployment_name,
     _wait_for_dependency_certificates,
     deploy_workflow,
+    translated_node_deployment_compose_text,
 )
 from cove_cli.publish import MaterializedNode, MaterializedWorkflowBundle, push_workflow
 from cove_cli.provisioning_identity import build_owner_identity_document
@@ -1197,6 +1198,61 @@ services:
             cove_home=cove_home,
             phala_options=PhalaDeployOptions(instance_type="tdx.small"),
         )
+
+
+def test_deploy_allows_gpu_device_reservation_deploy_key(tmp_path) -> None:
+    bundle = _write_bundle_root(
+        tmp_path / "bundle",
+        workflow_text="""
+cove_version: 1
+workflow:
+  id: demo
+platform:
+  provider: phala
+  runtime: dstack
+owners: {}
+artifacts: {}
+nodes:
+  node_one:
+    compose: nodes/node_one/compose.generated.yaml
+    services:
+      worker:
+        custom_certificate_field:
+          schema: schemas/result.json
+""".strip()
+        + "\n",
+        compose_text="""
+services:
+  worker:
+    image: example/worker@sha256:1111111111111111111111111111111111111111111111111111111111111111
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+""".strip()
+        + "\n",
+    )
+
+    translated = yaml.safe_load(
+        translated_node_deployment_compose_text(bundle, bundle.nodes[0])
+    )
+
+    assert translated["services"]["worker"]["deploy"] == {
+        "resources": {
+            "reservations": {
+                "devices": [
+                    {
+                        "driver": "nvidia",
+                        "count": "all",
+                        "capabilities": ["gpu"],
+                    }
+                ]
+            }
+        }
+    }
 
 
 def test_deploy_rejects_relative_bind_sources(tmp_path, monkeypatch) -> None:
