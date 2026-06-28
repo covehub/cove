@@ -1,6 +1,6 @@
 services:
   serve:
-    image: "covehub/cove-demo-attested-confidential-eval-vllm-gpu-model-server@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    image: "covehub/cove-demo-attested-confidential-eval-vllm-gpu-model-server@sha256:8cb3a80f69872211c6be64f8f8e25ada793aac09e6cc79a68f829ee4477cd514"
     environment:
       HOST: 0.0.0.0
       MODEL_NAME: CoveDemoModel

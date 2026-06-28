@@ -1,6 +1,6 @@
 services:
   compile_serving_wheel:
-    image: "covehub/cove-demo-attested-confidential-eval-vllm-gpu-compile-serving-wheel@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    image: "covehub/cove-demo-attested-confidential-eval-vllm-gpu-compile-serving-wheel@sha256:ee11d338e87342e7bbbfb17234b752c34a9adfff093cc6abedfd68ba4558e96d"
     environment:
       OUTPUT_PATH: /workspace/output/compiled_serving_wheel.whl
       PATCH_PATH: /workspace/input/alice_private_serving_patch.diff

@@ -287,7 +287,7 @@ run_carol() {
   deploy_err="${COORDINATION_DIR}/carol-deploy.stderr"
   if cove --cove-home "$cove_home" deploy "${carol_domain}/${WORKFLOW_REF_ID}" \
       --phala-instance-type "${PHALA_INSTANCE_TYPE:-h200.small}" \
-      --phala-os-image "${PHALA_OS_IMAGE:-dstack-0.5.9}" \
+      --phala-os-image "${PHALA_OS_IMAGE:-dstack-nvidia-dev-0.5.9}" \
       --phala-disk-size-gb "${PHALA_DISK_SIZE_GB:-200}" \
       --dependency-timeout-seconds "${PHALA_DEPENDENCY_TIMEOUT_SECONDS:-7200}" \
       --phala-public-logs \

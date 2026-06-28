@@ -2,19 +2,19 @@
   "containers": [
     {
       "image_name": "cove-demo-attested-confidential-eval-vllm-gpu-audit-agent",
-      "canonical_ref": "covehub/cove-demo-attested-confidential-eval-vllm-gpu-audit-agent@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+      "canonical_ref": "covehub/cove-demo-attested-confidential-eval-vllm-gpu-audit-agent@sha256:7767c931a725d98aee45922eb322f98ff793c6d6d09a7f7a30fb70b8f8a81a34"
     },
     {
       "image_name": "cove-demo-attested-confidential-eval-vllm-gpu-compile-serving-wheel",
-      "canonical_ref": "covehub/cove-demo-attested-confidential-eval-vllm-gpu-compile-serving-wheel@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+      "canonical_ref": "covehub/cove-demo-attested-confidential-eval-vllm-gpu-compile-serving-wheel@sha256:ee11d338e87342e7bbbfb17234b752c34a9adfff093cc6abedfd68ba4558e96d"
     },
     {
       "image_name": "cove-demo-attested-confidential-eval-vllm-gpu-benchmark-runner",
-      "canonical_ref": "covehub/cove-demo-attested-confidential-eval-vllm-gpu-benchmark-runner@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+      "canonical_ref": "covehub/cove-demo-attested-confidential-eval-vllm-gpu-benchmark-runner@sha256:aac1c2f993ebf258ac88756dc39f0813b8940cc6a057e123b7799549dac28fd3"
     },
     {
       "image_name": "cove-demo-attested-confidential-eval-vllm-gpu-model-server",
-      "canonical_ref": "covehub/cove-demo-attested-confidential-eval-vllm-gpu-model-server@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+      "canonical_ref": "covehub/cove-demo-attested-confidential-eval-vllm-gpu-model-server@sha256:8cb3a80f69872211c6be64f8f8e25ada793aac09e6cc79a68f829ee4477cd514"
     }
   ]
 }
