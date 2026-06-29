@@ -1,0 +1,115 @@
+{
+  "type": "object",
+  "required": [
+    "benchmark_name",
+    "eval_code_sha256",
+    "eval_data_sha256",
+    "model_archive_sha256",
+    "pass",
+    "passes_threshold",
+    "score",
+    "serving_patch_sha256",
+    "serving_wheel_sha256",
+    "successful_responses",
+    "total_prompts"
+  ],
+  "properties": {
+    "benchmark_name": {
+      "type": "string"
+    },
+    "attack_success_rate": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "attack_successes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "eval_code_sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "eval_data_sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "model_archive_sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "pass": {
+      "type": "boolean"
+    },
+    "passes_threshold": {
+      "type": "boolean"
+    },
+    "score": {
+      "type": "number"
+    },
+    "refusal_rate": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "harmbench_method": {
+      "type": "string"
+    },
+    "harmbench_split": {
+      "type": "string"
+    },
+    "scoring_method": {
+      "type": "string"
+    },
+    "serving_patch_sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "serving_wheel_sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "successful_responses": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "total_prompts": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "gpu_confidential_compute_status": {
+      "type": "string"
+    },
+    "gpu_cuda_available": {
+      "type": "boolean"
+    },
+    "gpu_name": {
+      "type": "string"
+    },
+    "gpu_nvidia_cuda_version": {
+      "type": "string"
+    },
+    "gpu_nvidia_driver_version": {
+      "type": "string"
+    },
+    "gpu_preflight_required": {
+      "type": "boolean"
+    },
+    "gpu_preflight_passed": {
+      "type": "boolean"
+    },
+    "gpu_torch_cuda_version": {
+      "type": "string"
+    },
+    "gpu_error": {
+      "type": "string"
+    },
+    "gpu_nvidia_smi_error": {
+      "type": "string"
+    },
+    "gpu_confidential_compute_error": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": true
+}

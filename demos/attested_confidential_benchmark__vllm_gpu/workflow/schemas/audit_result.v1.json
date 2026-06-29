@@ -1,0 +1,62 @@
+{
+  "type": "object",
+  "required": [
+    "audit_kind",
+    "audited_sha256",
+    "llm_used",
+    "pass",
+    "reasoning"
+  ],
+  "properties": {
+    "audit_kind": {
+      "type": "string"
+    },
+    "audited_sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "llm_used": {
+      "type": "boolean"
+    },
+    "pass": {
+      "type": "boolean"
+    },
+    "reasoning": {
+      "type": "string"
+    },
+    "gpu_confidential_compute_status": {
+      "type": "string"
+    },
+    "gpu_cuda_available": {
+      "type": "boolean"
+    },
+    "gpu_name": {
+      "type": "string"
+    },
+    "gpu_nvidia_cuda_version": {
+      "type": "string"
+    },
+    "gpu_nvidia_driver_version": {
+      "type": "string"
+    },
+    "gpu_preflight_required": {
+      "type": "boolean"
+    },
+    "gpu_preflight_passed": {
+      "type": "boolean"
+    },
+    "gpu_torch_cuda_version": {
+      "type": "string"
+    },
+    "gpu_error": {
+      "type": "string"
+    },
+    "gpu_nvidia_smi_error": {
+      "type": "string"
+    },
+    "gpu_confidential_compute_error": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": true
+}

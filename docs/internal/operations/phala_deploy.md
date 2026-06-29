@@ -6,16 +6,26 @@ and verify the resulting CVMs.
 
 ## Deploy Model
 
-Phala CVM deployment is a two-phase API flow:
+Phala CVM creation is a two-phase API flow:
 
 1. `provision_cvm` reserves resources and returns an `app_id` plus a Phala
    `compose_hash`.
 2. `commit_cvm_provision` commits that `app_id` and `compose_hash` to create
    the CVM.
 
-`cove deploy` keeps that model intact. It pulls the reviewed workflow bundle,
-translates each per-node compose file into the shape Phala accepts, calls
-`provision_cvm` for every node, then calls `commit_cvm_provision`.
+`cove deploy` keeps that model intact for the default create-new-CVM path.
+It pulls the reviewed workflow bundle, translates each per-node compose file
+into the shape Phala accepts, calls `provision_cvm` for every selected node,
+then calls `commit_cvm_provision`.
+
+For manual one-at-a-time sequencing, `cove deploy --workflow-node <node>
+--phala-reuse-cvm-id <cvm_id>` updates one existing CVM instead of reserving
+a new one. That path uses Phala's two-phase compose-file update flow:
+`provision_cvm_compose_file_update` followed by
+`commit_cvm_compose_file_update`. It still uses Cove's normal translated
+node compose and staged dependency-certificate wait. Reuse preserves the
+existing CVM encrypted environment; create a fresh CVM when Docker registry
+credentials need to be installed or rotated.
 
 ## Deploy-Time Prerequisites And Non-Obvious Constraints
 
@@ -58,15 +68,21 @@ followed by anonymous pulls and a `toomanyrequests` failure. The fix is in
 the deploy payload, not in the workflow — recompiling, repushing, or
 reapproving will not change the outcome.
 
-### 3. `--phala-instance-type` is required
+### 3. `--phala-instance-type` is required for new CVMs
 
 Phala's provision API rejects requests that omit both `instance_type` and the
 older `vcpu`/`memory` pair. Cove has no built-in default; the flag is
-mandatory and chosen explicitly per deploy. Use `tdx.medium` for small
-hello-world-class workflows; use a GPU instance type
+mandatory when creating a new CVM and chosen explicitly per deploy. Use
+`tdx.medium` for small hello-world-class workflows; use a GPU instance type
 (e.g. `h200.small`) when the workload images include GPU software. The
 workload image itself decides whether the GPU is used; switching instance
 types does not change Cove workflow semantics.
+
+When reusing an existing CVM with `--phala-reuse-cvm-id`, `--phala-instance-type`
+is not required because the existing CVM already fixes the hardware shape.
+The existing CVM must already have any Docker registry credentials needed for
+image pulls; Cove does not rotate encrypted env vars during compose-file
+updates.
 
 ### 4. Resource changes do not invalidate review
 
@@ -132,7 +148,7 @@ is unrelated to the Docker Hub auth shipped to CVMs at deploy time
 
 ## Running A Deploy
 
-Required form:
+Required form for new CVMs:
 
 ```bash
 cove deploy <publisher>/<workflow_id> --phala-instance-type <type>
@@ -154,6 +170,22 @@ GPU example:
 cove deploy <publisher>/<workflow_id> --phala-instance-type h200.small
 ```
 
+Create just one new CVM for a selected node:
+
+```bash
+cove deploy <publisher>/<workflow_id> \
+  --workflow-node <node_id> \
+  --phala-instance-type <type>
+```
+
+Reuse one existing CVM for a selected node:
+
+```bash
+cove deploy <publisher>/<workflow_id> \
+  --workflow-node <node_id> \
+  --phala-reuse-cvm-id <cvm_id>
+```
+
 Override registry credentials for one deploy:
 
 ```bash
@@ -167,8 +199,10 @@ For non-Docker-Hub registries, also pass `--phala-docker-registry <host>`.
 
 ### Deploy Flag Reference
 
-| Cove flag | Phala provision payload field |
+| Cove flag | Effect / Phala payload field |
 | --- | --- |
+| `--workflow-node <node_id>` | selects one Cove workflow node before any Phala request |
+| `--phala-reuse-cvm-id <cvm_id>` | switches from `provision_cvm`/`commit_cvm_provision` to `provision_cvm_compose_file_update`/`commit_cvm_compose_file_update` |
 | `--phala-instance-type <type>` | root `instance_type` |
 | `--phala-region <region>` | root `region` |
 | `--phala-os-image <image>` | root `image` |

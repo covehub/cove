@@ -1,0 +1,44 @@
+services:
+  serve:
+    image: "covehub/cove-demo-attested-confidential-eval-vllm-gpu-model-server@sha256:8cb3a80f69872211c6be64f8f8e25ada793aac09e6cc79a68f829ee4477cd514"
+    environment:
+      HOST: 0.0.0.0
+      MODEL_NAME: CoveDemoModel
+      MODEL_ARCHIVE_PATH: /workspace/input/alice_private_model.tar
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+      NVIDIA_VISIBLE_DEVICES: all
+      PORT: "8443"
+      REQUIRE_CUDA: "1"
+      SERVING_WHEEL_PATH: /workspace/input/compiled_serving_wheel.whl
+      TLS_CERT_PATH: /cove/ephemeral_keypairs/ratls_key/certificate.pem
+      TLS_KEY_PATH: /cove/ephemeral_keypairs/ratls_key/private.pem
+      VLLM_DEVICE: cuda
+      VLLM_DTYPE: auto
+      VLLM_GPU_MEMORY_UTILIZATION: "0.90"
+      VLLM_TENSOR_PARALLEL_SIZE: "1"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    ports:
+      - "18443:8443"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - |
+          import json
+          import ssl
+          import urllib.request
+          context = ssl._create_unverified_context()
+          with urllib.request.urlopen("https://127.0.0.1:8443/health", timeout=5, context=context) as response:
+              payload = json.loads(response.read().decode("utf-8"))
+          assert payload["status"] == "ok"
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 180s

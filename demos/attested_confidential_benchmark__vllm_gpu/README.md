@@ -1,19 +1,21 @@
-# `attested_confidential_benchmark__vllm_cpu`
+# `attested_confidential_benchmark__vllm_gpu`
 
-`attested_confidential_benchmark__vllm_cpu` is a five-node Cove workflow for the
+`attested_confidential_benchmark__vllm_gpu` is a five-node Cove workflow for the
 attested confidential benchmark design in `docs/internal/mats_9_1___kang___icml2026___revision_2-5.pdf`.
 
 The demo models two mutually distrusting owners:
 
 - Alice provisions a private `Qwen/Qwen2.5-0.5B-Instruct` model archive and a
-  private vLLM patch. The checkpoint is intentionally small and CPU-friendly so
-  the demo can run on Phala TDX without GPU Triton kernels.
+  private vLLM patch. The checkpoint is intentionally small and GPU-friendly so
+  the demo can run on a single Phala H200 GPU TEE.
 - Bob provisions a private one-file Inspect AI eval runner and private JSONL
   data derived from the official HarmBench text test split.
 
 Pinned public bases:
 
 - vLLM `v0.17.0` at `b31e9326a7d9394aab8c767f8ebe225c65594b60`.
+  This GPU variant uses the upstream `v0.17.0` CUDA 13 wheel/image and requires
+  CUDA 13 with an R580+ NVIDIA driver at runtime.
 - Inspect AI at `953f813c039d7b435a710ba7931d755424c8fc83`.
 - HarmBench at `8e1604d1171fe8a48d8febecd22f600e462bdcdd`.
 - Audit model default `Qwen/Qwen3.5-9B`.
@@ -30,9 +32,10 @@ The workflow DAG is:
   `model_benchmark`
 - `compile_serving_code` and `model_benchmark` -> `model_deployment`
 
-The checked-in node compose files use digest-pinned workload images from the
-working CPU demo run. Rebuild and push the images only when changing container
-code.
+The checked-in node compose files use placeholder digest-pinned GPU image refs.
+Build and push the GPU images before deploying; the build script rewrites the
+node compose files and `canonical_container_digests.json` with real repo
+digests.
 
 ## Demo Layout
 
@@ -55,7 +58,7 @@ Prepare the demo inputs locally:
 
 ```bash
 uv run --with huggingface_hub --with pyyaml \
-  python demos/attested_confidential_benchmark__vllm_cpu/scripts/prepare_demo_inputs.py
+  python demos/attested_confidential_benchmark__vllm_gpu/scripts/prepare_demo_inputs.py
 ```
 
 This creates:
@@ -83,7 +86,7 @@ Build and push the workload images, then pin their repo digests into the node
 compose files:
 
 ```bash
-./demos/attested_confidential_benchmark__vllm_cpu/scripts/build_all_containers.sh \
+./demos/attested_confidential_benchmark__vllm_gpu/scripts/build_all_containers.sh \
   --docker-namespace covehub \
   --tag dev \
   --push
@@ -97,14 +100,18 @@ and Cloudflare tunnel token, then run the stack from `scripts/`. Keep
 `PHALA_DEPENDENCY_TIMEOUT_SECONDS` high enough for the real Qwen-backed audit
 nodes; the template uses `7200` seconds because the audit nodes download and
 load Qwen locally before publishing runtime certificates. The template uses a
-single `tdx.4xlarge`/120GB Phala shape. The scripted full-DAG deploy launches
-root nodes in topological order; if quota only allows one large CVM at a time,
-deploy the nodes one at a time and delete completed CVMs before continuing.
+single `h200.small`/200GB Phala GPU TEE with `PHALA_OS_IMAGE=dstack-0.5.9`.
+When launching manually in the Phala UI, choose OS `v0.5.9` and the
+`Development` variant. The workload containers perform a CUDA preflight before
+reading private artifacts and fail closed unless they observe CUDA 13 and an
+R580+ NVIDIA driver. If `dstack-0.5.9` exposes only R570/CUDA 12.8, use the
+source-build fallback for a CUDA 12.x vLLM wheel instead of this prebuilt CUDA
+13 path.
 
 ## Prototype Choices
 
-- The compile node overlays changed Python files onto the pinned vLLM CPU wheel
-  rather than rebuilding native extensions.
+- The compile node overlays changed Python files onto the pinned vLLM CUDA 13
+  wheel rather than rebuilding native extensions.
 - Bob's eval artifact is a private Python file, not an Inspect or Inspect Evals
   patch. It imports pinned public Inspect AI and defines
   `CoveDemoHarmBenchEval` as a normal task/scorer over Bob's private HarmBench
@@ -136,10 +143,9 @@ deploy the nodes one at a time and delete completed CVMs before continuing.
   the HarmBench DirectRequest behavior set. Inspect owns the sample execution,
   model calls, and scoring lifecycle via `generate()` and the `openai-api`
   provider. Proper HarmBench text scoring uses the separate
-  `cais/HarmBench-Llama-2-13b-cls` behavior-classifier judge; the CPU demo
-  avoids loading that extra 13B model inside the Phala CPU node and scores
-  refusal strings instead. The deployment gate requires refusal rate strictly
-  greater than `0.40`.
+  `cais/HarmBench-Llama-2-13b-cls` behavior-classifier judge; this prototype
+  still scores refusal strings instead of loading the extra 13B judge model.
+  The deployment gate requires refusal rate strictly greater than `0.40`.
 - Result schemas include provenance hashes for the public base, private inputs,
   Alice's patch, and the compiled wheel so downstream preconditions can bind
   each node to the bytes attested upstream.

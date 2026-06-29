@@ -54,6 +54,7 @@ _SUPPORTED_TOP_LEVEL_COMPOSE_KEYS = {"services", "volumes"}
 _SUPPORTED_SERVICE_KEYS = {
     "command",
     "depends_on",
+    "deploy",
     "entrypoint",
     "environment",
     "healthcheck",
@@ -123,6 +124,7 @@ class PhalaDeployOptions:
     docker_registry: str | None = None
     staged_launch: bool | None = None
     workflow_node_id: str | None = None
+    reuse_cvm_id: str | None = None
     dependency_timeout_seconds: float | None = None
     dependency_poll_interval_seconds: float | None = None
 
@@ -162,10 +164,7 @@ def deploy_workflow(
             f"'phala_cloud_api_key' must be configured in {config.path} for cove deploy"
         )
     phala_options = phala_options or PhalaDeployOptions()
-    if not phala_options.instance_type:
-        raise DeployCommandError(
-            "cove deploy requires --phala-instance-type, for example --phala-instance-type tdx.small"
-        )
+    reuse_cvm_id = _validate_phala_deploy_options(phala_options)
     registry_credentials = _resolve_phala_registry_credentials(config, phala_options)
     registry_env = _phala_registry_env(registry_credentials)
     registry_env_keys = [key for key, _value in registry_env]
@@ -226,6 +225,19 @@ def deploy_workflow(
                 )
 
             translated = _translate_node_deployment(bundle, node.node)
+            if reuse_cvm_id:
+                results.append(
+                    _update_existing_phala_cvm(
+                        client,
+                        node_id=node.node.node_id,
+                        translated=translated,
+                        options=phala_options,
+                        reuse_cvm_id=reuse_cvm_id,
+                        registry_env_keys=registry_env_keys,
+                    )
+                )
+                continue
+
             new_deleted_cvms = _delete_finished_phala_cvms(
                 client,
                 deployment_names=cleanup_deployment_names,
@@ -438,6 +450,19 @@ def _select_deployment_nodes(
     raise DeployCommandError(f"workflow node {workflow_node_id!r} does not exist in the pulled bundle")
 
 
+def _validate_phala_deploy_options(options: PhalaDeployOptions) -> str | None:
+    reuse_cvm_id = _normalize_optional_string(options.reuse_cvm_id)
+    if options.reuse_cvm_id is not None and reuse_cvm_id is None:
+        raise DeployCommandError("--phala-reuse-cvm-id must be non-empty")
+    if reuse_cvm_id and not options.workflow_node_id:
+        raise DeployCommandError("--phala-reuse-cvm-id requires --workflow-node")
+    if not reuse_cvm_id and not options.instance_type:
+        raise DeployCommandError(
+            "cove deploy requires --phala-instance-type, for example --phala-instance-type tdx.small"
+        )
+    return reuse_cvm_id
+
+
 def _wait_for_dependency_certificates(
     *,
     covehub_server_url: str,
@@ -541,15 +566,11 @@ def _phala_provision_payload(
 ) -> dict[str, Any]:
     if not options.instance_type:
         raise DeployCommandError("Phala instance_type is required")
-    compose_file: dict[str, Any] = {
-        "runner": "docker-compose",
-        "name": translated.deployment_name,
-        "docker_compose_file": translated.compose_text,
-    }
-    _set_optional(compose_file, "public_logs", options.public_logs)
-    _set_optional(compose_file, "public_sysinfo", options.public_sysinfo)
-    if env_keys:
-        compose_file["allowed_envs"] = env_keys
+    compose_file = _phala_compose_file_payload(
+        translated=translated,
+        options=options,
+        env_keys=env_keys,
+    )
 
     payload: dict[str, Any] = {
         "name": translated.deployment_name,
@@ -564,6 +585,69 @@ def _phala_provision_payload(
     if env_keys:
         payload["env_keys"] = env_keys
     return payload
+
+
+def _phala_compose_file_payload(
+    *,
+    translated: _TranslatedNodeDeployment,
+    options: PhalaDeployOptions,
+    env_keys: list[str],
+) -> dict[str, Any]:
+    compose_file: dict[str, Any] = {
+        "runner": "docker-compose",
+        "name": translated.deployment_name,
+        "docker_compose_file": translated.compose_text,
+    }
+    _set_optional(compose_file, "public_logs", options.public_logs)
+    _set_optional(compose_file, "public_sysinfo", options.public_sysinfo)
+    if env_keys:
+        compose_file["allowed_envs"] = env_keys
+    return compose_file
+
+
+def _update_existing_phala_cvm(
+    client: Any,
+    *,
+    node_id: str,
+    translated: _TranslatedNodeDeployment,
+    options: PhalaDeployOptions,
+    reuse_cvm_id: str,
+    registry_env_keys: list[str],
+) -> DeployNodeResult:
+    provision_payload: dict[str, Any] = {
+        "id": reuse_cvm_id,
+        "app_compose": _phala_compose_file_payload(
+            translated=translated,
+            options=options,
+            env_keys=registry_env_keys,
+        ),
+    }
+    provision_response = client.provision_cvm_compose_file_update(provision_payload)
+    compose_hash = _required_model_string(provision_response, "compose_hash")
+
+    commit_payload: dict[str, Any] = {
+        "id": reuse_cvm_id,
+        "compose_hash": compose_hash,
+    }
+    commit_response = client.commit_cvm_compose_file_update(commit_payload)
+    app_id = (
+        _optional_model_string(commit_response, "app_id")
+        or _optional_model_string(provision_response, "app_id")
+        or reuse_cvm_id
+    )
+    status = (
+        _optional_model_string(commit_response, "status")
+        or _optional_model_string(provision_response, "status")
+        or "updated"
+    )
+    return DeployNodeResult(
+        node_id=node_id,
+        deployment_name=translated.deployment_name,
+        cvm_id=reuse_cvm_id,
+        status=status,
+        app_id=app_id,
+        compose_hash=compose_hash,
+    )
 
 
 def _set_optional(payload: dict[str, Any], key: str, value: Any | None) -> None:
@@ -1045,6 +1129,89 @@ def _validate_service_payload(service_name: str, service: dict[str, Any], *, nod
         raise DeployCommandError(
             f"pulled compose service {service_name!r} for node {node_id} must use a digest-pinned image"
         )
+    if "deploy" in service:
+        _validate_service_deploy_payload(service_name, service["deploy"], node_id=node_id)
+
+
+def _validate_service_deploy_payload(service_name: str, deploy: Any, *, node_id: str) -> None:
+    if not isinstance(deploy, dict):
+        raise DeployCommandError(
+            f"pulled compose service {service_name!r} for node {node_id} deploy must be a mapping"
+        )
+    unsupported_deploy_keys = sorted(key for key in deploy if key != "resources")
+    if unsupported_deploy_keys:
+        raise DeployCommandError(
+            "pulled compose service "
+            f"{service_name!r} for node {node_id} deploy uses unsupported keys: "
+            f"{', '.join(unsupported_deploy_keys)}"
+        )
+    resources = deploy.get("resources")
+    if resources is None:
+        return
+    if not isinstance(resources, dict):
+        raise DeployCommandError(
+            f"pulled compose service {service_name!r} for node {node_id} deploy.resources must be a mapping"
+        )
+    unsupported_resource_keys = sorted(key for key in resources if key != "reservations")
+    if unsupported_resource_keys:
+        raise DeployCommandError(
+            "pulled compose service "
+            f"{service_name!r} for node {node_id} deploy.resources uses unsupported keys: "
+            f"{', '.join(unsupported_resource_keys)}"
+        )
+    reservations = resources.get("reservations")
+    if reservations is None:
+        return
+    if not isinstance(reservations, dict):
+        raise DeployCommandError(
+            "pulled compose service "
+            f"{service_name!r} for node {node_id} deploy.resources.reservations must be a mapping"
+        )
+    unsupported_reservation_keys = sorted(key for key in reservations if key != "devices")
+    if unsupported_reservation_keys:
+        raise DeployCommandError(
+            "pulled compose service "
+            f"{service_name!r} for node {node_id} deploy.resources.reservations uses unsupported keys: "
+            f"{', '.join(unsupported_reservation_keys)}"
+        )
+    devices = reservations.get("devices")
+    if devices is None:
+        return
+    if not isinstance(devices, list):
+        raise DeployCommandError(
+            "pulled compose service "
+            f"{service_name!r} for node {node_id} deploy.resources.reservations.devices must be a list"
+        )
+    allowed_device_keys = {"capabilities", "count", "device_ids", "driver", "options"}
+    for index, device in enumerate(devices):
+        if not isinstance(device, dict):
+            raise DeployCommandError(
+                "pulled compose service "
+                f"{service_name!r} for node {node_id} deploy.resources.reservations.devices[{index}] "
+                "must be a mapping"
+            )
+        unsupported_device_keys = sorted(key for key in device if key not in allowed_device_keys)
+        if unsupported_device_keys:
+            raise DeployCommandError(
+                "pulled compose service "
+                f"{service_name!r} for node {node_id} deploy.resources.reservations.devices[{index}] "
+                f"uses unsupported keys: {', '.join(unsupported_device_keys)}"
+            )
+        capabilities = device.get("capabilities")
+        if capabilities is None:
+            raise DeployCommandError(
+                "pulled compose service "
+                f"{service_name!r} for node {node_id} deploy.resources.reservations.devices[{index}] "
+                "must declare capabilities"
+            )
+        if not isinstance(capabilities, list) or not all(
+            isinstance(capability, str) for capability in capabilities
+        ):
+            raise DeployCommandError(
+                "pulled compose service "
+                f"{service_name!r} for node {node_id} deploy.resources.reservations.devices[{index}] "
+                "capabilities must be a list of strings"
+            )
 
 
 def _service_may_mount_dstack_socket(service_name: str) -> bool:

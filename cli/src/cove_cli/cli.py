@@ -124,6 +124,7 @@ def run(argv: Sequence[str] | None = None) -> int:
                         docker_registry=args.phala_docker_registry,
                         staged_launch=args.staged_launch,
                         workflow_node_id=args.workflow_node,
+                        reuse_cvm_id=args.phala_reuse_cvm_id,
                         dependency_timeout_seconds=args.dependency_timeout_seconds,
                         dependency_poll_interval_seconds=args.dependency_poll_interval_seconds,
                     ),
@@ -403,8 +404,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     deploy_parser.add_argument(
         "--phala-instance-type",
-        required=True,
-        help="Phala instance type to use for each deployed node, e.g. tdx.small or h200.small",
+        help="Phala instance type to use for each new CVM; required unless --phala-reuse-cvm-id is set",
+    )
+    deploy_parser.add_argument(
+        "--phala-reuse-cvm-id",
+        help="Update an existing Phala CVM with the selected workflow node; requires --workflow-node",
     )
     deploy_parser.add_argument(
         "--phala-region",

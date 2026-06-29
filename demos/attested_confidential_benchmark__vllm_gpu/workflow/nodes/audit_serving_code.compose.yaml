@@ -1,0 +1,19 @@
+services:
+  audit_agent:
+    image: "covehub/cove-demo-attested-confidential-eval-vllm-gpu-audit-agent@sha256:7767c931a725d98aee45922eb322f98ff793c6d6d09a7f7a30fb70b8f8a81a34"
+    environment:
+      AUDIT_KIND: serving_patch
+      AUDIT_DEVICE_MAP: auto
+      AUDIT_MODEL_ID: Qwen/Qwen3.5-9B
+      INPUT_PATH: /workspace/input/alice_private_serving_patch.diff
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+      NVIDIA_VISIBLE_DEVICES: all
+      REQUIRE_CUDA: "1"
+      RESULT_PATH: /workspace/output/audit_serving_result.json
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
