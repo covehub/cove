@@ -1,7 +1,7 @@
 # `attested_confidential_benchmark__vllm_gpu`
 
-`attested_confidential_benchmark__vllm_gpu` is a five-node Cove workflow for the
-attested confidential benchmark design in `docs/internal/mats_9_1___kang___icml2026___revision_2-5.pdf`.
+`attested_confidential_benchmark__vllm_gpu` is a five-node Cove workflow that
+implements the attested confidential benchmark design.
 
 The demo models two mutually distrusting owners:
 
