@@ -1,4 +1,8 @@
-# Cove
+# Cove: Compositional Multi-Party Confidential Workflows for Verifiable AI Governance
+
+**Link to Main Paper**: https://openreview.net/attachment?id=t1dz06Vcee&name=pdf
+
+---
 
 Cove is a framework for compositional, multi-party confidential workflows.
 It lets mutually distrusting parties run workflows over private artifacts
