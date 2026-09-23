@@ -289,8 +289,19 @@ test.beforeEach(async ({ page }) => {
   );
 });
 
-test('uses left navigation and separate object screens without observed digest column', async ({ page }) => {
+test('landing page introduces Cove and opens the atlas', async ({ page }) => {
   await page.goto('/');
+
+  await expect(page.getByRole('heading', { name: 'Cove' })).toBeVisible();
+  await expect(page.getByText('multi-stage audits over private models, code, and data')).toBeVisible();
+  await expect(page.locator('.landing-hero-image')).toHaveAttribute('src', /cove-workflow-hero/);
+  await page.getByRole('link', { name: /Explore CoveHub/ }).click();
+  await expect(page).toHaveURL(/#workflows$/);
+  await expect(page.getByRole('heading', { name: 'Workflows' })).toBeVisible();
+});
+
+test('uses left navigation and separate object screens without observed digest column', async ({ page }) => {
+  await page.goto('/#workflows');
 
   await expect(page.getByRole('heading', { name: 'Workflows' })).toBeVisible();
   await expect(page.locator('.row-primary', { hasText: 'hello_world' })).toBeVisible();
@@ -452,7 +463,7 @@ test('desktop panels scroll independently', async ({ page }) => {
 });
 
 test('glossary is a left-nav screen', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/#workflows');
 
   await page.getByRole('button', { name: /Terms/ }).click();
   await expect(page.getByRole('heading', { name: 'Glossary' })).toBeVisible();
@@ -461,6 +472,19 @@ test('glossary is a left-nav screen', async ({ page }) => {
 });
 
 test('desktop and mobile layouts fit without horizontal document overflow', async ({ page }, testInfo) => {
+  await page.goto('/');
+  await page.screenshot({ path: testInfo.outputPath(`landing-${testInfo.project.name}.png`), fullPage: true });
+  const landingMetrics = await page.evaluate(() => {
+    const nextSection = document.querySelector('#why');
+    return {
+      hasOverflow: document.documentElement.scrollWidth > window.innerWidth + 1,
+      nextSectionTop: nextSection?.getBoundingClientRect().top ?? window.innerHeight,
+      viewportHeight: window.innerHeight,
+    };
+  });
+  expect(landingMetrics.hasOverflow).toBe(false);
+  expect(landingMetrics.nextSectionTop).toBeLessThan(landingMetrics.viewportHeight);
+
   await page.goto('/#object/v1/workflows/alice/hello_world/latest');
   await page.screenshot({ path: testInfo.outputPath(`atlas-${testInfo.project.name}.png`), fullPage: true });
 
