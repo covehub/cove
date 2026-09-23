@@ -168,9 +168,9 @@ def test_deploy_pulls_bundle_before_submitting_and_orders_nodes_topologically(
             node_id=node_id,
         )
         for node_id in [
-            "alice_word_length_checker",
-            "bob_word_length_checker",
-            "character_set_checker",
+            "alice_character_set_checker",
+            "bob_character_set_checker",
+            "word_length_checker",
             "final_server",
         ]
     ]
@@ -654,9 +654,9 @@ def test_deploy_staged_launch_waits_before_submitting_dependent_nodes(
             node_id=node_id,
         )
         for node_id in [
-            "alice_word_length_checker",
-            "bob_word_length_checker",
-            "character_set_checker",
+            "alice_character_set_checker",
+            "bob_character_set_checker",
+            "word_length_checker",
             "final_server",
         ]
     ]
@@ -664,9 +664,9 @@ def test_deploy_staged_launch_waits_before_submitting_dependent_nodes(
         "pull",
         f"provision:{expected_names[0]}",
         f"provision:{expected_names[1]}",
-        "wait:character_set_checker:alice_word_length_checker,bob_word_length_checker",
+        "wait:word_length_checker:alice_character_set_checker,bob_character_set_checker",
         f"provision:{expected_names[2]}",
-        "wait:final_server:alice_word_length_checker,bob_word_length_checker,character_set_checker",
+        "wait:final_server:alice_character_set_checker,bob_character_set_checker,word_length_checker",
         f"provision:{expected_names[3]}",
     ]
 
@@ -741,9 +741,9 @@ def test_deploy_workflow_node_launches_only_requested_node(
         (
             "final_server",
             (
-                "alice_word_length_checker",
-                "bob_word_length_checker",
-                "character_set_checker",
+                "alice_character_set_checker",
+                "bob_character_set_checker",
+                "word_length_checker",
             ),
         )
     ]

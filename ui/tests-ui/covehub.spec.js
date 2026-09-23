@@ -244,7 +244,7 @@ const runtimeArtifactDetail = {
       { workflow_hub_path: objects[0].hub_path, publisher: 'alice', workflow_id: 'hello_world', node_id: 'final_server', artifact_name: 'bob_secret_word_transformed' },
     ],
     produced_by: [
-      { workflow_hub_path: objects[0].hub_path, publisher: 'alice', workflow_id: 'hello_world', node_id: 'bob_word_length_checker', artifact_name: 'bob_secret_word_transformed' },
+      { workflow_hub_path: objects[0].hub_path, publisher: 'alice', workflow_id: 'hello_world', node_id: 'bob_character_set_checker', artifact_name: 'bob_secret_word_transformed' },
     ],
   },
   preview: { kind: 'bytes', text: 'encrypted bytes', truncated: false },

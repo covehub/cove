@@ -393,7 +393,7 @@ def test_push_and_pull_preserve_generated_digest_pinned_bundle(tmp_path, monkeyp
     assert final_provisioner_config["mode"] == "dynamic_input"
 
     assert final_provisioner_config["producer_certificate_path"] == (
-        "/cove/certificates/alice_word_length_checker/certificate.json"
+        "/cove/certificates/alice_character_set_checker/certificate.json"
     )
     provisioner_environment = final_compose_payload["services"][
         "cove_provision_alice_secret_word_transformed"
@@ -725,10 +725,10 @@ def test_provision_inspect_pulls_bundle_and_only_allows_yes_nodes(
 
     assert exit_code == 0
     assert "Reviewed nodes: 3" in output
-    assert static_rule_nodes == ["alice_word_length_checker"]
-    assert dynamic_rule_nodes == ["alice_word_length_checker", "final_server"]
+    assert static_rule_nodes == ["alice_character_set_checker"]
+    assert dynamic_rule_nodes == ["alice_character_set_checker", "final_server"]
     assert dynamic_channel is not None
-    assert "Node: bob_word_length_checker" not in output
+    assert "Node: bob_character_set_checker" not in output
 
 
 def test_reset_runtime_command_deletes_remote_artifacts_and_certificates(tmp_path, monkeypatch, capsys) -> None:

@@ -142,9 +142,9 @@ import sys
 demo_root = Path(sys.argv[1])
 word_ref, char_ref, final_ref = sys.argv[2:5]
 updates = {
-    demo_root / "workflow" / "nodes" / "alice_word_length_checker.compose.yaml": word_ref,
-    demo_root / "workflow" / "nodes" / "bob_word_length_checker.compose.yaml": word_ref,
-    demo_root / "workflow" / "nodes" / "character_set_checker.compose.yaml": char_ref,
+    demo_root / "workflow" / "nodes" / "alice_character_set_checker.compose.yaml": char_ref,
+    demo_root / "workflow" / "nodes" / "bob_character_set_checker.compose.yaml": char_ref,
+    demo_root / "workflow" / "nodes" / "word_length_checker.compose.yaml": word_ref,
     demo_root / "workflow" / "nodes" / "final_server.compose.yaml": final_ref,
 }
 pattern = re.compile(r'(^\s*image:\s*")([^"]+)(")', re.MULTILINE)

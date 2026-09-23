@@ -1,0 +1,7 @@
+services:
+  character_set_checker:
+    image: "covehub/cove-demo-hello-world-character-set-checker@sha256:878de11dec7d0decb973ebb81dd2a7f2dc410708284800613a091002f052f7c1"
+    environment:
+      INPUT_PATH: /workspace/input/bob_secret_word.txt
+      RESULT_PATH: /workspace/output/bob_character_set_result.json
+      OUTPUT_PATH: /workspace/output/bob_secret_word_transformed.txt

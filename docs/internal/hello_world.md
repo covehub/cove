@@ -20,9 +20,9 @@ core Cove primitives end to end:
 
 The workflow has four nodes:
 
-- `alice_word_length_checker`
-- `bob_word_length_checker`
-- `character_set_checker`
+- `alice_character_set_checker`
+- `bob_character_set_checker`
+- `word_length_checker`
 - `final_server`
 
 ## Reference Identifiers
@@ -424,7 +424,7 @@ PY
 Check CVM status:
 
 ```bash
-for id in <alice-cvm-id> <bob-cvm-id> <character-set-cvm-id> <final-cvm-id>; do
+for id in <alice-cvm-id> <bob-cvm-id> <word-length-cvm-id> <final-cvm-id>; do
   npx --yes phala cvms get "$id" --json \
     | jq -r '"\(.id)\t\(.name)\t\(.status)\tservices=\(.services|length)\tboot_error=\(.boot_error // "")"'
 done

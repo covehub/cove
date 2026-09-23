@@ -1,20 +1,24 @@
 #!/usr/bin/env python3
 
-from hello_world_common import log, read_secret_word, require_env, write_json
+from hello_world_common import log, read_secret_word, require_env, write_json, write_text
 
 
 SERVICE = "character_set_checker"
 
 
 def main() -> int:
-    alice_input_path = require_env("ALICE_INPUT_PATH")
-    bob_input_path = require_env("BOB_INPUT_PATH")
+    input_path = require_env("INPUT_PATH")
     result_path = require_env("RESULT_PATH")
+    output_path = require_env("OUTPUT_PATH")
 
-    combined = read_secret_word(alice_input_path) + read_secret_word(bob_input_path)
-    passed = len(combined) == 10
+    secret_word = read_secret_word(input_path)
+    passed = secret_word == secret_word.lower()
     write_json(result_path, {"pass": passed})
-    log(SERVICE, f"checked transformed combined secret word length={len(combined)}: pass={passed}")
+    write_text(output_path, secret_word.upper() + "\n")
+    log(
+        SERVICE,
+        f"checked lowercase for {input_path}: pass={passed}; wrote uppercase output to {output_path}",
+    )
     return 0
 
 

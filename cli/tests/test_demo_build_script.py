@@ -74,13 +74,13 @@ def test_hello_world_build_script_push_updates_pinned_workload_refs(
     docker_log_path = tmp_path / "docker.log"
     fake_bin = _write_fake_docker(tmp_path)
     alice_compose_path = (
-        repo_root / "demos" / "hello_world" / "workflow" / "nodes" / "alice_word_length_checker.compose.yaml"
+        repo_root / "demos" / "hello_world" / "workflow" / "nodes" / "alice_character_set_checker.compose.yaml"
     )
     bob_compose_path = (
-        repo_root / "demos" / "hello_world" / "workflow" / "nodes" / "bob_word_length_checker.compose.yaml"
+        repo_root / "demos" / "hello_world" / "workflow" / "nodes" / "bob_character_set_checker.compose.yaml"
     )
     character_compose_path = (
-        repo_root / "demos" / "hello_world" / "workflow" / "nodes" / "character_set_checker.compose.yaml"
+        repo_root / "demos" / "hello_world" / "workflow" / "nodes" / "word_length_checker.compose.yaml"
     )
     final_compose_path = (
         repo_root / "demos" / "hello_world" / "workflow" / "nodes" / "final_server.compose.yaml"
@@ -131,9 +131,9 @@ def test_hello_world_build_script_push_updates_pinned_workload_refs(
             },
         ]
     }
-    assert "sha256:58fe3bab59ed5667e78ddcae5c399b070cc549c8d6b169922464c2ae33457a32" in alice_compose_path.read_text(encoding="utf-8")
-    assert "sha256:58fe3bab59ed5667e78ddcae5c399b070cc549c8d6b169922464c2ae33457a32" in bob_compose_path.read_text(encoding="utf-8")
-    assert "sha256:73f746f6fe9dedd020e50f36e42e8047b2b656c4786cbb055583826aa68cd6fa" in character_compose_path.read_text(encoding="utf-8")
+    assert "sha256:73f746f6fe9dedd020e50f36e42e8047b2b656c4786cbb055583826aa68cd6fa" in alice_compose_path.read_text(encoding="utf-8")
+    assert "sha256:73f746f6fe9dedd020e50f36e42e8047b2b656c4786cbb055583826aa68cd6fa" in bob_compose_path.read_text(encoding="utf-8")
+    assert "sha256:58fe3bab59ed5667e78ddcae5c399b070cc549c8d6b169922464c2ae33457a32" in character_compose_path.read_text(encoding="utf-8")
     assert "sha256:e381a37520e3c0db68effff95fc957dfd30910e46290df1a7e4f87efe9d0984f" in final_compose_path.read_text(encoding="utf-8")
     assert "Next release checklist:" in result.stdout
     assert "- Commit demos/hello_world/canonical_container_digests.json." in result.stdout
@@ -289,14 +289,14 @@ def test_hello_world_authored_compose_images_match_demo_canonical_digests(tmp_pa
     )
     refs = {entry["image_name"]: entry["canonical_ref"] for entry in payload["containers"]}
 
-    assert refs["cove-demo-hello-world-word-length-checker"] in (
-        repo_root / "demos" / "hello_world" / "workflow" / "nodes" / "alice_word_length_checker.compose.yaml"
-    ).read_text(encoding="utf-8")
-    assert refs["cove-demo-hello-world-word-length-checker"] in (
-        repo_root / "demos" / "hello_world" / "workflow" / "nodes" / "bob_word_length_checker.compose.yaml"
+    assert refs["cove-demo-hello-world-character-set-checker"] in (
+        repo_root / "demos" / "hello_world" / "workflow" / "nodes" / "alice_character_set_checker.compose.yaml"
     ).read_text(encoding="utf-8")
     assert refs["cove-demo-hello-world-character-set-checker"] in (
-        repo_root / "demos" / "hello_world" / "workflow" / "nodes" / "character_set_checker.compose.yaml"
+        repo_root / "demos" / "hello_world" / "workflow" / "nodes" / "bob_character_set_checker.compose.yaml"
+    ).read_text(encoding="utf-8")
+    assert refs["cove-demo-hello-world-word-length-checker"] in (
+        repo_root / "demos" / "hello_world" / "workflow" / "nodes" / "word_length_checker.compose.yaml"
     ).read_text(encoding="utf-8")
     assert refs["cove-demo-hello-world-final-server"] in (
         repo_root / "demos" / "hello_world" / "workflow" / "nodes" / "final_server.compose.yaml"
@@ -444,9 +444,9 @@ def _copy_demo_script_fixture(tmp_path: Path) -> Path:
         Path("demos/hello_world/scripts/build_all_containers.sh"),
         Path("demos/hello_world/scripts/pull_canonical_containers.sh"),
         Path("demos/hello_world/canonical_container_digests.json"),
-        Path("demos/hello_world/workflow/nodes/alice_word_length_checker.compose.yaml"),
-        Path("demos/hello_world/workflow/nodes/bob_word_length_checker.compose.yaml"),
-        Path("demos/hello_world/workflow/nodes/character_set_checker.compose.yaml"),
+        Path("demos/hello_world/workflow/nodes/alice_character_set_checker.compose.yaml"),
+        Path("demos/hello_world/workflow/nodes/bob_character_set_checker.compose.yaml"),
+        Path("demos/hello_world/workflow/nodes/word_length_checker.compose.yaml"),
         Path("demos/hello_world/workflow/nodes/final_server.compose.yaml"),
         Path("cli/canonical_container_digests.json"),
     ]:

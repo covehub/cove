@@ -3,9 +3,9 @@
 `hello_world` is the checked-in workflow that exercises every Cove
 primitive end-to-end. It has four nodes:
 
-- `alice_word_length_checker`
-- `bob_word_length_checker`
-- `character_set_checker`
+- `alice_character_set_checker`
+- `bob_character_set_checker`
+- `word_length_checker`
 - `final_server`
 
 The workflow has two data owners (Alice and Bob) and one publisher/deployer

@@ -186,10 +186,10 @@ def test_runtime_artifact_owner_is_enriched_from_certificate_output_metadata(tmp
     _write(data / "runtime" / "alice" / "hello_world" / "artifacts" / "bob_secret_word_transformed" / "latest", ciphertext)
     _write(data / "runtime" / "alice" / "hello_world" / "artifacts" / "bob_secret_word_transformed" / digest, ciphertext)
     _write(
-        data / "runtime" / "alice" / "hello_world" / "certificates" / "bob_word_length_checker" / "latest",
+        data / "runtime" / "alice" / "hello_world" / "certificates" / "bob_character_set_checker" / "latest",
         _certificate(
             workflow_id="hello_world",
-            node_id="bob_word_length_checker",
+            node_id="bob_character_set_checker",
             outputs={"bob_secret_word_transformed": output_metadata},
         ),
     )
@@ -219,7 +219,7 @@ def test_runtime_artifact_owner_falls_back_to_workflow_bundle_metadata(tmp_path:
             "files": [],
             "nodes": [
                 {
-                    "node_id": "bob_word_length_checker",
+                    "node_id": "bob_character_set_checker",
                     "compose_hash": "sha256:" + "2" * 64,
                     "artifacts": [
                         {

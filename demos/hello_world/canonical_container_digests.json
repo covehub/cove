@@ -2,15 +2,15 @@
   "containers": [
     {
       "image_name": "cove-demo-hello-world-word-length-checker",
-      "canonical_ref": "covehub/cove-demo-hello-world-word-length-checker@sha256:1c7d17a9d4593d855ff9e81ac37fe07f47235c65575c7f7f5e50755cfa3c0617"
+      "canonical_ref": "covehub/cove-demo-hello-world-word-length-checker@sha256:83daead7266c1d4205fa969549c2afe6777ef22b77da6f4e99cd8bff12e9fcc3"
     },
     {
       "image_name": "cove-demo-hello-world-character-set-checker",
-      "canonical_ref": "covehub/cove-demo-hello-world-character-set-checker@sha256:7e5db9c9d78b204427ea899acad34e2a1f757c5fc516468e07f884bb125dd919"
+      "canonical_ref": "covehub/cove-demo-hello-world-character-set-checker@sha256:878de11dec7d0decb973ebb81dd2a7f2dc410708284800613a091002f052f7c1"
     },
     {
       "image_name": "cove-demo-hello-world-final-server",
-      "canonical_ref": "covehub/cove-demo-hello-world-final-server@sha256:6e17616a329414b99f42c87cda0e86f644eba7289a1eb17e74d681185ad6e743"
+      "canonical_ref": "covehub/cove-demo-hello-world-final-server@sha256:44062026842f1a9e1e6f4ec926f6eca19490008ee3c3f683a53921208b78eb4b"
     }
   ]
 }

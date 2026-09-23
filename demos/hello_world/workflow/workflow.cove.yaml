@@ -32,66 +32,66 @@ artifacts:
     owner: bob
 
 nodes:
-  alice_word_length_checker:
-    compose: nodes/alice_word_length_checker.compose.yaml
+  alice_character_set_checker:
+    compose: nodes/alice_character_set_checker.compose.yaml
     services:
-      word_length_checker:
+      character_set_checker:
         inputs:
           /workspace/input/alice_secret_word.txt: alice_secret_word
         outputs:
           /workspace/output/alice_secret_word_transformed.txt: alice_secret_word_transformed
         custom_certificate_field:
           schema: schemas/check_result.v1.json
-          path: /workspace/output/alice_word_length_result.json
+          path: /workspace/output/alice_character_set_result.json
         preconditions:
           "==":
             - { "var": "inputs.alice_secret_word.plaintext_hash" }
             - "sha256:5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03"
 
-  bob_word_length_checker:
-    compose: nodes/bob_word_length_checker.compose.yaml
+  bob_character_set_checker:
+    compose: nodes/bob_character_set_checker.compose.yaml
     services:
-      word_length_checker:
+      character_set_checker:
         inputs:
           /workspace/input/bob_secret_word.txt: bob_secret_word
         outputs:
           /workspace/output/bob_secret_word_transformed.txt: bob_secret_word_transformed
         custom_certificate_field:
           schema: schemas/check_result.v1.json
-          path: /workspace/output/bob_word_length_result.json
+          path: /workspace/output/bob_character_set_result.json
         preconditions:
           "==":
             - { "var": "inputs.bob_secret_word.plaintext_hash" }
             - "sha256:e258d248fda94c63753607f7c4494ee0fcbe92f1a76bfdac795c9d84101eb317"
 
-  character_set_checker:
-    compose: nodes/character_set_checker.compose.yaml
+  word_length_checker:
+    compose: nodes/word_length_checker.compose.yaml
     dependencies:
-      - alice_word_length_checker
-      - bob_word_length_checker
+      - alice_character_set_checker
+      - bob_character_set_checker
     services:
-      character_set_checker:
+      word_length_checker:
         inputs:
           /workspace/input/alice_secret_word_transformed.txt: alice_secret_word_transformed
           /workspace/input/bob_secret_word_transformed.txt: bob_secret_word_transformed
         custom_certificate_field:
           schema: schemas/check_result.v1.json
-          path: /workspace/output/character_set_result.json
+          path: /workspace/output/word_length_result.json
         preconditions:
           and:
             - "==":
-                - { "var": "certificates.alice_word_length_checker.certificate_body.results.word_length_checker.pass" }
+                - { "var": "certificates.alice_character_set_checker.certificate_body.results.character_set_checker.pass" }
                 - true
             - "==":
-                - { "var": "certificates.bob_word_length_checker.certificate_body.results.word_length_checker.pass" }
+                - { "var": "certificates.bob_character_set_checker.certificate_body.results.character_set_checker.pass" }
                 - true
 
   final_server:
     compose: nodes/final_server.compose.yaml
     dependencies:
-      - alice_word_length_checker
-      - bob_word_length_checker
-      - character_set_checker
+      - alice_character_set_checker
+      - bob_character_set_checker
+      - word_length_checker
     services:
       final_server:
         should_terminate: False
@@ -103,5 +103,5 @@ nodes:
         preconditions:
           and:
             - "==":
-                - { "var": "certificates.character_set_checker.certificate_body.results.character_set_checker.pass" }
+                - { "var": "certificates.word_length_checker.certificate_body.results.word_length_checker.pass" }
                 - true

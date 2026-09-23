@@ -285,9 +285,9 @@ def test_compile_emits_generated_compose_hash_and_sidecars(tmp_path) -> None:
     compile_workflow(workflow_dir / "workflow.cove.yaml", cove_home=cove_home)
 
     final_node_dir = workflow_dir / "build" / "nodes" / "final_server"
-    alice_node_dir = workflow_dir / "build" / "nodes" / "alice_word_length_checker"
-    bob_node_dir = workflow_dir / "build" / "nodes" / "bob_word_length_checker"
-    character_node_dir = workflow_dir / "build" / "nodes" / "character_set_checker"
+    alice_node_dir = workflow_dir / "build" / "nodes" / "alice_character_set_checker"
+    bob_node_dir = workflow_dir / "build" / "nodes" / "bob_character_set_checker"
+    character_node_dir = workflow_dir / "build" / "nodes" / "word_length_checker"
     compose_path = final_node_dir / "compose.generated.yaml"
     compose_hash_path = final_node_dir / "compose.generated.sha256"
 
@@ -339,7 +339,7 @@ def test_compile_emits_generated_compose_hash_and_sidecars(tmp_path) -> None:
         "covehub/cove-demo-hello-world-final-server@sha256:"
     )
     assert (
-        alice_services["cove_service_certificate_writer_word_length_checker"]["image"]
+        alice_services["cove_service_certificate_writer_character_set_checker"]["image"]
         == canonical_container_ref("cove-service-certificate-writer")
     )
     assert services["cove_dependency_certificate_fetcher"]["network_mode"] == "host"
@@ -381,14 +381,14 @@ def test_compile_emits_generated_compose_hash_and_sidecars(tmp_path) -> None:
         and volume["source"].startswith("cove-input-")
         and volume["target"] == "/workspace/input"
         and volume["read_only"] is True
-        for volume in alice_services["word_length_checker"]["volumes"]
+        for volume in alice_services["character_set_checker"]["volumes"]
     )
     assert any(
         volume["type"] == "volume"
         and volume["source"].startswith("cove-bind-")
         and volume["target"] == "/workspace/output"
         and volume["read_only"] is False
-        for volume in alice_services["word_length_checker"]["volumes"]
+        for volume in alice_services["character_set_checker"]["volumes"]
     )
     assert any(
         service_name.startswith("cove_copy_")
@@ -456,7 +456,7 @@ def test_compile_emits_generated_compose_hash_and_sidecars(tmp_path) -> None:
     assert artifact_provisioner_config["mode"] == "dynamic_input"
     assert (
         artifact_provisioner_config["producer_certificate_path"]
-        == "/cove/certificates/alice_word_length_checker/certificate.json"
+        == "/cove/certificates/alice_character_set_checker/certificate.json"
     )
     assert artifact_provisioner_config["attestation"] == {
         "mode": "phala_dstack",
@@ -474,11 +474,11 @@ def test_compile_emits_generated_compose_hash_and_sidecars(tmp_path) -> None:
     }
     assert (
         precondition_config["preconditions"]["and"][0]["=="][0]["var"]
-        == "certificates.character_set_checker.certificate_body.results.character_set_checker.pass"
+        == "certificates.word_length_checker.certificate_body.results.word_length_checker.pass"
     )
     assert (
-        precondition_config["certificates"]["character_set_checker"]
-        == "/cove/certificates/character_set_checker/certificate.json"
+        precondition_config["certificates"]["word_length_checker"]
+        == "/cove/certificates/word_length_checker/certificate.json"
     )
     assert any(
         volume["source"] == "cove_runtime"
@@ -492,28 +492,28 @@ def test_compile_emits_generated_compose_hash_and_sidecars(tmp_path) -> None:
     )
     assert final_dependency_config["dependencies"] == [
         {
-            "node_name": "alice_word_length_checker",
-            "certificate_path": "/cove/certificates/alice_word_length_checker/certificate.json",
+            "node_name": "alice_character_set_checker",
+            "certificate_path": "/cove/certificates/alice_character_set_checker/certificate.json",
             "expected_workflow_id": "hello_world",
-            "expected_node_id": "alice_word_length_checker",
+            "expected_node_id": "alice_character_set_checker",
             "expected_generated_node_compose_hash": (
                 alice_node_dir / "compose.generated.sha256"
             ).read_text(encoding="utf-8").strip(),
         },
         {
-            "node_name": "bob_word_length_checker",
-            "certificate_path": "/cove/certificates/bob_word_length_checker/certificate.json",
+            "node_name": "bob_character_set_checker",
+            "certificate_path": "/cove/certificates/bob_character_set_checker/certificate.json",
             "expected_workflow_id": "hello_world",
-            "expected_node_id": "bob_word_length_checker",
+            "expected_node_id": "bob_character_set_checker",
             "expected_generated_node_compose_hash": (
                 bob_node_dir / "compose.generated.sha256"
             ).read_text(encoding="utf-8").strip(),
         },
         {
-            "node_name": "character_set_checker",
-            "certificate_path": "/cove/certificates/character_set_checker/certificate.json",
+            "node_name": "word_length_checker",
+            "certificate_path": "/cove/certificates/word_length_checker/certificate.json",
             "expected_workflow_id": "hello_world",
-            "expected_node_id": "character_set_checker",
+            "expected_node_id": "word_length_checker",
             "expected_generated_node_compose_hash": (
                 character_node_dir / "compose.generated.sha256"
             ).read_text(encoding="utf-8").strip(),
@@ -528,19 +528,19 @@ def test_compile_emits_generated_compose_hash_and_sidecars(tmp_path) -> None:
     )
     assert character_dependency_config["dependencies"] == [
         {
-            "node_name": "alice_word_length_checker",
-            "certificate_path": "/cove/certificates/alice_word_length_checker/certificate.json",
+            "node_name": "alice_character_set_checker",
+            "certificate_path": "/cove/certificates/alice_character_set_checker/certificate.json",
             "expected_workflow_id": "hello_world",
-            "expected_node_id": "alice_word_length_checker",
+            "expected_node_id": "alice_character_set_checker",
             "expected_generated_node_compose_hash": (
                 alice_node_dir / "compose.generated.sha256"
             ).read_text(encoding="utf-8").strip(),
         },
         {
-            "node_name": "bob_word_length_checker",
-            "certificate_path": "/cove/certificates/bob_word_length_checker/certificate.json",
+            "node_name": "bob_character_set_checker",
+            "certificate_path": "/cove/certificates/bob_character_set_checker/certificate.json",
             "expected_workflow_id": "hello_world",
-            "expected_node_id": "bob_word_length_checker",
+            "expected_node_id": "bob_character_set_checker",
             "expected_generated_node_compose_hash": (
                 bob_node_dir / "compose.generated.sha256"
             ).read_text(encoding="utf-8").strip(),
@@ -926,13 +926,13 @@ def test_artifact_provisioner_publishes_dynamic_output_and_writes_metadata(tmp_p
         hub_path=hub_path,
         publisher=LOCAL_OWNER_DOMAIN,
         workflow_id="hello_world",
-        node_id="alice_word_length_checker",
+        node_id="alice_character_set_checker",
         compose_hash=compose_hash,
         artifact_provisioner_digest=artifact_provisioner_digest,
     )
 
     plaintext = b"HELLO\n"
-    output_source_path = tmp_path / "runtime" / "service_bindings" / "word_length_checker" / "workspace_output" / "alice_secret_word_transformed.txt"
+    output_source_path = tmp_path / "runtime" / "service_bindings" / "character_set_checker" / "workspace_output" / "alice_secret_word_transformed.txt"
     metadata_path = tmp_path / "runtime" / "cove" / "outputs" / artifact_name / "metadata.json"
     output_source_path.parent.mkdir(parents=True, exist_ok=True)
     output_source_path.write_bytes(plaintext)
@@ -953,7 +953,7 @@ def test_artifact_provisioner_publishes_dynamic_output_and_writes_metadata(tmp_p
                 "owner_identity": provision_server.owner_identity,
                 "workflow_publisher_domain": LOCAL_OWNER_DOMAIN,
                 "workflow_id": "hello_world",
-                "node_id": "alice_word_length_checker",
+                "node_id": "alice_character_set_checker",
                 "output_source_path": str(output_source_path),
                 "metadata_path": str(metadata_path),
                 "attestation": {
@@ -1013,10 +1013,10 @@ def test_artifact_provisioner_fetches_dynamic_input_from_producer_certificate(tm
 
     plaintext = b"HELLO\n"
     ciphertext = encrypt_plaintext_bytes(plaintext=plaintext, key_bytes=key_bytes)
-    certificate_path = tmp_path / "runtime" / "cove" / "certificates" / "alice_word_length_checker" / "certificate.json"
+    certificate_path = tmp_path / "runtime" / "cove" / "certificates" / "alice_character_set_checker" / "certificate.json"
     certificate = build_mock_certificate(
         workflow_id="hello_world",
-        node_name="alice_word_length_checker",
+        node_name="alice_character_set_checker",
         generated_node_compose_hash="sha256:" + "3" * 64,
         inputs={},
         outputs={
@@ -1031,7 +1031,7 @@ def test_artifact_provisioner_fetches_dynamic_input_from_producer_certificate(tm
             }
         },
         ephemeral_keypairs={},
-        results={"word_length_checker": {"pass": True}},
+        results={"character_set_checker": {"pass": True}},
     )
     certificate_path.parent.mkdir(parents=True, exist_ok=True)
     certificate_path.write_text(json.dumps(certificate, indent=2) + "\n", encoding="utf-8")
@@ -1428,25 +1428,25 @@ def test_node_certificate_writer_writes_local_certificate_and_uploads_to_covehub
 def test_dependency_certificate_fetcher_downloads_and_verifies_runtime_certificates(
     tmp_path,
 ) -> None:
-    certificate_path = tmp_path / "runtime" / "cove" / "certificates" / "alice_word_length_checker" / "certificate.json"
+    certificate_path = tmp_path / "runtime" / "cove" / "certificates" / "alice_character_set_checker" / "certificate.json"
     certificate = build_mock_certificate(
         workflow_id="hello_world",
-        node_name="alice_word_length_checker",
+        node_name="alice_character_set_checker",
         generated_node_compose_hash="sha256:" + "3" * 64,
         inputs={},
         ephemeral_keypairs={},
-        results={"word_length_checker": {"pass": True}},
+        results={"character_set_checker": {"pass": True}},
     )
 
     with MockCovehubServer() as server:
         server.seed_runtime_certificate(
-            f"v1/runtime/{ALICE_DOMAIN}/hello_world/certificates/alice_word_length_checker/latest",
+            f"v1/runtime/{ALICE_DOMAIN}/hello_world/certificates/alice_character_set_checker/latest",
             payload=json.dumps(certificate, indent=2).encode("utf-8"),
         )
 
         _DEPENDENCY_CERTIFICATE_FETCHER.run(
             {
-                "node_name": "character_set_checker",
+                "node_name": "word_length_checker",
                 "covehub_server_url": server.url,
                 "workflow_publisher_domain": ALICE_DOMAIN,
                 "workflow_id": "hello_world",
@@ -1454,10 +1454,10 @@ def test_dependency_certificate_fetcher_downloads_and_verifies_runtime_certifica
                 "poll_interval_seconds": 0.05,
                 "dependencies": [
                     {
-                        "node_name": "alice_word_length_checker",
+                        "node_name": "alice_character_set_checker",
                         "certificate_path": str(certificate_path),
                         "expected_workflow_id": "hello_world",
-                        "expected_node_id": "alice_word_length_checker",
+                        "expected_node_id": "alice_character_set_checker",
                         "expected_generated_node_compose_hash": "sha256:" + "3" * 64,
                     }
                 ],
@@ -1465,34 +1465,34 @@ def test_dependency_certificate_fetcher_downloads_and_verifies_runtime_certifica
         )
 
     written_certificate = json.loads(certificate_path.read_text(encoding="utf-8"))
-    assert written_certificate["certificate_body"]["node_id"] == "alice_word_length_checker"
+    assert written_certificate["certificate_body"]["node_id"] == "alice_character_set_checker"
 
 
 def test_dependency_certificate_fetcher_rejects_invalid_runtime_certificate(
     tmp_path,
     capsys,
 ) -> None:
-    certificate_path = tmp_path / "runtime" / "cove" / "certificates" / "alice_word_length_checker" / "certificate.json"
+    certificate_path = tmp_path / "runtime" / "cove" / "certificates" / "alice_character_set_checker" / "certificate.json"
     certificate = build_mock_certificate(
         workflow_id="hello_world",
-        node_name="alice_word_length_checker",
+        node_name="alice_character_set_checker",
         generated_node_compose_hash="sha256:" + "3" * 64,
         inputs={},
         ephemeral_keypairs={},
-        results={"word_length_checker": {"pass": True}},
+        results={"character_set_checker": {"pass": True}},
     )
     certificate["attestation_bundle"]["quote"] = "mock-tdx-quote:wrong"
 
     with MockCovehubServer() as server:
         server.seed_runtime_certificate(
-            f"v1/runtime/{ALICE_DOMAIN}/hello_world/certificates/alice_word_length_checker/latest",
+            f"v1/runtime/{ALICE_DOMAIN}/hello_world/certificates/alice_character_set_checker/latest",
             payload=json.dumps(certificate, indent=2).encode("utf-8"),
         )
 
         try:
             _DEPENDENCY_CERTIFICATE_FETCHER.run(
                 {
-                    "node_name": "character_set_checker",
+                    "node_name": "word_length_checker",
                     "covehub_server_url": server.url,
                     "workflow_publisher_domain": ALICE_DOMAIN,
                     "workflow_id": "hello_world",
@@ -1500,10 +1500,10 @@ def test_dependency_certificate_fetcher_rejects_invalid_runtime_certificate(
                     "poll_interval_seconds": 0.05,
                     "dependencies": [
                         {
-                            "node_name": "alice_word_length_checker",
+                            "node_name": "alice_character_set_checker",
                             "certificate_path": str(certificate_path),
                             "expected_workflow_id": "hello_world",
-                            "expected_node_id": "alice_word_length_checker",
+                            "expected_node_id": "alice_character_set_checker",
                             "expected_generated_node_compose_hash": "sha256:" + "3" * 64,
                         }
                     ],
@@ -1521,26 +1521,26 @@ def test_dependency_certificate_fetcher_rejects_mismatched_compose_hash(
     tmp_path,
     capsys,
 ) -> None:
-    certificate_path = tmp_path / "runtime" / "cove" / "certificates" / "alice_word_length_checker" / "certificate.json"
+    certificate_path = tmp_path / "runtime" / "cove" / "certificates" / "alice_character_set_checker" / "certificate.json"
     certificate = build_mock_certificate(
         workflow_id="hello_world",
-        node_name="alice_word_length_checker",
+        node_name="alice_character_set_checker",
         generated_node_compose_hash="sha256:" + "3" * 64,
         inputs={},
         ephemeral_keypairs={},
-        results={"word_length_checker": {"pass": True}},
+        results={"character_set_checker": {"pass": True}},
     )
 
     with MockCovehubServer() as server:
         server.seed_runtime_certificate(
-            f"v1/runtime/{ALICE_DOMAIN}/hello_world/certificates/alice_word_length_checker/latest",
+            f"v1/runtime/{ALICE_DOMAIN}/hello_world/certificates/alice_character_set_checker/latest",
             payload=json.dumps(certificate, indent=2).encode("utf-8"),
         )
 
         try:
             _DEPENDENCY_CERTIFICATE_FETCHER.run(
                 {
-                    "node_name": "character_set_checker",
+                    "node_name": "word_length_checker",
                     "covehub_server_url": server.url,
                     "workflow_publisher_domain": ALICE_DOMAIN,
                     "workflow_id": "hello_world",
@@ -1548,10 +1548,10 @@ def test_dependency_certificate_fetcher_rejects_mismatched_compose_hash(
                     "poll_interval_seconds": 0.05,
                     "dependencies": [
                         {
-                            "node_name": "alice_word_length_checker",
+                            "node_name": "alice_character_set_checker",
                             "certificate_path": str(certificate_path),
                             "expected_workflow_id": "hello_world",
-                            "expected_node_id": "alice_word_length_checker",
+                            "expected_node_id": "alice_character_set_checker",
                             "expected_generated_node_compose_hash": "sha256:" + "4" * 64,
                         }
                     ],
@@ -1569,14 +1569,14 @@ def test_dependency_certificate_fetcher_retries_transient_fetch_errors(
     tmp_path,
     monkeypatch,
 ) -> None:
-    certificate_path = tmp_path / "runtime" / "cove" / "certificates" / "alice_word_length_checker" / "certificate.json"
+    certificate_path = tmp_path / "runtime" / "cove" / "certificates" / "alice_character_set_checker" / "certificate.json"
     certificate = build_mock_certificate(
         workflow_id="hello_world",
-        node_name="alice_word_length_checker",
+        node_name="alice_character_set_checker",
         generated_node_compose_hash="sha256:" + "3" * 64,
         inputs={},
         ephemeral_keypairs={},
-        results={"word_length_checker": {"pass": True}},
+        results={"character_set_checker": {"pass": True}},
     )
     calls = {"count": 0}
 
@@ -1591,7 +1591,7 @@ def test_dependency_certificate_fetcher_retries_transient_fetch_errors(
 
     _DEPENDENCY_CERTIFICATE_FETCHER.run(
         {
-            "node_name": "character_set_checker",
+            "node_name": "word_length_checker",
             "covehub_server_url": "https://example.invalid",
             "workflow_publisher_domain": ALICE_DOMAIN,
             "workflow_id": "hello_world",
@@ -1599,10 +1599,10 @@ def test_dependency_certificate_fetcher_retries_transient_fetch_errors(
             "poll_interval_seconds": 0.01,
             "dependencies": [
                 {
-                    "node_name": "alice_word_length_checker",
+                    "node_name": "alice_character_set_checker",
                     "certificate_path": str(certificate_path),
                     "expected_workflow_id": "hello_world",
-                    "expected_node_id": "alice_word_length_checker",
+                    "expected_node_id": "alice_character_set_checker",
                     "expected_generated_node_compose_hash": "sha256:" + "3" * 64,
                 }
             ],
@@ -1610,7 +1610,7 @@ def test_dependency_certificate_fetcher_retries_transient_fetch_errors(
     )
 
     written_certificate = json.loads(certificate_path.read_text(encoding="utf-8"))
-    assert written_certificate["certificate_body"]["node_id"] == "alice_word_length_checker"
+    assert written_certificate["certificate_body"]["node_id"] == "alice_character_set_checker"
     assert calls["count"] >= 2
 
 
