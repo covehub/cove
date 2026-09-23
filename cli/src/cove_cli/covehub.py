@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,7 +16,8 @@ from cryptography.hazmat.primitives.serialization import load_pem_private_key
 
 
 COVEHUB_USER_AGENT = "cove-cli/0.0.1"
-_REQUEST_TIMEOUT_SECONDS = 60
+_REQUEST_TIMEOUT_ENV = "COVEHUB_REQUEST_TIMEOUT_SECONDS"
+_DEFAULT_REQUEST_TIMEOUT_SECONDS = 60.0
 WRITE_AUTH_PURPOSE = "covehub_domain_write_v1"
 _CHUNKED_UPLOAD_THRESHOLD_BYTES = 64 * 1024 * 1024
 _CHUNKED_UPLOAD_CHUNK_SIZE_BYTES = 8 * 1024 * 1024
@@ -389,7 +391,24 @@ def _sha256_literal(payload: bytes) -> str:
 
 def _urlopen(request: urllib_request.Request):
     _ensure_default_headers(request)
-    return urllib_request.urlopen(request, timeout=_REQUEST_TIMEOUT_SECONDS)
+    return urllib_request.urlopen(request, timeout=_request_timeout_seconds())
+
+
+def _request_timeout_seconds() -> float:
+    raw_value = os.environ.get(_REQUEST_TIMEOUT_ENV)
+    if raw_value is None or raw_value.strip() == "":
+        return _DEFAULT_REQUEST_TIMEOUT_SECONDS
+    try:
+        timeout = float(raw_value)
+    except ValueError as exc:
+        raise CovehubError(
+            f"{_REQUEST_TIMEOUT_ENV} must be a positive number of seconds"
+        ) from exc
+    if timeout <= 0:
+        raise CovehubError(
+            f"{_REQUEST_TIMEOUT_ENV} must be a positive number of seconds"
+        )
+    return timeout
 
 
 def _ensure_default_headers(request: urllib_request.Request) -> None:

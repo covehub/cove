@@ -1,0 +1,7 @@
+diff --git a/cove_demo_benign_patch_marker.txt b/cove_demo_benign_patch_marker.txt
+new file mode 100644
+index 0000000..97d14c2
+--- /dev/null
++++ b/cove_demo_benign_patch_marker.txt
+@@ -0,0 +1 @@
++Benign demo patch: no eval data is read, logged, returned, or embedded.

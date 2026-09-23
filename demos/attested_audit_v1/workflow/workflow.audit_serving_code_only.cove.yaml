@@ -1,0 +1,35 @@
+cove_version: 1
+
+workflow:
+  id: attested_audit_v1
+
+platform:
+  provider: phala
+  runtime: dstack
+
+owners:
+  eval_owner: https://cove-attested-eval-owner.erika-lee.net
+  model_owner: https://cove-attested-model-owner.erika-lee.net
+
+artifacts:
+  private_serving_patch:
+    type: static
+    owner: model_owner
+    plaintext_hash: "sha256:a5cc3f8374249b2e459a14edfef996579e16b18a4bb6d1d8dd98fd0418e23867"
+
+nodes:
+  audit_serving_code:
+    compose: nodes/audit_serving_code.compose.yaml
+    services:
+      audit_model_server:
+        should_terminate: false
+      audit_agent_runner:
+        inputs:
+          /workspace/input/private_serving_patch.diff: private_serving_patch
+        custom_certificate_field:
+          schema: schemas/audit_result.v1.json
+          path: /workspace/output/audit_result.json
+        preconditions:
+          "==":
+            - { "var": "inputs.private_serving_patch.plaintext_hash" }
+            - "sha256:a5cc3f8374249b2e459a14edfef996579e16b18a4bb6d1d8dd98fd0418e23867"

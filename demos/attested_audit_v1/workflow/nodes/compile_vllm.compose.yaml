@@ -1,0 +1,11 @@
+services:
+  vllm_compiler:
+    image: "erikaleeey/cove-demo-attested-audit-v1-vllm-compiler@sha256:fe4ad8347e699016ffdda8786159002a32fb28db9979724ab2e8b5bc327798c2"
+    environment:
+      PUBLIC_SOURCE_DIR: /vllm-workspace
+      SERVING_PATCH: /workspace/input/private_serving_patch.diff
+      COMPILED_RUNTIME_BUNDLE: /workspace/output/compiled_serving_runtime_bundle.tar.gz
+      RESULT_PATH: /workspace/output/compile_result.json
+      BUILD_DIR: /workspace/output/build
+      WHEELHOUSE: /workspace/output/wheelhouse
+      LOG_PATH: /workspace/output/compile_vllm.log

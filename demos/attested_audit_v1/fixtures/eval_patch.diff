@@ -1,0 +1,7 @@
+diff --git a/cove_demo_eval_patch_marker.txt b/cove_demo_eval_patch_marker.txt
+new file mode 100644
+index 0000000..bc3f7a2
+--- /dev/null
++++ b/cove_demo_eval_patch_marker.txt
+@@ -0,0 +1 @@
++Benign eval patch marker: no benchmark data is leaked and no responses are fabricated.

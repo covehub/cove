@@ -1,0 +1,20 @@
+{
+  "containers": [
+    {
+      "canonical_ref": "erikaleeey/cove-demo-attested-audit-v1-vllm-server@sha256:fb8c553999f7864788b53371b243888115c1c3f8180884e703c3f9ad205cb8e2",
+      "image_name": "cove-demo-attested-audit-v1-vllm-server"
+    },
+    {
+      "canonical_ref": "erikaleeey/cove-demo-attested-audit-v1-audit-agent-runner@sha256:8da016778b8404dae6a944a35ab4f392b052eb345a585a88275c22cc48b6b5a1",
+      "image_name": "cove-demo-attested-audit-v1-audit-agent-runner"
+    },
+    {
+      "canonical_ref": "erikaleeey/cove-demo-attested-audit-v1-vllm-compiler@sha256:fe4ad8347e699016ffdda8786159002a32fb28db9979724ab2e8b5bc327798c2",
+      "image_name": "cove-demo-attested-audit-v1-vllm-compiler"
+    },
+    {
+      "canonical_ref": "erikaleeey/cove-demo-attested-audit-v1-eval-runner@sha256:ba37d16963b1b9e1f337e35202454627971bf48b972b1fa9348a7cba2a26cc1a",
+      "image_name": "cove-demo-attested-audit-v1-eval-runner"
+    }
+  ]
+}

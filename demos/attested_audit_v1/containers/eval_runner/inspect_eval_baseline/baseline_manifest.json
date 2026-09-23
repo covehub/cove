@@ -1,0 +1,9 @@
+{
+  "baseline_id": "inspect-evals-ifeval-baseline.v1",
+  "framework": "inspect-ai",
+  "eval_package": "inspect-evals",
+  "task": "inspect_evals/ifeval",
+  "limit": 10,
+  "requires_judge_model": false,
+  "notes": "Public Inspect/Inspect Evals baseline baked into the eval_runner image. Private eval patches are applied to this tree inside the TEE before run_eval executes."
+}

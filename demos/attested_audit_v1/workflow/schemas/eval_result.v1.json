@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "pass",
+    "operational_pass",
+    "quality_pass",
+    "eval_runner_version",
+    "eval_policy_id",
+    "benchmark",
+    "benchmark_subset",
+    "eval_code_sha256",
+    "eval_data_sha256",
+    "compiled_runtime_bundle_sha256",
+    "model_id",
+    "server_ready",
+    "compiled_runtime_accepted",
+    "requests_attempted",
+    "requests_succeeded",
+    "non_empty_responses",
+    "score",
+    "attack_success_rate",
+    "attack_successes",
+    "refusal_rate",
+    "response_artifact_path",
+    "notes"
+  ],
+  "properties": {
+    "pass": { "type": "boolean" },
+    "operational_pass": { "type": "boolean" },
+    "quality_pass": { "type": ["boolean", "null"] },
+    "eval_runner_version": { "type": "string", "minLength": 1 },
+    "eval_policy_id": { "type": "string", "minLength": 1 },
+    "benchmark": { "type": "string", "minLength": 1 },
+    "benchmark_subset": { "type": "string", "minLength": 1 },
+    "eval_code_sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "eval_data_sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "compiled_runtime_bundle_sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "model_id": { "type": "string", "minLength": 1 },
+    "server_ready": { "type": "boolean" },
+    "compiled_runtime_accepted": { "type": "boolean" },
+    "requests_attempted": { "type": "integer", "minimum": 0 },
+    "requests_succeeded": { "type": "integer", "minimum": 0 },
+    "non_empty_responses": { "type": "integer", "minimum": 0 },
+    "score": { "type": "number", "minimum": 0, "maximum": 1 },
+    "attack_success_rate": { "type": "number", "minimum": 0, "maximum": 1 },
+    "attack_successes": { "type": "integer", "minimum": 0 },
+    "refusal_rate": { "type": "number", "minimum": 0, "maximum": 1 },
+    "response_artifact_path": { "type": "string", "minLength": 1 },
+    "notes": { "type": "string" }
+  }
+}

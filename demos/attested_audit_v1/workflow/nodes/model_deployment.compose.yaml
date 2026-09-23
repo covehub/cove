@@ -1,0 +1,25 @@
+services:
+  serve:
+    image: "erikaleeey/cove-demo-attested-audit-v1-vllm-server@sha256:fb8c553999f7864788b53371b243888115c1c3f8180884e703c3f9ad205cb8e2"
+    environment:
+      MODEL_BUNDLE: /workspace/input/private_model.tar
+      COMPILED_RUNTIME_BUNDLE: /workspace/input/compiled_serving_runtime_bundle.tar.gz
+      MODEL_PATH: /tmp/serving_model
+      VLLM_HOST: 0.0.0.0
+      VLLM_PORT: "8000"
+      VLLM_GPU_MEMORY_UTILIZATION: "0.8"
+      VLLM_SERVED_MODEL_NAME: cove-private-model
+      OUTPUT_DIR: /workspace/output
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 120
+      start_period: 120s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

@@ -24,6 +24,7 @@ COVE_RUNTIME_USER_AGENT = "cove-runtime/0.0.1"
 _HTTP_STREAM_CHUNK_SIZE_BYTES = 8 * 1024 * 1024
 _CHUNKED_UPLOAD_THRESHOLD_BYTES = 64 * 1024 * 1024
 _CHUNKED_UPLOAD_CHUNK_SIZE_BYTES = 8 * 1024 * 1024
+_DEFAULT_HTTP_TIMEOUT_SECONDS = 60.0
 
 
 class RuntimeErrorBase(RuntimeError):
@@ -62,6 +63,21 @@ def canonical_json_bytes(payload: dict[str, Any]) -> bytes:
         sort_keys=True,
         separators=(",", ":"),
     ).encode("utf-8")
+
+
+def _http_timeout_seconds(timeout: float | None) -> float:
+    if timeout is not None:
+        return timeout
+    raw = os.getenv("COVE_RUNTIME_HTTP_TIMEOUT_SECONDS")
+    if raw is None or not raw.strip():
+        return _DEFAULT_HTTP_TIMEOUT_SECONDS
+    try:
+        parsed = float(raw)
+    except ValueError:
+        return _DEFAULT_HTTP_TIMEOUT_SECONDS
+    if parsed <= 0:
+        return _DEFAULT_HTTP_TIMEOUT_SECONDS
+    return parsed
 
 
 def ensure_parent(path: str | Path) -> Path:
@@ -212,7 +228,7 @@ def http_get_json(
     *,
     url: str,
     cafile: str | Path | None = None,
-    timeout: float = 60.0,
+    timeout: float | None = None,
 ) -> dict[str, Any]:
     body = http_get_bytes(url=url, cafile=cafile, timeout=timeout)
     try:
@@ -229,7 +245,7 @@ def http_post_json(
     url: str,
     payload: dict[str, Any],
     cafile: str | Path | None = None,
-    timeout: float = 60.0,
+    timeout: float | None = None,
 ) -> dict[str, Any]:
     request = urllib_request.Request(
         url,
@@ -253,7 +269,7 @@ def http_put_bytes(
     payload: bytes,
     headers: dict[str, str] | None = None,
     cafile: str | Path | None = None,
-    timeout: float = 60.0,
+    timeout: float | None = None,
 ) -> bytes:
     request_headers = dict(headers or {})
     request = urllib_request.Request(
@@ -273,7 +289,7 @@ def http_put_bytes_resumable(
     session_create_headers: dict[str, str] | None = None,
     session_create_payload: dict[str, Any] | None = None,
     cafile: str | Path | None = None,
-    timeout: float = 60.0,
+    timeout: float | None = None,
 ) -> bytes:
     if len(payload) < _CHUNKED_UPLOAD_THRESHOLD_BYTES:
         return http_put_bytes(
@@ -304,7 +320,7 @@ def http_put_bytes_upload_session(
     session_create_payload: dict[str, Any] | None = None,
     complete_headers: dict[str, str] | None = None,
     cafile: str | Path | None = None,
-    timeout: float = 60.0,
+    timeout: float | None = None,
 ) -> bytes:
     create_headers = dict(session_create_headers or headers or {})
     create_headers["Content-Type"] = "application/json"
@@ -359,7 +375,7 @@ def http_get_bytes(
     *,
     url: str,
     cafile: str | Path | None = None,
-    timeout: float = 60.0,
+    timeout: float | None = None,
 ) -> bytes:
     request = urllib_request.Request(url, method="GET")
     return _http_request_bytes(request=request, cafile=cafile, timeout=timeout)
@@ -370,7 +386,7 @@ def http_get_to_file(
     url: str,
     output_path: str | Path,
     cafile: str | Path | None = None,
-    timeout: float = 60.0,
+    timeout: float | None = None,
 ) -> None:
     request = urllib_request.Request(url, method="GET")
     _ensure_default_headers(request)
@@ -378,7 +394,11 @@ def http_get_to_file(
     if cafile is not None:
         context = ssl.create_default_context(cafile=str(cafile))
     try:
-        with urllib_request.urlopen(request, timeout=timeout, context=context) as response:
+        with urllib_request.urlopen(
+            request,
+            timeout=_http_timeout_seconds(timeout),
+            context=context,
+        ) as response:
             if response.status >= 400:  # pragma: no cover - defensive
                 raise urllib_error.HTTPError(
                     request.full_url,
@@ -418,7 +438,7 @@ def _http_request_json(
     *,
     request: urllib_request.Request,
     cafile: str | Path | None = None,
-    timeout: float = 60.0,
+    timeout: float | None = None,
 ) -> dict[str, Any]:
     body = _http_request_bytes(request=request, cafile=cafile, timeout=timeout)
     try:
@@ -460,20 +480,26 @@ def _http_request_bytes(
     *,
     request: urllib_request.Request,
     cafile: str | Path | None = None,
-    timeout: float = 60.0,
+    timeout: float | None = None,
 ) -> bytes:
     _ensure_default_headers(request)
     context = None
     if cafile is not None:
         context = ssl.create_default_context(cafile=str(cafile))
     try:
-        with urllib_request.urlopen(request, timeout=timeout, context=context) as response:
+        with urllib_request.urlopen(
+            request,
+            timeout=_http_timeout_seconds(timeout),
+            context=context,
+        ) as response:
             return response.read()
     except urllib_error.HTTPError as exc:
         detail = _extract_http_detail(exc)
         raise RuntimeErrorBase(f"HTTP {exc.code} for {request.full_url}: {detail}") from exc
     except urllib_error.URLError as exc:
         raise RuntimeErrorBase(f"failed to reach {request.full_url}: {exc.reason}") from exc
+    except TimeoutError as exc:
+        raise RuntimeErrorBase(f"timed out reading {request.full_url}") from exc
 
 
 def _extract_http_detail(exc: urllib_error.HTTPError) -> str:

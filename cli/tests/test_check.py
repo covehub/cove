@@ -509,6 +509,66 @@ def test_check_rejects_reserved_compiler_surfaces(tmp_path) -> None:
     assert any("reserved first-party sidecar image" in error for error in report.errors)
 
 
+def test_check_accepts_allowlisted_nvidia_gpu_reservation(tmp_path) -> None:
+    workflow_path = _write_policy_workflow(
+        tmp_path,
+        service_name="worker",
+        compose_service_block="""
+  worker:
+    image: example/demo@sha256:1111111111111111111111111111111111111111111111111111111111111111
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+""".strip("\n"),
+    )
+
+    report = check_workflow(workflow_path)
+
+    assert report.ok
+
+
+def test_check_rejects_raw_devices(tmp_path) -> None:
+    workflow_path = _write_policy_workflow(
+        tmp_path,
+        service_name="worker",
+        compose_service_block="""
+  worker:
+    image: example/demo@sha256:1111111111111111111111111111111111111111111111111111111111111111
+    devices:
+      - /dev/kvm:/dev/kvm
+""".strip("\n"),
+    )
+
+    report = check_workflow(workflow_path)
+
+    assert not report.ok
+    assert any("blocked Compose field 'devices'" in error for error in report.errors)
+
+
+def test_check_rejects_non_allowlisted_deploy(tmp_path) -> None:
+    workflow_path = _write_policy_workflow(
+        tmp_path,
+        service_name="worker",
+        compose_service_block="""
+  worker:
+    image: example/demo@sha256:1111111111111111111111111111111111111111111111111111111111111111
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+""".strip("\n"),
+    )
+
+    report = check_workflow(workflow_path)
+
+    assert not report.ok
+    assert any("unsupported Compose field 'deploy'" in error for error in report.errors)
+
+
 def test_check_warns_on_quote_channel_hints(tmp_path) -> None:
     workflow_path = _write_policy_workflow(
         tmp_path,

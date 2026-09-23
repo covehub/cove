@@ -284,7 +284,7 @@ def _compile_node(
             "mode": "static_input" if artifact.is_static else "dynamic_input",
             "artifact_name": artifact_name,
             "artifact_provisioner_image": _role_image("artifact_provisioner"),
-            "hub_path": artifact.hub_path,
+            "hub_path": artifact.materialized_hub_path(workflow_publisher),
             "owner": owner.name,
             "owners": _owner_url_map(owner),
             "covehub_server_url": covehub_server_url,
@@ -436,7 +436,7 @@ def _compile_node(
             "mode": "dynamic_output",
             "artifact_name": artifact_name,
             "artifact_provisioner_image": _role_image("artifact_provisioner"),
-            "hub_path": artifact.hub_path,
+            "hub_path": artifact.materialized_hub_path(workflow_publisher),
             "owner": owner.name,
             "owners": _owner_url_map(owner),
             "covehub_server_url": covehub_server_url,
@@ -691,6 +691,8 @@ def _add_owner_identity_config(
     config_payload: dict[str, Any],
     resolved_owner: _ResolvedOwnerIdentity,
 ) -> None:
+    config_payload["owner_url"] = resolved_owner.owner_url
+    config_payload["owner_domain"] = resolved_owner.owner_domain
     config_payload["owner_identity"] = resolved_owner.identity_document
 
 
@@ -825,12 +827,14 @@ def _compiled_sidecar_service(
     healthcheck: dict[str, Any] | None = None,
     network_mode: str | None = None,
 ) -> dict[str, Any]:
+    config_json = json.dumps(config_payload, indent=2, sort_keys=True).replace("$", "$$")
     service = {
         "image": _role_image(role),
         "environment": {
-            "COVE_CONFIG_JSON": json.dumps(config_payload, indent=2, sort_keys=True),
+            "COVE_CONFIG_JSON": config_json,
             "COVE_SERVICE_NAME": service_name,
             "COVE_COMPOSE_HASH": _COMPOSE_HASH_PLACEHOLDER,
+            "COVE_RUNTIME_HTTP_TIMEOUT_SECONDS": "600",
         },
         "volumes": [
             _named_volume_mount(_COVE_RUNTIME_VOLUME, "/cove", read_only=False),
