@@ -36,6 +36,7 @@ CREATE TABLE artifact_allow_rules (
     node_id TEXT NOT NULL,
     compose_hash TEXT NOT NULL,
     artifact_provisioner_digest TEXT NOT NULL,
+    allow_gpu_only_attestation INTEGER NOT NULL DEFAULT 0,
     updated_at TEXT NOT NULL,
     UNIQUE(
         hub_path,
@@ -88,6 +89,9 @@ class ArtifactAllowRule:
     compose_hash: str
     artifact_provisioner_digest: str
     updated_at: str
+    # Owner opt-in: release this artifact's key on NVIDIA GPU-only attestation, which does
+    # not measure the CPU-side workload. The owner is trusting the machine's operator.
+    allow_gpu_only_attestation: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -408,6 +412,7 @@ class ProvisionState:
         node_id: str,
         compose_hash: str,
         artifact_provisioner_digest: str,
+        allow_gpu_only_attestation: bool = False,
     ) -> ArtifactAllowRule:
         updated_at = _utc_now()
         with self._connect() as connection:
@@ -421,9 +426,10 @@ class ProvisionState:
                     node_id,
                     compose_hash,
                     artifact_provisioner_digest,
+                    allow_gpu_only_attestation,
                     updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(
                     hub_path,
                     publisher,
@@ -433,6 +439,7 @@ class ProvisionState:
                     artifact_provisioner_digest
                 ) DO UPDATE SET
                     artifact_id = excluded.artifact_id,
+                    allow_gpu_only_attestation = excluded.allow_gpu_only_attestation,
                     updated_at = excluded.updated_at
                 """,
                 (
@@ -443,6 +450,7 @@ class ProvisionState:
                     node_id,
                     compose_hash,
                     artifact_provisioner_digest,
+                    int(allow_gpu_only_attestation),
                     updated_at,
                 ),
             )
@@ -479,6 +487,7 @@ class ProvisionState:
                     node_id,
                     compose_hash,
                     artifact_provisioner_digest,
+                    allow_gpu_only_attestation,
                     updated_at
                 FROM artifact_allow_rules
                 WHERE
@@ -509,6 +518,7 @@ class ProvisionState:
             compose_hash=str(row["compose_hash"]),
             artifact_provisioner_digest=str(row["artifact_provisioner_digest"]),
             updated_at=str(row["updated_at"]),
+            allow_gpu_only_attestation=bool(row["allow_gpu_only_attestation"]),
         )
 
     def _connect(self) -> sqlite3.Connection:
@@ -575,8 +585,12 @@ def _ensure_allow_rules_schema(connection: sqlite3.Connection) -> None:
         str(row["name"])
         for row in connection.execute("PRAGMA table_info(artifact_allow_rules)").fetchall()
     }
-    if "manifest_hash" not in columns:
+    if "manifest_hash" in columns:
+        connection.execute("DROP TABLE artifact_allow_rules")
+        connection.executescript(ALLOW_RULES_SCHEMA)
         return
-
-    connection.execute("DROP TABLE artifact_allow_rules")
-    connection.executescript(ALLOW_RULES_SCHEMA)
+    if "allow_gpu_only_attestation" not in columns:
+        connection.execute(
+            "ALTER TABLE artifact_allow_rules "
+            "ADD COLUMN allow_gpu_only_attestation INTEGER NOT NULL DEFAULT 0"
+        )

@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.12"
 
 [[package]]
@@ -153,9 +153,10 @@ requires-dist = [
     { name = "cryptography", specifier = ">=45.0.0,<46.0.0" },
     { name = "dstack-sdk", specifier = ">=0.5.4,<0.6.0" },
     { name = "jsonschema", specifier = ">=4.0.0,<5.0.0" },
+    { name = "nvidia-ml-py", marker = "extra == 'gpu'", specifier = ">=12.550.52" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0,<9.0.0" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["gpu", "dev"]
 
 [[package]]
 name = "covehub-server"

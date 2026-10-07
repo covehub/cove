@@ -4,6 +4,7 @@ import hashlib
 from typing import Any
 
 from cove_container_runtime.attestation import (
+    NVIDIA_GPU_CC_ATTESTATION_FORMAT,
     PHALA_DSTACK_ATTESTATION_FORMAT,
     PHALA_DSTACK_VERIFY_URL,
     verify_attestation_bundle as _verify_runtime_attestation_bundle,
@@ -60,6 +61,7 @@ def verify_attestation_bundle(
     expected_report_data: bytes,
     expected_compose_hash: str,
     expected_deployed_compose_text: str | None = None,
+    accept_gpu_only: bool = False,
 ) -> dict[str, Any]:
     try:
         return _verify_runtime_attestation_bundle(
@@ -67,6 +69,7 @@ def verify_attestation_bundle(
             expected_report_data=expected_report_data,
             expected_compose_hash=expected_compose_hash,
             expected_deployed_compose_text=expected_deployed_compose_text,
+            accept_gpu_only=accept_gpu_only,
         )
     except RuntimeAttestationError as exc:
         raise AttestationError(str(exc)) from exc

@@ -93,6 +93,7 @@ def _stub_attestation_runtime(monkeypatch):
         expected_report_data: bytes,
         expected_compose_hash: str,
         expected_deployed_compose_text: str | None = None,
+        accept_gpu_only: bool = False,
     ):
         attestation_format = attestation_bundle.get("format")
         if attestation_format == "phala_dstack_v1":

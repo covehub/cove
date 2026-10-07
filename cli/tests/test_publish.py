@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import socket
 import subprocess
 import shutil
@@ -77,6 +78,7 @@ def _stub_phala_attestation(monkeypatch):
         expected_report_data: bytes,
         expected_compose_hash: str,
         expected_deployed_compose_text: str | None = None,
+        accept_gpu_only: bool = False,
     ):
         if attestation.get("report_data") != expected_report_data.hex():
             raise RuntimeErrorBase("attestation_bundle.report_data does not match expected report data")
@@ -899,7 +901,7 @@ def test_allow_gated_key_release_rejects_mismatched_attestation_identity(
     )
     monkeypatch.setattr(
         "cove_cli.provision_server.verify_attestation_bundle",
-        lambda attestation, *, expected_report_data, expected_compose_hash: (
+        lambda attestation, *, expected_report_data, expected_compose_hash, accept_gpu_only=False: (
             attestation
             if attestation.get("report_data") == expected_report_data.hex()
             else (_raise_runtime_error("attestation_bundle.report_data does not match expected report data"))
@@ -1155,3 +1157,180 @@ class _running_provision_server:
         self.server.shutdown()
         self.server.server_close()
         self.thread.join(timeout=5)
+
+
+def _post_key_release_with_gpu_attestation(
+    tmp_path,
+    monkeypatch,
+    *,
+    allow_gpu_only_attestation: bool,
+) -> tuple[int, dict, list[bool]]:
+    cove_home = tmp_path / ".alice_cove"
+    paths = provision_paths_for_home(cove_home)
+    state = ProvisionState(paths.database_path)
+    state.initialize()
+
+    artifact_id = "alice_secret_word"
+    _key_path, key_bytes = ensure_artifact_key(keys_dir=paths.keys_dir, artifact_id=artifact_id)
+    ciphertext = encrypt_artifact_bytes(plaintext=b"hello\n", key_bytes=key_bytes)
+    ciphertext_hash = sha256_literal(ciphertext)
+    hub_path = f"v1/artifacts/{LOCAL_OWNER_DOMAIN}/{artifact_id}/{ciphertext_hash}"
+    compose_hash = "sha256:" + "2" * 64
+    state.upsert_registered_artifact(
+        hub_path=hub_path,
+        artifact_id=artifact_id,
+        owner_domain=LOCAL_OWNER_DOMAIN,
+        owner_url="http://unused",
+        plaintext_hash=sha256_literal(b"hello\n"),
+        ciphertext_hash=ciphertext_hash,
+        content_type="text/plain",
+        source_path=str(tmp_path / "fixture.txt"),
+        server_url="http://unused",
+        transport_mode="encrypted",
+        key_path=artifact_id,
+    )
+    state.upsert_allow_rule(
+        artifact_id=artifact_id,
+        hub_path=hub_path,
+        publisher=LOCAL_OWNER_DOMAIN,
+        workflow_id="hello_world",
+        node_id="final_server",
+        compose_hash=compose_hash,
+        artifact_provisioner_digest=_CANONICAL_DIGEST,
+        allow_gpu_only_attestation=allow_gpu_only_attestation,
+    )
+    verifier_calls: list[bool] = []
+
+    def fake_verify(attestation, *, expected_report_data, expected_compose_hash, accept_gpu_only=False):
+        verifier_calls.append(accept_gpu_only)
+        return attestation
+
+    monkeypatch.setattr("cove_cli.provision_server.verify_attestation_bundle", fake_verify)
+
+    with _running_provision_server(
+        state=state,
+        cove_home=cove_home,
+        owner_domain=LOCAL_OWNER_DOMAIN,
+    ) as provision_server:
+        request_payload = {
+            "hub_path": hub_path,
+            "workflow_publisher_domain": LOCAL_OWNER_DOMAIN,
+            "workflow_id": "hello_world",
+            "node_id": "final_server",
+            "compose_hash": compose_hash,
+            "artifact_provisioner_image": f"registry.example/cove-artifact-provisioner@{_CANONICAL_DIGEST}",
+            "attestation": {"format": "nvidia_gpu_cc_v1", "nonce": "00" * 32},
+        }
+        request = urllib_request.Request(
+            provision_server["url"] + "/v1/artifacts/key-release",
+            data=json.dumps(request_payload).encode("utf-8"),
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib_request.urlopen(
+                request,
+                context=ssl._create_unverified_context(),
+                timeout=5,
+            ) as response:
+                return response.status, json.loads(response.read().decode("utf-8")), verifier_calls
+        except urllib_request.HTTPError as exc:
+            return exc.code, json.loads(exc.read().decode("utf-8")), verifier_calls
+
+
+def test_key_release_rejects_gpu_only_attestation_without_owner_opt_in(tmp_path, monkeypatch) -> None:
+    status, payload, verifier_calls = _post_key_release_with_gpu_attestation(
+        tmp_path,
+        monkeypatch,
+        allow_gpu_only_attestation=False,
+    )
+
+    assert status == 403
+    assert "GPU-only attestation" in payload["detail"]
+    assert verifier_calls == []
+
+
+def test_key_release_accepts_gpu_only_attestation_with_owner_opt_in(tmp_path, monkeypatch) -> None:
+    status, payload, verifier_calls = _post_key_release_with_gpu_attestation(
+        tmp_path,
+        monkeypatch,
+        allow_gpu_only_attestation=True,
+    )
+
+    assert status == 200
+    assert payload["artifact_id"] == "alice_secret_word"
+    assert verifier_calls == [True]
+
+
+def test_provision_allow_gpu_only_flag_records_and_revokes_opt_in(tmp_path, capsys) -> None:
+    workflow_dir = _copy_hello_world_workflow(tmp_path)
+    cove_home = tmp_path / ".alice_cove"
+    pulled_root = _push_and_pull_hello_world(tmp_path, cove_home, workflow_dir)
+    compose_path = pulled_root / "nodes" / "final_server" / "compose.generated.yaml"
+    base_args = [
+        "--cove-home",
+        str(cove_home),
+        "provision",
+        "allow",
+        "alice_secret_word_transformed",
+        str(compose_path),
+    ]
+    bundle = load_workflow_bundle(pulled_root)
+    final_node = next(node for node in bundle.nodes if node.node_id == "final_server")
+    state = ProvisionState(provision_paths_for_home(cove_home).database_path)
+
+    def current_rule():
+        return state.get_allow_rule(
+            hub_path=f"v1/runtime/{PUBLISHER_DOMAIN}/hello_world/artifacts/alice_secret_word_transformed/latest",
+            publisher=PUBLISHER_DOMAIN,
+            workflow_id="hello_world",
+            node_id="final_server",
+            compose_hash=final_node.compose_hash,
+            artifact_provisioner_digest=_CANONICAL_DIGEST,
+        )
+
+    assert run([*base_args, "--allow-gpu-only-attestation"]) == 0
+    assert "GPU-only attestation allowed" in capsys.readouterr().out
+    assert current_rule().allow_gpu_only_attestation is True
+
+    assert run(base_args) == 0
+    assert "GPU-only" not in capsys.readouterr().out
+    assert current_rule().allow_gpu_only_attestation is False
+
+
+def test_provision_state_migrates_allow_rules_without_gpu_opt_in_column(tmp_path) -> None:
+    database_path = tmp_path / "provision.sqlite3"
+    connection = sqlite3.connect(database_path)
+    connection.executescript(
+        """
+        CREATE TABLE artifact_allow_rules (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            artifact_id TEXT NOT NULL,
+            hub_path TEXT NOT NULL,
+            publisher TEXT NOT NULL,
+            workflow_id TEXT NOT NULL,
+            node_id TEXT NOT NULL,
+            compose_hash TEXT NOT NULL,
+            artifact_provisioner_digest TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(hub_path, publisher, workflow_id, node_id, compose_hash, artifact_provisioner_digest)
+        );
+        INSERT INTO artifact_allow_rules VALUES (1, 'a', 'h', 'p', 'w', 'n', 'c', 'd', 't');
+        """
+    )
+    connection.commit()
+    connection.close()
+
+    state = ProvisionState(database_path)
+    state.initialize()
+    rule = state.get_allow_rule(
+        hub_path="h",
+        publisher="p",
+        workflow_id="w",
+        node_id="n",
+        compose_hash="c",
+        artifact_provisioner_digest="d",
+    )
+
+    assert rule is not None
+    assert rule.allow_gpu_only_attestation is False

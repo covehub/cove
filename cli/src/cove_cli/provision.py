@@ -37,6 +37,11 @@ from .provision_server import DEFAULT_PROVISION_PORT, create_provision_server
 from .provision_state import ProvisionState
 
 
+GPU_ONLY_ATTESTATION_WARNING = (
+    "WARNING: GPU-only attestation allowed. NVIDIA GPU evidence does not measure the "
+    "CPU-side workload, so anyone who can run code on a CC-mode GPU host can request "
+    "these keys; you are trusting that host's operator and users."
+)
 IDENTIFIER_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
 
 
@@ -196,6 +201,7 @@ def allow_artifact_for_compose(
     compose_file_path: str | Path,
     *,
     cove_home: str | None = None,
+    allow_gpu_only_attestation: bool = False,
 ) -> str:
     normalized_artifact_id = artifact_id.strip()
     if not _is_identifier(normalized_artifact_id):
@@ -247,6 +253,7 @@ def allow_artifact_for_compose(
             node_id=node.node_id,
             compose_hash=node.compose_hash,
             artifact_provisioner_digest=node.artifact_provisioner_digest,
+            allow_gpu_only_attestation=allow_gpu_only_attestation,
         )
     else:
         record = state.get_registered_artifact_by_artifact_id(normalized_artifact_id)
@@ -285,6 +292,7 @@ def allow_artifact_for_compose(
             node_id=node.node_id,
             compose_hash=node.compose_hash,
             artifact_provisioner_digest=node.artifact_provisioner_digest,
+            allow_gpu_only_attestation=allow_gpu_only_attestation,
         )
 
     return "\n".join(
@@ -293,6 +301,7 @@ def allow_artifact_for_compose(
             f"Compose file: {Path(compose_file_path).expanduser().resolve()}",
             f"Compose hash: {node.compose_hash}",
             f"Artifact provisioner digest: {node.artifact_provisioner_digest}",
+            *([GPU_ONLY_ATTESTATION_WARNING] if allow_gpu_only_attestation else []),
         ]
     )
 
@@ -301,6 +310,7 @@ def inspect_and_allow(
     published_ref: str,
     *,
     cove_home: str | None = None,
+    allow_gpu_only_attestation: bool = False,
 ) -> str:
     config = ensure_local_config(cove_home)
     server_url = _require_server_url(config.covehub_server_url, config.path)
@@ -381,6 +391,7 @@ def inspect_and_allow(
                 node_id=node.node_id,
                 compose_hash=node.compose_hash,
                 artifact_provisioner_digest=node.artifact_provisioner_digest,
+                allow_gpu_only_attestation=allow_gpu_only_attestation,
             )
             approved.append(f"{record.artifact_id} -> {node.node_id}")
         for artifact in matching_dynamic_artifacts:
@@ -401,6 +412,7 @@ def inspect_and_allow(
                 node_id=node.node_id,
                 compose_hash=node.compose_hash,
                 artifact_provisioner_digest=node.artifact_provisioner_digest,
+                allow_gpu_only_attestation=allow_gpu_only_attestation,
             )
             approved.append(f"{channel.artifact_name} -> {node.node_id}")
 
@@ -411,6 +423,7 @@ def inspect_and_allow(
             f"Reviewed nodes: {review_count}",
             "Approved rules:",
             *([f"- {entry}" for entry in approved] or ["- none"]),
+            *([GPU_ONLY_ATTESTATION_WARNING] if allow_gpu_only_attestation and approved else []),
         ]
     )
 

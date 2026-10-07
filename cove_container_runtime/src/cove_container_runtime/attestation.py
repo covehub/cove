@@ -6,10 +6,17 @@ from dataclasses import dataclass
 from typing import Any
 
 from .common import RuntimeErrorBase, canonical_json_bytes, http_post_json
+from .nvidia_gpu_attestation import (
+    NVIDIA_GPU_CC_ATTESTATION_FORMAT,
+    VerifiedGpu,
+    collect_nvidia_gpu_attestation_bundle,
+    verify_nvidia_gpu_attestation_bundle,
+)
 
 
 PHALA_DSTACK_ATTESTATION_FORMAT = "phala_dstack_v1"
 PHALA_DSTACK_VERIFY_URL = "https://cloud-api.phala.network/api/v1/attestations/verify"
+_SUPPORTED_ATTESTATION_MODES = ("phala_dstack", "nvidia_gpu_cc")
 _NODE_CERTIFICATE_REPORT_LABEL = b"cove_node_certificate_v1"
 _KEY_RELEASE_REPORT_LABEL = b"cove_key_release_v1"
 _RUNTIME_ARTIFACT_REPORT_LABEL = b"cove_runtime_artifact_v1"
@@ -28,6 +35,9 @@ class VerifiedAttestation:
     report_data: str
     rtmr3: str
     compose_event_payload: str
+    # Populated for nvidia_gpu_cc_v1 bundles. rtmr3/compose_event_payload are empty there:
+    # GPU evidence does not measure the CPU-side workload.
+    gpus: tuple[VerifiedGpu, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,7 +57,7 @@ def load_attestation_settings(config: dict[str, object]) -> AttestationSettings:
     if not isinstance(raw_mode, str) or not raw_mode.strip():
         raise AttestationError("attestation.mode must be a non-empty string")
     mode = raw_mode.strip()
-    if mode != "phala_dstack":
+    if mode not in _SUPPORTED_ATTESTATION_MODES:
         raise AttestationError(f"unsupported attestation mode: {mode}")
     provider = _optional_string(raw_attestation.get("provider"), "attestation.provider")
     runtime = _optional_string(raw_attestation.get("runtime"), "attestation.runtime")
@@ -59,6 +69,8 @@ def collect_attestation_bundle(
     *,
     report_data: bytes,
 ) -> dict[str, Any]:
+    if settings.mode == "nvidia_gpu_cc":
+        return collect_nvidia_gpu_attestation_bundle(report_data=report_data)
     if settings.mode != "phala_dstack":
         raise AttestationError(f"unsupported attestation mode: {settings.mode}")
     if settings.provider != "phala" or settings.runtime != "dstack":
@@ -99,8 +111,25 @@ def verify_attestation_bundle(
     expected_report_data: bytes,
     expected_compose_hash: str,
     expected_deployed_compose_text: str | None = None,
+    accept_gpu_only: bool = False,
 ) -> VerifiedAttestation:
     attestation_format = _required_string(attestation_bundle.get("format"), "attestation_bundle.format")
+    if attestation_format == NVIDIA_GPU_CC_ATTESTATION_FORMAT:
+        if not accept_gpu_only:
+            raise AttestationError(
+                "nvidia_gpu_cc_v1 attestation does not measure the workload compose; "
+                "the verifier must explicitly accept GPU-only attestation"
+            )
+        gpus = verify_nvidia_gpu_attestation_bundle(
+            attestation_bundle,
+            expected_report_data=expected_report_data,
+        )
+        return VerifiedAttestation(
+            report_data=expected_report_data.hex(),
+            rtmr3="",
+            compose_event_payload="",
+            gpus=tuple(gpus),
+        )
     if attestation_format == PHALA_DSTACK_ATTESTATION_FORMAT:
         return _verify_phala_dstack_attestation_bundle(
             attestation_bundle,

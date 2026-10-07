@@ -11,6 +11,7 @@ from urllib.parse import parse_qs, urlparse
 from cryptography.hazmat.primitives.asymmetric import ed25519
 from cryptography.hazmat.primitives.serialization import load_pem_private_key
 from .attestation import (
+    NVIDIA_GPU_CC_ATTESTATION_FORMAT,
     build_key_release_report_data,
     verify_attestation_bundle,
 )
@@ -172,10 +173,35 @@ class ProvisioningRequestHandler(BaseHTTPRequestHandler):
                 {"detail": detail},
             )
             return
+        gpu_only_attestation = attestation.get("format") == NVIDIA_GPU_CC_ATTESTATION_FORMAT
+        if gpu_only_attestation:
+            # Check the owner's opt-in before spending an NRAS round trip on the evidence.
+            gpu_allow_rule = self.server.state.get_allow_rule(
+                hub_path=hub_path,
+                publisher=workflow_publisher_domain,
+                workflow_id=workflow_id,
+                node_id=node_id,
+                compose_hash=compose_hash,
+                artifact_provisioner_digest=artifact_provisioner_digest,
+            )
+            if gpu_allow_rule is None or not gpu_allow_rule.allow_gpu_only_attestation:
+                detail = "owner has not allowed GPU-only attestation for this node request"
+                self._log_key_release_event(
+                    "denied",
+                    status=HTTPStatus.FORBIDDEN.value,
+                    detail=detail,
+                    **request_context,
+                )
+                self._write_json(
+                    HTTPStatus.FORBIDDEN,
+                    {"detail": detail},
+                )
+                return
         try:
             _verify_key_release_attestation(
                 attestation,
                 mode=self.server.quote_verifier_mode,
+                accept_gpu_only=gpu_only_attestation,
                 expected_compose_hash=compose_hash,
                 expected_report_data=build_key_release_report_data(
                     workflow_publisher_domain=workflow_publisher_domain,
@@ -445,6 +471,7 @@ def _verify_key_release_attestation(
     mode: str,
     expected_compose_hash: str,
     expected_report_data: bytes,
+    accept_gpu_only: bool = False,
 ) -> None:
     if mode != "phala_dstack":
         raise QuoteVerificationError(f"unsupported quote verifier mode: {mode}")
@@ -453,6 +480,7 @@ def _verify_key_release_attestation(
             attestation,
             expected_report_data=expected_report_data,
             expected_compose_hash=expected_compose_hash,
+            accept_gpu_only=accept_gpu_only,
         )
     except RuntimeErrorBase as exc:
         raise QuoteVerificationError(str(exc)) from exc

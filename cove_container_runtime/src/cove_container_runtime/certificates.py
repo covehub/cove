@@ -132,6 +132,7 @@ def verify_node_certificate(
     expected_generated_node_compose_hash: str | None = None,
     expected_dependency_compose_hashes: Mapping[str, str] | None = None,
     expected_dependency_edges: Mapping[str, Sequence[str]] | None = None,
+    accept_gpu_only_attestation: bool = False,
     _seen: frozenset[str] | None = None,
 ) -> dict[str, Any]:
     certificate_body = _required_mapping(certificate.get("certificate_body"), "certificate_body")
@@ -228,6 +229,7 @@ def verify_node_certificate(
             attestation_bundle,
             expected_report_data=report_data,
             expected_compose_hash=compose_hash,
+            accept_gpu_only=accept_gpu_only_attestation,
         )
     except RuntimeErrorBase as exc:
         raise CertificateVerificationError(str(exc)) from exc
@@ -275,6 +277,7 @@ def verify_node_certificate(
             expected_generated_node_compose_hash=expected_dependency_compose_hash,
             expected_dependency_compose_hashes=expected_dependency_compose_hashes,
             expected_dependency_edges=expected_dependency_edges,
+            accept_gpu_only_attestation=accept_gpu_only_attestation,
             _seen=seen,
         )
 
